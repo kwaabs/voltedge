@@ -690,7 +690,7 @@ export function WorksPage() {
   const canWrite = can("wam:write")
 
   const [mineOnly, setMineOnly] = useState(false)
-  const orders = useWorkOrders({ mine: mineOnly })
+  const orders = useWorkOrders({ mine: mineOnly, refetchMs: 20_000 })
   const defects = useDefects()
   const assignees = useAssignableUsers().data?.users ?? []
 

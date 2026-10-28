@@ -55,7 +55,11 @@ export function useActivity(filter: ActivityFilter) {
 // due-items (easements expiring, vegetation trims due) are slower-moving network
 // attention, fetched via the existing spatial hooks from the bell.
 
-const POLL_MS = 60_000
+// 20s so a freshly-assigned (or re-assigned) job surfaces on the bell within a
+// few beats rather than up to a minute. react-query pauses the interval while the
+// tab is hidden, so a backgrounded tab isn't polling. True push (SSE) would
+// replace this timer with a NOTIFY-driven invalidation, not a rewrite.
+const POLL_MS = 20_000
 
 /** The signed-in user's OPEN work orders assigned to them, polled for the bell.
  * Reuses the WAM board endpoint with mine=true&open=true. */

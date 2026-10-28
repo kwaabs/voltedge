@@ -137,6 +137,10 @@ export function useWorkOrders(
     /** Scope to the work tasked to one subcontractor. */
     subcontractorId?: string
     openOnly?: boolean
+    /** Opt-in auto-refresh (ms) so a board left open picks up a newly-assigned
+     * order without a manual reload. Left unset on the drill-down call sites,
+     * which don't need to poll. */
+    refetchMs?: number
   } = {},
   enabled = true,
 ) {
@@ -170,6 +174,7 @@ export function useWorkOrders(
     ],
     queryFn: () => apiFetch<WorkOrdersResponse>(`/wam/work-orders${query}`),
     staleTime: 15_000,
+    refetchInterval: opts.refetchMs,
     enabled,
   })
 }

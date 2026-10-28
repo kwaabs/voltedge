@@ -20,7 +20,21 @@ import { cn } from "@/lib/utils"
 // plumbing. Field crews are notified separately (a "new since last sync" badge in
 // the offline field tool).
 
-const SEEN_KEY = "voltedge-activity-seen"
+// The ids the user has already seen in their open-assigned set. A SET (not a
+// "last opened" timestamp) so a RE-assigned order — created long ago, assigned to
+// you just now — still reads as new: new = any id now in your set that wasn't in
+// it last time you looked. Timestamps missed that (created_at never moved).
+const SEEN_KEY = "voltedge-activity-seen-ids"
+
+function loadSeenIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY)
+    const arr = raw ? (JSON.parse(raw) as unknown) : []
+    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : [])
+  } catch {
+    return new Set()
+  }
+}
 const DUE_WITHIN_DAYS = 30
 const MAX_ROWS = 6
 
@@ -111,12 +125,10 @@ export function ActivityBell() {
   const dataQuality = current.filter((w) => w.source === "validation")
   const otherWork = current.filter((w) => w.source !== "validation")
 
-  // "New" = work orders created (assigned) since the user last opened the bell.
-  const [seen, setSeen] = useState<number>(() => {
-    const v = Number(localStorage.getItem(SEEN_KEY))
-    return Number.isFinite(v) && v > 0 ? v : 0
-  })
-  const newCount = workOrders.filter((w) => new Date(w.created_at).getTime() > seen).length
+  // "New" = orders now in your open-assigned set whose id you hadn't seen last
+  // time you opened the bell (covers both brand-new and re-assigned orders).
+  const [seenIds, setSeenIds] = useState<Set<string>>(loadSeenIds)
+  const newCount = workOrders.filter((w) => !seenIds.has(w.id)).length
 
   // Nothing to notify about for this user's permissions -- no bell at all.
   if (!canReadWam && !canReadFeatures) return null
@@ -132,10 +144,11 @@ export function ActivityBell() {
       onOpenChange={(next) => {
         setOpen(next)
         if (next) {
-          // Opening is "I've seen these" -- clear the new badge.
-          const n = Date.now()
-          localStorage.setItem(SEEN_KEY, String(n))
-          setSeen(n)
+          // Opening is "I've seen these" -- remember the current ids so the new
+          // badge clears and only a later arrival counts as new.
+          const ids = workOrders.map((w) => w.id)
+          localStorage.setItem(SEEN_KEY, JSON.stringify(ids))
+          setSeenIds(new Set(ids))
         }
       }}
     >
