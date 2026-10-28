@@ -342,9 +342,14 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
         <tr><th>Target</th><th>Drives</th></tr>
         <tr><td><code>feature</code></td><td>Create / Update / Delete feature (the hand-edit path)</td></tr>
         <tr><td><code>reading</code></td><td>A reading modelled as a feature row</td></tr>
-        <tr><td><code>work</code></td><td>The WAM engine</td></tr>
+        <tr><td><code>work</code></td><td>The WAM engine — VoltEdge-<b>owned</b> work orders</td></tr>
         <tr><td><code>fault</code></td><td>The Faults engine</td></tr>
+        <tr><td><code>operation</code></td><td>The device-operations log</td></tr>
+        <tr><td><code>outage</code></td><td>The OMS — <b>raises VoltEdge's own incident</b> from a SCADA/AMI signal</td></tr>
+        <tr><td><code>incident</code></td><td>The OMS — read-only <b>mirror</b> of an external incident</td></tr>
+        <tr><td><code>workorder</code></td><td>The WAM — read-only <b>mirror</b> of an external work order</td></tr>
       </table></div>
+      <div class="tip" style="margin-top:10px"><b>mirror targets</b> <code>incident</code>/<code>workorder</code> reflect a <em>full external record</em> into a display-only shadow VoltEdge never edits or re-emits. By construction a mirrored record is read-only, is kept out of SAIDI/SAIFI and off crews/field-packs, and never echoes back out. Set the owning system's <b>code</b> (its <code>origin_system</code> + id namespace) and a <b>status map</b> (<code>external state → VoltEdge status</code>); an unmapped state is accepted only if it's already a VoltEdge status, else it fails loudly. Contrast with <code>outage</code>/<code>work</code>, where VoltEdge <em>owns</em> the record.</div>
     </div>
     <div>
       <h4 style="margin-bottom:4px">The change shape</h4>
@@ -466,6 +471,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <footer>
     <p><b>VoltEdge · Integrations &amp; External Systems</b> — the interactive companion to the Markdown guide. Everything here runs on the real rules: AES-256-GCM sealed credentials, the <code>{id}</code>/<code>{field}</code> template fill with its relative-path guard, the strict mapping spec, HMAC-SHA256 over <code>timestamp + "." + body</code> with a 5-minute replay window, and adopt-not-duplicate correlation against the reverse index.</p>
     <p class="muted">The HMAC is computed in your browser with the Web Crypto API; the mapping transform runs the same const/path/fields + map/default rules the server does. No network, no data leaves the page.</p>
+    <p class="muted">Last updated: 2026-10-28</p>
   </footer>
 </section>
 

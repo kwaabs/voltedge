@@ -92,7 +92,11 @@ func SetIncidentAttribution(ctx context.Context, db *bun.DB, id string, p SetAtt
 
 	var out *Incident
 	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := GetIncident(ctx, tx, id); err != nil {
+		inc, err := GetIncident(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := assertLocalIncident(inc); err != nil {
 			return err
 		}
 

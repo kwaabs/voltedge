@@ -144,8 +144,20 @@ type Incident struct {
 	LastActorName *string `bun:"last_actor_name,scanonly" json:"last_actor_name"`
 
 	Notes     *string   `bun:"notes" json:"notes"`
-	CreatedAt time.Time `bun:"created_at" json:"created_at"`
-	UpdatedAt time.Time `bun:"updated_at" json:"updated_at"`
+	// OriginSystem / ExternalID (migration 0181): a READ-ONLY MIRROR tag. Null origin
+	// = a locally-owned incident (editable, pushed out on change). A system_code =
+	// mirrored from that external OMS — read-only in VoltEdge, and never re-emitted
+	// outbound. ExternalID is the external system's own incident id (the upsert key).
+	OriginSystem *string   `bun:"origin_system" json:"origin_system"`
+	ExternalID   *string   `bun:"external_id" json:"external_id"`
+	CreatedAt    time.Time `bun:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `bun:"updated_at" json:"updated_at"`
+}
+
+// IsMirrored reports whether this incident is a read-only mirror of an external
+// OMS's record (migration 0181) — its lifecycle is owned there, not here.
+func (i *Incident) IsMirrored() bool {
+	return i.OriginSystem != nil && *i.OriginSystem != ""
 }
 
 // CustomerInterruption mirrors oms.customer_interruptions -- the per-SP fact the

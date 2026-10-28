@@ -627,6 +627,9 @@ func GenerateRestorationOrder(ctx context.Context, db *bun.DB, incidentID, tieCl
 	if err != nil {
 		return nil, err
 	}
+	if err := assertLocalIncident(inc); err != nil {
+		return nil, err
+	}
 	if inc.PredictedDeviceClass == nil || inc.PredictedDeviceID == nil {
 		return nil, invalidf("incident %q has no device to restore around; attribute it first", incidentID)
 	}

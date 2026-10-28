@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
@@ -34,6 +35,10 @@ type ValidationRule struct {
 	Message          *string `bun:"message" json:"message"`
 	SortOrder        int     `bun:"sort_order" json:"sort_order"`
 	Active           bool    `bun:"active" json:"active"`
+	// Scan-only (DB-defaulted, never written by us): so Returning("*") on the
+	// create/update can round-trip them without bun failing to map the columns.
+	CreatedAt time.Time `bun:"created_at,scanonly" json:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at,scanonly" json:"updated_at"`
 }
 
 // ListValidationRules returns a class's rules in display order. includeInactive
@@ -95,6 +100,28 @@ func CreateValidationRule(ctx context.Context, db bun.IDB, p ValidationRuleParam
 	if err := validateRuleSeverity(sev); err != nil {
 		return nil, err
 	}
+	// Pre-check the (class, field, subtype) uniqueness for a friendly message rather
+	// than surfacing the raw constraint violation (the unique index is still the real
+	// guard against a race). Mirrors the admin catalog creates.
+	existsQ := db.NewSelect().Model((*ValidationRule)(nil)).
+		Where("feature_class_code = ?", class).
+		Where("field_name = ?", field)
+	if p.SubtypeCode == nil {
+		existsQ = existsQ.Where("subtype_code IS NULL")
+	} else {
+		existsQ = existsQ.Where("subtype_code = ?", *p.SubtypeCode)
+	}
+	exists, err := existsQ.Exists(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connectivity: checking for an existing validation rule: %w", err)
+	}
+	if exists {
+		scope := "every subtype"
+		if p.SubtypeCode != nil {
+			scope = fmt.Sprintf("subtype %d", *p.SubtypeCode)
+		}
+		return nil, invalid("a validation rule for %s.%s (%s) already exists -- edit it instead", class, field, scope)
+	}
 	rule := &ValidationRule{
 		FeatureClassCode: class,
 		FieldName:        field,
@@ -104,7 +131,9 @@ func CreateValidationRule(ctx context.Context, db bun.IDB, p ValidationRuleParam
 		SortOrder:        p.SortOrder,
 		Active:           p.Active == nil || *p.Active,
 	}
-	if _, err := db.NewInsert().Model(rule).Returning("*").Exec(ctx); err != nil {
+	// Exclude the id so the DB default (gen_random_uuid) fires -- a plain string pk
+	// would otherwise be sent as '' and the uuid column rejects it (SQLSTATE 22P02).
+	if _, err := db.NewInsert().Model(rule).ExcludeColumn("id").Returning("*").Exec(ctx); err != nil {
 		return nil, fmt.Errorf("connectivity: creating validation rule: %w", err)
 	}
 	return rule, nil

@@ -13,7 +13,15 @@ import { ApiError, apiFetch } from "@/lib/api"
  * 'outbound' is a subscription VoltEdge POSTs its own events to (migration 0134);
  * 'push'/'pull' are the inbound directions. */
 export type WebhookDirection = "push" | "pull" | "outbound"
-export type WebhookTarget = "feature" | "reading" | "work" | "fault" | "operation" | "outage"
+export type WebhookTarget =
+  | "feature"
+  | "reading"
+  | "work"
+  | "fault"
+  | "operation"
+  | "outage"
+  | "incident"
+  | "workorder"
 export type WebhookAuthMode = "hmac" | "bearer" | "both"
 /** Outbound auth shape for a pull endpoint (mirrors the Go outbound.Auth). */
 export type WebhookPullAuthType = "none" | "api_key" | "basic" | "bearer"
@@ -51,6 +59,11 @@ export interface WebhookEndpoint {
     class_filter?: string[]
     territory_id?: string
     mapping?: unknown
+    /** Mirror targets (incident/workorder): the external system's code — the
+     * origin tag + external-id namespace — and a {external_state: voltedge_status}
+     * translation table. */
+    system_code?: string
+    status_map?: Record<string, string>
   } & WebhookPullConfig &
     Record<string, unknown>
   mapping?: unknown

@@ -148,14 +148,26 @@ type WorkOrder struct {
 	StartedAt        *time.Time `bun:"started_at" json:"started_at"`
 	CompletedAt      *time.Time `bun:"completed_at" json:"completed_at"`
 	CompletionNotes  *string    `bun:"completion_notes" json:"completion_notes"`
-	CreatedAt        time.Time  `bun:"created_at" json:"created_at"`
-	UpdatedAt        time.Time  `bun:"updated_at" json:"updated_at"`
+	// OriginSystem / ExternalID (migration 0182): a READ-ONLY MIRROR tag. Null origin
+	// = a locally-owned order (editable, assignable, pushed out). A system_code =
+	// mirrored from that external WAM — read-only here, no crew/fan-out, never
+	// re-emitted. ExternalID is the external system's own order id (the upsert key).
+	OriginSystem *string    `bun:"origin_system" json:"origin_system"`
+	ExternalID   *string    `bun:"external_id" json:"external_id"`
+	CreatedAt    time.Time  `bun:"created_at" json:"created_at"`
+	UpdatedAt    time.Time  `bun:"updated_at" json:"updated_at"`
 
 	// CrewName is the assigned crew's name, joined on read (scan-only) so the board
 	// can show "Team B" instead of a uuid. Never written back through bun.
 	CrewName *string `bun:"crew_name,scanonly" json:"crew_name"`
 	// SubcontractorName is the tasked external firm's name, joined on read.
 	SubcontractorName *string `bun:"subcontractor_name,scanonly" json:"subcontractor_name"`
+}
+
+// IsMirrored reports whether this work order is a read-only mirror of an external
+// WAM's record (migration 0182) — its lifecycle is owned there, not here.
+func (o *WorkOrder) IsMirrored() bool {
+	return o.OriginSystem != nil && *o.OriginSystem != ""
 }
 
 // InspectionTemplate mirrors wam.inspection_templates -- a reusable checklist

@@ -844,6 +844,9 @@ func ConfirmIncident(ctx context.Context, db *bun.DB, id string) (*Incident, err
 		if err != nil {
 			return err
 		}
+		if err := assertLocalIncident(inc); err != nil {
+			return err
+		}
 		if inc.Status != StatusPredicted && inc.Status != StatusScheduled {
 			return invalidf("incident %q is %s; only a predicted or scheduled incident can be confirmed", id, inc.Status)
 		}
@@ -902,6 +905,9 @@ func DispatchIncident(ctx context.Context, db *bun.DB, id string) (*Incident, er
 	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		inc, err := GetIncident(ctx, tx, id)
 		if err != nil {
+			return err
+		}
+		if err := assertLocalIncident(inc); err != nil {
 			return err
 		}
 		if inc.Status != StatusConfirmed {
@@ -1027,6 +1033,9 @@ func AttributeIncidentDevice(ctx context.Context, db *bun.DB, incidentID, device
 	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		inc, err := GetIncident(ctx, tx, incidentID)
 		if err != nil {
+			return err
+		}
+		if err := assertLocalIncident(inc); err != nil {
 			return err
 		}
 		if inc.Status == StatusRestored || inc.Status == StatusCancelled {
@@ -1223,6 +1232,9 @@ func RestoreIncident(ctx context.Context, db *bun.DB, id string) (*Incident, err
 		if err != nil {
 			return err
 		}
+		if err := assertLocalIncident(inc); err != nil {
+			return err
+		}
 		if inc.Status == StatusRestored {
 			return invalidf("incident %q is already restored", id)
 		}
@@ -1279,6 +1291,9 @@ func CancelIncident(ctx context.Context, db *bun.DB, id string) (*Incident, erro
 	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		inc, err := GetIncident(ctx, tx, id)
 		if err != nil {
+			return err
+		}
+		if err := assertLocalIncident(inc); err != nil {
 			return err
 		}
 		if inc.Status == StatusRestored {

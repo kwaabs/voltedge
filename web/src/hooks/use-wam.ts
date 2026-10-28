@@ -67,6 +67,10 @@ export interface WorkOrder {
    * joined for display. Recorded responsibility only — no field-pack fan-out. */
   subcontractor_id: string | null
   subcontractor_name: string | null
+  /** Read-only mirror tag (migration 0182): null = locally owned (editable); a
+   * system_code = mirrored from that external WAM — read-only here. */
+  origin_system: string | null
+  external_id: string | null
   scheduled_for: string | null
   due_by: string | null
   started_at: string | null

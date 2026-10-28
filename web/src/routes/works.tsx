@@ -464,6 +464,8 @@ function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWri
   const pending = update.isPending
   const isTerminal = order.status === "completed" || order.status === "cancelled"
   const canStart = order.status !== "in_progress" && !isTerminal
+  // A mirrored order (0182) is read-only — owned by the external WAM it came from.
+  const mirrored = order.origin_system != null
 
   function set(status: WorkOrder["status"]) {
     update.mutate(
@@ -480,6 +482,14 @@ function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWri
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <Badge text={order.status} cls={WORK_STATUS_BADGE[order.status]} />
           <span className="text-muted-foreground text-xs capitalize">{humanize(order.work_type)}</span>
+          {mirrored && (
+            <span
+              className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
+              title={`Mirrored from ${order.origin_system} — read-only`}
+            >
+              Mirrored
+            </span>
+          )}
           {order.source && (
             <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px] capitalize" title="Where this order came from">
               {order.source}
@@ -495,7 +505,7 @@ function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWri
         </div>
       </div>
 
-      {canWrite && !isTerminal && (
+      {canWrite && !mirrored && !isTerminal && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="text-muted-foreground size-8 shrink-0 p-0" aria-label="Work-order actions">

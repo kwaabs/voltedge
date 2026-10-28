@@ -1167,6 +1167,10 @@ function IncidentRow({
   // Once confirmed, a crew can be dispatched (confirmed -> dispatched); a
   // dispatched or restored incident has already moved past this step.
   const canDispatch = inc.status === "confirmed"
+  // A mirrored incident (0181) is read-only — its lifecycle is owned by the external
+  // OMS it came from, so the row's write actions are suppressed.
+  const mirrored = inc.origin_system != null
+  const canEdit = canWrite && !mirrored
 
   return (
     <div
@@ -1178,6 +1182,14 @@ function IncidentRow({
         <ChevronRight className="text-muted-foreground size-4 shrink-0" />
         <StatusBadge status={inc.status} />
         <SourceBadge source={inc.detection_source} />
+        {mirrored && (
+          <span
+            className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-medium text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
+            title={`Mirrored from ${inc.origin_system} — read-only`}
+          >
+            Mirrored
+          </span>
+        )}
         <span className="text-sm font-medium">{deviceLabel(inc)}</span>
         {inc.territory_name && (
           <span
@@ -1230,7 +1242,7 @@ function IncidentRow({
               <MapPinned className="size-4" />
             </Button>
           )}
-          {canRaiseFault && inc.status !== "cancelled" && (
+          {canRaiseFault && !mirrored && inc.status !== "cancelled" && (
             <Button
               variant="ghost"
               size="sm"
@@ -1242,7 +1254,7 @@ function IncidentRow({
               <Zap className="size-4" />
             </Button>
           )}
-          {canWrite && !isTerminal && (
+          {canEdit && !isTerminal && (
             <>
               {canConfirm && (
                 <Button variant="outline" size="sm" disabled={pending} onClick={() => run("confirm")}>
@@ -2693,6 +2705,10 @@ export function OutageDetailPage() {
   const canConfirm = inc.status === "predicted" || inc.status === "scheduled"
   const canDispatch = inc.status === "confirmed"
   const pending = action.isPending
+  // A mirrored incident (migration 0181) is read-only here — its lifecycle is owned
+  // by the external OMS it came from, so every write control is suppressed.
+  const mirrored = inc.origin_system != null
+  const canEdit = canWrite && !mirrored
 
   function run(kind: IncidentAction) {
     if (!inc) return
@@ -2832,10 +2848,10 @@ export function OutageDetailPage() {
       )}
     </Card>
   )
-  const causeCard = <IncidentCauseCard inc={inc} canWrite={canWrite} />
-  const crewsCard = <IncidentCrewsCard inc={inc} canWrite={canWrite} />
-  const callbacksCard = <CustomerCallbacksCard incidentId={inc.id} canWrite={canWrite} />
-  const switchingCard = <SwitchingDrawer incident={inc} canWrite={canWrite} />
+  const causeCard = <IncidentCauseCard inc={inc} canWrite={canEdit} />
+  const crewsCard = <IncidentCrewsCard inc={inc} canWrite={canEdit} />
+  const callbacksCard = <CustomerCallbacksCard incidentId={inc.id} canWrite={canEdit} />
+  const switchingCard = <SwitchingDrawer incident={inc} canWrite={canEdit} />
   const timelineCard = <IncidentTimelineCard incidentId={inc.id} />
 
   return (
@@ -2857,6 +2873,14 @@ export function OutageDetailPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={inc.status} />
                 <SourceBadge source={inc.detection_source} />
+                {mirrored && (
+                  <span
+                    className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-medium text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
+                    title="This incident is mirrored from an external OMS and is read-only here"
+                  >
+                    Mirrored · {inc.origin_system}
+                  </span>
+                )}
                 {isActive && hasDevice && <LiveDeEnergized incidentId={inc.id} />}
               </div>
               <h1 className="mt-1.5 truncate text-xl font-semibold tracking-tight">{deviceLabel(inc)}</h1>
@@ -2874,7 +2898,7 @@ export function OutageDetailPage() {
                   Show on map
                 </Button>
               )}
-              {canWrite && !isTerminal && (
+              {canEdit && !isTerminal && (
                 <Button
                   variant={hasDevice ? "outline" : "default"}
                   size="sm"
@@ -2885,13 +2909,13 @@ export function OutageDetailPage() {
                   {hasDevice ? "Change device" : "Attribute device"}
                 </Button>
               )}
-              {canRaiseFault && inc.status !== "cancelled" && (
+              {canRaiseFault && !mirrored && inc.status !== "cancelled" && (
                 <Button variant="outline" size="sm" disabled={raiseFault.isPending} onClick={raiseFaultForIncident}>
                   <Zap className="size-4" />
                   Raise fault
                 </Button>
               )}
-              {canWrite && !isTerminal && (
+              {canEdit && !isTerminal && (
                 <>
                   {canConfirm && (
                     <Button size="sm" disabled={pending} onClick={() => run("confirm")}>

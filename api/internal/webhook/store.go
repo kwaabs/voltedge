@@ -27,7 +27,7 @@ type store struct {
 
 var (
 	validDirections = map[string]bool{"push": true, "pull": true, "outbound": true}
-	validTargets    = map[string]bool{"feature": true, "reading": true, "work": true, "fault": true, "operation": true, "outage": true}
+	validTargets    = map[string]bool{"feature": true, "reading": true, "work": true, "fault": true, "operation": true, "outage": true, "incident": true, "workorder": true}
 	validAuthModes  = map[string]bool{"hmac": true, "bearer": true, "both": true}
 )
 
@@ -217,7 +217,7 @@ func updateEndpoint(ctx context.Context, s *store, id string, req updateEndpoint
 	if req.Target != nil {
 		t := strings.TrimSpace(*req.Target)
 		if !validTargets[t] {
-			return nil, invalid("target must be one of feature, reading, work, fault")
+			return nil, invalid("target must be one of feature, reading, work, fault, operation, outage, incident, workorder")
 		}
 		ep.Target = t
 	}

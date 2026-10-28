@@ -299,6 +299,9 @@ func DispatchCrewToIncident(ctx context.Context, db *bun.DB, crewID, incidentID 
 		if err != nil {
 			return err
 		}
+		if err := assertLocalIncident(inc); err != nil {
+			return err
+		}
 		if inc.Status == StatusRestored || inc.Status == StatusCancelled {
 			return invalidf("incident %q is %s; cannot dispatch a crew to a closed incident", incidentID, inc.Status)
 		}
@@ -471,6 +474,9 @@ func SetIncidentETR(ctx context.Context, db *bun.DB, incidentID string, etr *tim
 		if err != nil {
 			return err
 		}
+		if err := assertLocalIncident(inc); err != nil {
+			return err
+		}
 		if inc.Status == StatusRestored || inc.Status == StatusCancelled {
 			return invalidf("incident %q is %s; ETR no longer applies", incidentID, inc.Status)
 		}
@@ -540,6 +546,9 @@ func TaskSubcontractorToIncident(ctx context.Context, db *bun.DB, incidentID, su
 	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		inc, err := GetIncident(ctx, tx, incidentID)
 		if err != nil {
+			return err
+		}
+		if err := assertLocalIncident(inc); err != nil {
 			return err
 		}
 		if inc.Status == StatusRestored || inc.Status == StatusCancelled {

@@ -1,5 +1,7 @@
 # VoltEdge Integrations & External Systems Guide
 
+_Last updated: 2026-10-28_
+
 A how-to manual for connecting VoltEdge to the **other systems that run your utility** — SCADA, AMI/metering, a CIS/billing platform, a work-order system, a document store — so a feature on the map knows what it is called everywhere else, can pull live data on demand, and stays in step when another system pushes a change.
 
 This guide has two audiences that meet in the middle. **Administrators** stand up the plumbing — they register the external systems and configure the inbound webhooks, which is system configuration and needs `metadata:write`. **Operators** (editors and analysts) use that plumbing from the map — they link a feature outward and tag it with its id in another system, which is ordinary feature editing and needs `features:write` (reading rides `features:read`). Both jobs are covered here; the administrative sections are marked so you can skip them if the integration wiring is someone else's responsibility.
@@ -123,7 +125,7 @@ The blocks so far are VoltEdge reaching out. A **webhook endpoint** is the rever
 | --- | --- |
 | **Name** | A label for the sender (e.g. *CIS account sync*). |
 | **Direction** | `push` (another system calls us — this chapter), `pull` (we fetch from it — Chapter 6), or `outbound` (we emit to it — Chapter 7). |
-| **Target** | What the delivery drives: `feature`, `reading`, `work`, or `fault` (hidden for outbound). See the table below. |
+| **Target** | What the delivery drives: `feature`, `reading`, `work`, `fault`, `operation`, `outage`, or a read-only **mirror** (`incident`, `workorder`) — hidden for outbound. See the table below, and Chapter 7½ for the mirror targets. |
 | **Default feature class** | For `feature`/`reading`: the class used when a change doesn't name one (e.g. `SERVICE_POINT`). |
 | **Service user** | *Required.* Ingested writes run **as this user**, so they inherit that user's RBAC and territory write-scope, and history attributes the change to them. |
 | **Auth mode** | `hmac`, `bearer`, or `both` — how a delivery proves it's genuine (§5.3). |
@@ -138,8 +140,14 @@ Each endpoint has its own **receive URL**: `POST /webhooks/{id}` (the admin page
 | --- | --- | --- |
 | `feature` | `CreateFeature` / `UpdateFeature` / `DeleteFeature` | The exact hand-edit path — subtype rules, required-attribute checks, territory write-scope and history all apply. |
 | `reading` | the same path | A reading is modelled as a feature row; a thin alias of `feature`, declared separately so intent is explicit. |
-| `work` | the WAM engine | Correlated via the work/fault entity-ref table. |
+| `work` | the WAM engine | Creates/updates VoltEdge-**owned** work orders from the feed. Correlated via the work/fault entity-ref table. |
 | `fault` | the Faults engine | Same correlation table. |
+| `operation` | the device-operations log | Records a switching/operation event against a device. |
+| `outage` | the OMS | **Raises VoltEdge's own incident** from a device signal (SCADA trip / AMI last-gasp) — VoltEdge then runs its own OMS. |
+| `incident` | the OMS (read-only **mirror**) | Reflects a **full external incident** into a display-only shadow VoltEdge never edits or re-emits. The external OMS owns its lifecycle. *(Chapter 7½.)* |
+| `workorder` | the WAM (read-only **mirror**) | The WAM sibling of `incident`: reflects a full external work order into a read-only shadow. The external WAM owns its lifecycle. *(Chapter 7½.)* |
+
+💡 `outage` vs `incident` is the key distinction: `outage` ingests a **signal** and VoltEdge becomes the system of record for the incident it raises; `incident` ingests a **finished record** and the external system stays the system of record — VoltEdge only shows it. Likewise `work` (VoltEdge owns the order) vs `workorder` (the external WAM owns it).
 
 ### 5.2 What a delivery looks like
 
@@ -234,6 +242,67 @@ A **pull** endpoint inverts a push: instead of waiting to be called, VoltEdge **
 The fourth direction is VoltEdge **emitting** to another system when something changes. Set **Direction: outbound** and configure a **target URL**, the **event types** and **feature-class / territory filters** that select what to send, a **signing secret**, and an **envelope mapping** to shape the payload the receiver expects. VoltEdge signs each outbound delivery with `X-VoltEdge-Signature` (and tags it with `X-VoltEdge-Delivery`), mirroring the inbound HMAC scheme so the receiver can verify it the same way. The endpoint view adds a **Ping** button (send a synthetic event), an **outbound delivery log**, and per-delivery **replay** — the same operability as the inbound side.
 
 💡 Outbound is the counterpart to inbound: inbound keeps VoltEdge in step with the world; outbound keeps the world in step with VoltEdge. A full round-trip integration usually runs both — an inbound endpoint from CIS and an outbound one back to it — joined by the `external_ref` on each feature.
+
+---
+
+## Chapter 7½ — Mirroring an external OMS or WAM (read-only)
+
+🔒 *Administrative — `metadata:write`. Target `incident` or `workorder`.*
+
+Chapters 5–7 assume VoltEdge is a **participant**: it ingests signals, runs its own OMS/WAM, and may own the record. Sometimes the opposite is true — **another system is the authoritative record** and VoltEdge's job is only to *show* it on the network, beside its own incidents and work orders. That's a **read-only mirror**.
+
+A mirror endpoint reflects a **full external record** (its own id, status, and fields) into a display-only shadow that VoltEdge renders but **never edits and never pushes back out**. Two targets:
+
+| Target | Mirrors | Migration |
+| --- | --- | --- |
+| `incident` | an external **OMS** incident → `oms.incidents` | 0181 |
+| `workorder` | an external **WAM** work order → `wam.work_orders` | 0182 |
+
+### 7½.1 What a mirror guarantees
+
+Three properties hold **by construction** — they are not toggles you can get wrong:
+
+- **Read-only.** Every local lifecycle action refuses a mirrored record. A mirrored incident can't be confirmed, dispatched, attributed, restored, cancelled, given an ETR, or have a crew/subcontractor/switching order raised on it; a mirrored work order can't be started, completed, cancelled, or edited. The map and board show it, greyed to view-only, with a **"read-only mirror · `<system>`"** badge.
+- **No echo.** A mirrored record is never re-emitted by the outbound engine (Chapter 7), so it can't loop back to the system that owns it.
+- **Reliability- and crew-safe.** A mirrored incident **does not enter VoltEdge's SAIDI/SAIFI** (its own OMS computes reliability; VoltEdge freezes interruptions only from *its* topology). A mirrored work order **touches no crews or field packs** — you can't dispatch work you don't own. VoltEdge shows the *external* system's numbers.
+
+### 7½.2 Configuring a mirror endpoint
+
+On **Admin → Webhooks → New**, pick **Direction: push** (or `pull`) and **Target: Incident** or **Work order**. Two mirror-specific settings appear:
+
+| Field | Meaning |
+| --- | --- |
+| **External system code** *(required)* | The owning system's code (e.g. `acme-oms`). Stamped on every mirrored record as its `origin_system`, used to namespace its `external_id`, and used to resolve the referenced device/asset through `external_ref` (Chapter 4). |
+| **Status map** | Rows of `external state → VoltEdge status`. Translate the vendor's lifecycle into VoltEdge's. An external state you don't map is accepted **only if it is already a VoltEdge status**; anything else fails that item loudly (so a surprise state is caught, never silently dropped). |
+
+VoltEdge statuses to map onto:
+
+- **Incident:** `predicted`, `scheduled`, `confirmed`, `dispatched`, `restored`, `cancelled`.
+- **Work order:** `draft`, `scheduled`, `assigned`, `in_progress`, `completed`, `cancelled`.
+
+### 7½.3 What a mirror delivery looks like
+
+A mirror change carries the external record's **identity, status, and fields** — not a feature edit. An incident example:
+
+```json
+{
+  "op": "upsert",
+  "external_id": "INC-4471",
+  "status": "DISPATCHED",
+  "outage_type": "unplanned",
+  "device_external_id": "FDR7-RECLOSER-2",
+  "customers_affected": 318
+}
+```
+
+- **`external_id`** *(required)* — the external system's own id for the record. A repeat delivery with the same id is an **update** of the same shadow (keyed on `origin_system + external_id`), never a duplicate.
+- **`op`** — `upsert` only. A close is an upsert carrying `status` = `restored`/`cancelled` (incident) or `completed`/`cancelled` (work order); there is no hard delete.
+- **`status`** — run through the endpoint's **status map** (here `DISPATCHED` → `dispatched`).
+- **`device_external_id` / `asset_external_id`** — resolved to a VoltEdge feature via `external_ref` so the mirrored record draws on the map; optional (a record can be location-less).
+
+As with any endpoint, a sender that doesn't speak this shape can be bridged with a **field mapping** (§5.6), applied before the adapter.
+
+💡 **Participant or mirror?** Mirror when the other system is the source of truth and VoltEdge is a viewer (don't double-count outages, don't task crews twice). Use the participant targets (`outage`, `work`) when VoltEdge should own and run the incident or order itself.
 
 ---
 

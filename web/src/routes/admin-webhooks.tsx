@@ -42,6 +42,26 @@ import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
 
+/** One row of a mirror endpoint's status_map: an external system's state code and
+ * the VoltEdge status it translates to. Edited as a list, serialised to an object. */
+interface StatusMapRow {
+  ext: string
+  ours: string
+}
+
+/** The VoltEdge statuses a mirrored record can map onto, per target. Mirrors the
+ * backend's validIncidentStatus (oms/mirror.go) and mapWorkOrderStatus
+ * (webhook/adapter_workorder_mirror.go). */
+const INCIDENT_STATUSES = ["predicted", "scheduled", "confirmed", "dispatched", "restored", "cancelled"]
+const WORKORDER_STATUSES = ["draft", "scheduled", "assigned", "in_progress", "completed", "cancelled"]
+
+/** The two read-only mirror targets (migrations 0181/0182): a full external
+ * incident / work order reflected into a display-only shadow, keyed by system_code
+ * + external_id, with a per-endpoint status translation. */
+function usesMirror(target: WebhookTarget): boolean {
+  return target === "incident" || target === "workorder"
+}
+
 interface FormState {
   name: string
   active: boolean
@@ -65,6 +85,10 @@ interface FormState {
   territoryId: string
   outboundMappingText: string
   mappingText: string
+  /** Mirror targets (incident/workorder): the external system's code and its
+   * status translation table (edited as rows). */
+  systemCode: string
+  statusMap: StatusMapRow[]
 }
 
 const EMPTY_FORM: FormState = {
@@ -87,6 +111,8 @@ const EMPTY_FORM: FormState = {
   territoryId: "",
   outboundMappingText: "",
   mappingText: "",
+  systemCode: "",
+  statusMap: [],
 }
 
 function formFrom(ep: WebhookEndpoint): FormState {
@@ -110,6 +136,8 @@ function formFrom(ep: WebhookEndpoint): FormState {
     territoryId: ep.config?.territory_id ?? "",
     outboundMappingText: ep.config?.mapping ? JSON.stringify(ep.config.mapping, null, 2) : "",
     mappingText: ep.mapping ? JSON.stringify(ep.mapping, null, 2) : "",
+    systemCode: ep.config?.system_code ?? "",
+    statusMap: Object.entries(ep.config?.status_map ?? {}).map(([ext, ours]) => ({ ext, ours: String(ours) })),
   }
 }
 
@@ -194,6 +222,20 @@ function toBody(form: FormState, { isEdit }: { isEdit: boolean }): Record<string
     // column, which is the inbound spec). Callers gate on its JSON validity first.
     if (form.outboundMappingText.trim()) config.mapping = JSON.parse(form.outboundMappingText)
   }
+  if (form.direction !== "outbound" && usesMirror(form.target)) {
+    // The external system's code is the origin tag + the external-id namespace;
+    // the status map translates its lifecycle into VoltEdge statuses. Blank rows
+    // (either half empty) are dropped; an unmapped state that is already a valid
+    // VoltEdge status passes through on the server, else it's a per-item error.
+    if (form.systemCode.trim()) config.system_code = form.systemCode.trim()
+    const statusMap: Record<string, string> = {}
+    for (const row of form.statusMap) {
+      const ext = row.ext.trim()
+      const ours = row.ours.trim()
+      if (ext && ours) statusMap[ext] = ours
+    }
+    if (Object.keys(statusMap).length > 0) config.status_map = statusMap
+  }
 
   const body: Record<string, unknown> = {
     name: form.name.trim(),
@@ -260,6 +302,8 @@ function EndpointFormFields({
               <option value="fault">Fault event</option>
               <option value="operation">Device operation</option>
               <option value="outage">Outage signal (SCADA trip / AMI last-gasp)</option>
+              <option value="incident">Incident (read-only mirror of an external OMS)</option>
+              <option value="workorder">Work order (read-only mirror of an external WAM)</option>
             </select>
           </div>
         )}
@@ -285,6 +329,10 @@ function EndpointFormFields({
             multi-class integration.
           </p>
         </div>
+      )}
+
+      {value.direction !== "outbound" && usesMirror(value.target) && (
+        <MirrorFields value={value} onChange={onChange} />
       )}
 
       <div className="flex flex-col gap-1">
@@ -377,6 +425,91 @@ function EndpointFormFields({
         />
         Active (a paused endpoint is skipped — no pushes, pulls, or outbound deliveries)
       </label>
+    </div>
+  )
+}
+
+/** The mirror half of the form (incident / workorder targets): the external
+ * system's code and its status-translation table. A mirrored record is display-
+ * only in VoltEdge — the external system owns its lifecycle — so these two settings
+ * are all the adapter needs: system_code identifies the source (and namespaces its
+ * external ids), and status_map turns the vendor's states into VoltEdge statuses. */
+function MirrorFields({ value, onChange }: { value: FormState; onChange: (v: FormState) => void }) {
+  const ourStatuses = value.target === "incident" ? INCIDENT_STATUSES : WORKORDER_STATUSES
+  const kind = value.target === "incident" ? "incident" : "work order"
+
+  function setRow(i: number, patch: Partial<StatusMapRow>) {
+    onChange({ ...value, statusMap: value.statusMap.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
+  }
+  function addRow() {
+    onChange({ ...value, statusMap: [...value.statusMap, { ext: "", ours: ourStatuses[0] }] })
+  }
+  function removeRow(i: number) {
+    onChange({ ...value, statusMap: value.statusMap.filter((_, j) => j !== i) })
+  }
+
+  return (
+    <div className="border-border/60 flex flex-col gap-3 rounded-md border border-dashed p-3">
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>
+          External system code <span className="text-destructive">*</span>
+        </label>
+        <input
+          className={inputClass}
+          value={value.systemCode}
+          onChange={(e) => onChange({ ...value, systemCode: e.target.value })}
+          placeholder="e.g. acme-oms"
+        />
+        <p className="text-muted-foreground text-xs">
+          Stamped on every mirrored {kind} as its <span className="font-mono">origin_system</span> and used to namespace
+          its <span className="font-mono">external_id</span> (and resolve referenced features via external refs).
+          Mirrored {kind}s are read-only in VoltEdge and are never pushed back out.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>Status map</label>
+        <p className="text-muted-foreground text-xs">
+          Translate each external state into a VoltEdge {kind} status. A state you don't map is accepted only if it is
+          already a VoltEdge status; anything else fails that item loudly.
+        </p>
+        {value.statusMap.length === 0 && (
+          <p className="text-muted-foreground text-xs italic">
+            No mappings — the sender must already use VoltEdge status values.
+          </p>
+        )}
+        {value.statusMap.map((row, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              className={`${inputClass} flex-1`}
+              value={row.ext}
+              onChange={(e) => setRow(i, { ext: e.target.value })}
+              placeholder="external state"
+            />
+            <span className="text-muted-foreground text-xs">→</span>
+            <select className={`${inputClass} flex-1`} value={row.ours} onChange={(e) => setRow(i, { ours: e.target.value })}>
+              {ourStatuses.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-destructive size-7 shrink-0"
+              title="Remove this mapping"
+              onClick={() => removeRow(i)}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        ))}
+        <button type="button" className="text-primary self-start text-xs hover:underline" onClick={addRow}>
+          + Add a status mapping
+        </button>
+      </div>
     </div>
   )
 }
@@ -747,6 +880,7 @@ function EditEndpointRow({ endpoint, onDone }: { endpoint: WebhookEndpoint; onDo
     (form.direction !== "outbound" || form.targetUrl.trim().length > 0) &&
     mappingParseError(form.mappingText) === null &&
     mappingParseError(form.outboundMappingText) === null &&
+    (form.direction === "outbound" || !usesMirror(form.target) || form.systemCode.trim().length > 0) &&
     (!formNeedsSecret(form) || endpoint.has_signing_secret || form.signingSecret.trim().length > 0)
 
   async function handleSave() {
@@ -1275,6 +1409,15 @@ function EndpointCard({
               {endpoint.config.feature_class}
             </span>
           )}
+          {usesMirror(endpoint.target) && (
+            <span className="rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-xs text-indigo-600 dark:text-indigo-400">
+              read-only mirror
+              {endpoint.config?.system_code ? ` · ${endpoint.config.system_code}` : ""}
+              {endpoint.config?.status_map
+                ? ` · ${Object.keys(endpoint.config.status_map).length} status map(s)`
+                : ""}
+            </span>
+          )}
           {endpoint.mapping != null && (
             <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">mapped</span>
           )}
@@ -1330,6 +1473,7 @@ export function AdminWebhooksPage() {
     (form.direction !== "outbound" || form.targetUrl.trim().length > 0) &&
     mappingParseError(form.mappingText) === null &&
     mappingParseError(form.outboundMappingText) === null &&
+    (form.direction === "outbound" || !usesMirror(form.target) || form.systemCode.trim().length > 0) &&
     (!formNeedsSecret(form) || form.signingSecret.trim().length > 0)
 
   async function handleSave() {

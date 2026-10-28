@@ -289,7 +289,7 @@ func SetDefectStatus(ctx context.Context, db bun.IDB, id, status string) (*Defec
 // Work orders
 // ---------------------------------------------------------------------------
 
-const workOrderColumns = "id, reference, work_type, status, priority, title, description, asset_class, asset_id, source, defect_id, incident_id, assigned_to, assigned_to_user_id, crew_id, subcontractor_id, scheduled_for, due_by, started_at, completed_at, completion_notes, created_at, updated_at"
+const workOrderColumns = "id, reference, work_type, status, priority, title, description, asset_class, asset_id, source, defect_id, incident_id, assigned_to, assigned_to_user_id, crew_id, subcontractor_id, origin_system, external_id, scheduled_for, due_by, started_at, completed_at, completion_notes, created_at, updated_at"
 
 func selectWorkOrders(db bun.IDB, dst any) *bun.SelectQuery {
 	return db.NewSelect().Model(dst).
@@ -545,6 +545,12 @@ type UpdateWorkOrderParams struct {
 // moving to in_progress stamps started_at (once), moving to completed stamps
 // completed_at, and moving off completed clears it.
 func UpdateWorkOrder(ctx context.Context, db bun.IDB, id string, p UpdateWorkOrderParams) (*WorkOrder, error) {
+	// A mirrored (read-only) work order is owned by the external WAM it came from --
+	// refuse any local edit (migration 0182). A cheap origin probe avoids loading the
+	// whole row; the mirror ingest itself writes through MirrorWorkOrder, not here.
+	if err := assertLocalWorkOrder(ctx, db, id); err != nil {
+		return nil, err
+	}
 	sets := []string{"updated_at = now()"}
 	args := []any{}
 	set := func(expr string, vs ...any) {

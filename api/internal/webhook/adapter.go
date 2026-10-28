@@ -37,6 +37,14 @@ var adapters = map[string]adapter{
 	"fault":     faultAdapter{},
 	"operation": operationAdapter{},
 	"outage":    outageAdapter{},
+	// incident is the READ-ONLY OMS MIRROR (0181): reflect an authoritative external
+	// OMS's incidents as read-only shadows -- distinct from "outage", which turns a
+	// device/meter SIGNAL into VoltEdge's own incident.
+	"incident": incidentMirrorAdapter{},
+	// workorder is the READ-ONLY WAM MIRROR (0182): reflect an authoritative external
+	// WAM's work orders as read-only shadows -- distinct from "work", which creates
+	// VoltEdge-OWNED work orders from an external feed.
+	"workorder": workOrderMirrorAdapter{},
 }
 
 // featureAdapter ingests feature changes through crud.CreateFeature /
@@ -259,6 +267,24 @@ func configString(raw json.RawMessage, key string) string {
 		return ""
 	}
 	s, _ := m[key].(string)
+	return strings.TrimSpace(s)
+}
+
+// configMapString reads config[key][subKey] as a string -- a value out of a nested
+// object setting (e.g. the incident mirror's status_map). Empty when absent.
+func configMapString(raw json.RawMessage, key, subKey string) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return ""
+	}
+	sub, ok := m[key].(map[string]any)
+	if !ok {
+		return ""
+	}
+	s, _ := sub[subKey].(string)
 	return strings.TrimSpace(s)
 }
 

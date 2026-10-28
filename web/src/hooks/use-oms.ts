@@ -80,6 +80,11 @@ export interface Incident {
    * needed to read it). Null when unattributed or the account was removed. */
   last_actor_name: string | null
   notes: string | null
+  /** Read-only mirror tag (migration 0181): null = a locally-owned incident
+   * (editable); a system_code = mirrored from that external OMS — read-only here,
+   * its lifecycle owned there. `external_id` is that system's own incident id. */
+  origin_system: string | null
+  external_id: string | null
   created_at: string
   updated_at: string
 }
