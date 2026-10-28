@@ -1,13 +1,16 @@
 import { useMemo, useState } from "react"
-import { Activity, Loader2, Plus } from "lucide-react"
+import { Loader2, Plus } from "lucide-react"
 
 import { LogOperationDialog, OP_SOURCES, OP_TYPES } from "@/components/map/log-operation-dialog"
+import { DeviceDetailPanel } from "@/components/layout/device-detail-panel"
+import { OperationsTabs } from "@/components/layout/operations-tabs"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePermission } from "@/hooks/use-auth"
 import { useDeviceInventory, useOperationCounts, useOperations } from "@/hooks/use-operations"
 import { cn } from "@/lib/utils"
+import { useDevicePanelStore } from "@/stores/device-panel-store"
 
 function shortId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id
@@ -41,6 +44,23 @@ function OpBadge({ type }: { type: string }) {
   )
 }
 
+/** The device identity cell, clickable to open the device's detail panel on the
+ * right of the page (a feature summary + its operation history, with its own
+ * "View on map" button). */
+function DeviceCell({ cls, id, onOpen }: { cls: string; id: string; onOpen: (cls: string, id: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(cls, id)}
+      className="hover:text-primary text-left hover:underline"
+      title="View device details"
+    >
+      <div>{humanize(cls)}</div>
+      <div className="text-muted-foreground font-mono text-xs">{shortId(id)}</div>
+    </button>
+  )
+}
+
 type View = "timeline" | "by-device" | "devices"
 
 const VIEW_LABEL: Record<View, string> = {
@@ -64,6 +84,9 @@ export function OperationsPage() {
   const [deviceClass, setDeviceClass] = useState("")
   const [state, setState] = useState("")
   const [logging, setLogging] = useState(false)
+  // The open device panel lives in a shared store so it survives switching to the
+  // Live state tab and back (separate routes would each drop a local useState).
+  const selected = useDevicePanelStore((s) => s.selected)
 
   const ops = useOperations({ op_type: opType, source, device_class: deviceClass, limit: 500 })
   const counts = useOperationCounts(opType || undefined)
@@ -79,18 +102,13 @@ export function OperationsPage() {
   }, [counts.data, deviceClass])
 
   return (
-    <div className="h-full overflow-y-auto p-4">
-      <div className="flex flex-col gap-4">
+    <div className="flex h-full gap-4 p-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
+        <OperationsTabs />
         <div className="flex items-start justify-between">
-          <div>
-            <h1 className="flex items-center gap-2 text-lg font-semibold">
-              <Activity className="text-primary size-5" />
-              Operations
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              The device-operation log — trips, lockouts, recloses and open/close events across the network.
-            </p>
-          </div>
+          <p className="text-muted-foreground text-sm">
+            The device-operation log — trips, lockouts, recloses and open/close events across the network.
+          </p>
           {canWrite && (
             <Button size="sm" onClick={() => setLogging(true)}>
               <Plus className="size-4" />
@@ -194,8 +212,7 @@ export function OperationsPage() {
                       <tr key={op.id} className="border-b last:border-b-0">
                         <td className="py-1.5 pr-3 whitespace-nowrap">{formatWhen(op.occurred_at)}</td>
                         <td className="py-1.5 pr-3">
-                          <div>{humanize(op.device_class)}</div>
-                          <div className="text-muted-foreground font-mono text-xs">{shortId(op.device_id)}</div>
+                          <DeviceCell cls={op.device_class} id={op.device_id} onOpen={(cls, id) => useDevicePanelStore.getState().open(cls, id)} />
                         </td>
                         <td className="py-1.5 pr-3">
                           <OpBadge type={op.op_type} />
@@ -230,8 +247,7 @@ export function OperationsPage() {
                     {countRows.map((c) => (
                       <tr key={`${c.device_class}:${c.device_id}:${c.op_type}`} className="border-b last:border-b-0">
                         <td className="py-1.5 pr-3">
-                          <div>{humanize(c.device_class)}</div>
-                          <div className="text-muted-foreground font-mono text-xs">{shortId(c.device_id)}</div>
+                          <DeviceCell cls={c.device_class} id={c.device_id} onOpen={(cls, id) => useDevicePanelStore.getState().open(cls, id)} />
                         </td>
                         <td className="py-1.5 pr-3">
                           <OpBadge type={c.op_type} />
@@ -265,8 +281,7 @@ export function OperationsPage() {
                   {devices.map((d) => (
                     <tr key={`${d.device_class}:${d.device_id}`} className="border-b last:border-b-0">
                       <td className="py-1.5 pr-3">
-                        <div>{humanize(d.device_class)}</div>
-                        <div className="text-muted-foreground font-mono text-xs">{shortId(d.device_id)}</div>
+                        <DeviceCell cls={d.device_class} id={d.device_id} onOpen={(cls, id) => useDevicePanelStore.getState().open(cls, id)} />
                       </td>
                       <td className="py-1.5 pr-3">
                         {d.device_state ? (
@@ -298,6 +313,14 @@ export function OperationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {selected && (
+        <DeviceDetailPanel
+          featureClass={selected.cls}
+          featureId={selected.id}
+          onClose={() => useDevicePanelStore.getState().close()}
+        />
+      )}
 
       {logging && <LogOperationDialog onClose={() => setLogging(false)} />}
     </div>

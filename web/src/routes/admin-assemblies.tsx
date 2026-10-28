@@ -318,6 +318,128 @@ interface ClassOption {
   geometry_optional: boolean
 }
 
+function shortLabel(s: string): string {
+  return s.length > 13 ? `${s.slice(0, 12)}…` : s
+}
+
+/**
+ * A live schematic of the kit: the anchor (position 0) at the origin and each
+ * component at its (offset_x, offset_y), joined by its "wire to" (solid) and
+ * "support parent" (dashed) references. A pure client-side mental picture drawn
+ * straight off the draft as you edit — not the real placed single-line (that's
+ * still auto-generated on placement). +Y is up, so an offset_y of -2 sits BELOW
+ * the anchor, matching what the field means.
+ */
+function AssemblyPreview({ draft }: { draft: Draft }) {
+  // Index == position: node 0 is the anchor, node k is component k-1.
+  const nodes = [
+    { label: draft.anchor_feature_class || "anchor", x: 0, y: 0, isAnchor: true },
+    ...draft.components.map((c, i) => ({
+      label: c.component_feature_class || `#${i + 1}`,
+      x: c.offset_x ?? 0,
+      y: c.offset_y ?? 0,
+      isAnchor: false,
+    })),
+  ]
+
+  const xs = nodes.map((n) => n.x)
+  const ys = nodes.map((n) => n.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const spanX = maxX - minX || 1
+  const spanY = maxY - minY || 1
+
+  const W = 320
+  const H = 240
+  const pad = 46
+  const availW = W - 2 * pad
+  const availH = H - 2 * pad
+  const scale = Math.min(availW / spanX, availH / spanY)
+  const ox = pad + (availW - spanX * scale) / 2
+  const oy = pad + (availH - spanY * scale) / 2
+  const sx = (x: number) => ox + (x - minX) * scale
+  const sy = (y: number) => oy + (maxY - y) * scale // flip so +y is up
+
+  const edges: { x1: number; y1: number; x2: number; y2: number; kind: "wire" | "support" }[] = []
+  draft.components.forEach((c, i) => {
+    const from = i + 1
+    const add = (target: number | null, kind: "wire" | "support") => {
+      if (target == null || target < 0 || target >= nodes.length || target === from) return
+      edges.push({ x1: sx(nodes[from].x), y1: sy(nodes[from].y), x2: sx(nodes[target].x), y2: sy(nodes[target].y), kind })
+    }
+    add(c.wire_to_position, "wire")
+    add(c.support_parent_position, "support")
+  })
+
+  return (
+    <div className="bg-card rounded-lg border p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Preview</h3>
+        <div className="text-muted-foreground flex items-center gap-3 text-[10px]">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-0.5 w-4 bg-blue-500" /> wire
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="border-muted-foreground inline-block w-4 border-t border-dashed" /> support
+          </span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-56 w-full" preserveAspectRatio="xMidYMid meet">
+        {edges.map((e, i) => (
+          <line
+            key={i}
+            x1={e.x1}
+            y1={e.y1}
+            x2={e.x2}
+            y2={e.y2}
+            className={e.kind === "wire" ? "stroke-blue-500" : "stroke-muted-foreground"}
+            strokeWidth={1.5}
+            strokeDasharray={e.kind === "support" ? "4 3" : undefined}
+          />
+        ))}
+        {nodes.map((n, i) => {
+          const cx = sx(n.x)
+          const cy = sy(n.y)
+          const w = 78
+          const h = 26
+          return (
+            <g key={i}>
+              <rect
+                x={cx - w / 2}
+                y={cy - h / 2}
+                width={w}
+                height={h}
+                rx={5}
+                className={n.isAnchor ? "fill-primary/15 stroke-primary" : "fill-muted stroke-border"}
+                strokeWidth={1}
+              />
+              <text x={cx} y={cy + 3.5} textAnchor="middle" className="fill-foreground text-[9px] font-medium">
+                {shortLabel(n.label)}
+              </text>
+              <circle
+                cx={cx - w / 2}
+                cy={cy - h / 2}
+                r={7}
+                className={n.isAnchor ? "fill-primary" : "fill-muted-foreground"}
+              />
+              <text
+                x={cx - w / 2}
+                y={cy - h / 2 + 3}
+                textAnchor="middle"
+                className="fill-background text-[8px] font-bold"
+              >
+                {i}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 function KitEditor({
   draft,
   classes,
@@ -391,6 +513,10 @@ function KitEditor({
         Position is the row order (1…N); the anchor is position 0. “Wire to” / “Support parent” must
         reference the anchor (0) or an earlier row.
       </p>
+
+      <div className="mt-3">
+        <AssemblyPreview draft={draft} />
+      </div>
 
       <div className="mt-3 flex flex-col gap-3">
         {draft.components.map((c, i) => (

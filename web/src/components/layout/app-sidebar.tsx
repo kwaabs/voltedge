@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Database, FileUp, Map, QrCode, Radio, Route, Siren, Wrench, Zap, ZapOff } from "lucide-react"
+import { Activity, BookOpen, Database, FileUp, Map, QrCode, Route, Siren, Wrench, Zap, ZapOff } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
@@ -26,8 +26,10 @@ const dataItems = [
   { to: "/features", label: "Feature classes", icon: Database, perm: "features:read" },
   { to: "/imports", label: "Import data", icon: FileUp, perm: "features:write" },
   { to: "/outages", label: "Outage Management", icon: Siren, perm: "oms:read" },
-  { to: "/live-state", label: "Live State", icon: Radio, perm: "telemetry:read" },
   { to: "/faults", label: "Faults", icon: ZapOff, perm: "faults:read" },
+  // Operations is the umbrella for the device surface: its page carries both the
+  // operation log and the Live state (telemetry) tab, so there's no separate
+  // Live State nav entry.
   { to: "/operations", label: "Operations", icon: Activity, perm: "operations:read" },
   { to: "/works", label: "Works", icon: Wrench, perm: "wam:read" },
   { to: "/field-tracks", label: "Field trails", icon: Route, perm: "field:tracks:read" },

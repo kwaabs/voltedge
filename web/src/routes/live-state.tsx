@@ -1,6 +1,8 @@
 import { type ReactNode, useState } from "react"
 import { Activity, CheckCircle2, Loader2, Radio, Search, ShieldAlert } from "lucide-react"
 
+import { DeviceDetailPanel } from "@/components/layout/device-detail-panel"
+import { OperationsTabs } from "@/components/layout/operations-tabs"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { inputClass } from "@/components/map/field-utils"
@@ -8,6 +10,7 @@ import { usePermission } from "@/hooks/use-auth"
 import { type ReconItem, useApplyTelemetry, useTelemetryReconciliation } from "@/hooks/use-telemetry"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useDevicePanelStore } from "@/stores/device-panel-store"
 import { useToastStore } from "@/stores/toast-store"
 
 function fmtAge(s: number): string {
@@ -74,6 +77,9 @@ export function LiveStatePage() {
   const apply = useApplyTelemetry()
   const canApply = usePermission()("oms:write")
   const [query, setQuery] = useState("")
+  // The open device panel lives in a shared store so it survives switching to the
+  // Operations tab and back (separate routes would each drop a local useState).
+  const selected = useDevicePanelStore((s) => s.selected)
   const d = recon.data
 
   const items = d?.items ?? []
@@ -92,17 +98,13 @@ export function LiveStatePage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 p-4">
-      <div className="shrink-0">
-        <h1 className="flex items-center gap-2 text-lg font-semibold">
-          <Radio className="size-5" />
-          Live state
-        </h1>
-        <p className="text-muted-foreground text-sm">
+    <div className="flex h-full gap-4 p-4">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+        <OperationsTabs />
+        <p className="text-muted-foreground shrink-0 text-sm">
           Device telemetry reconciled against the model — where the field and the model disagree, or a device has gone
           quiet. Apply the field's reading to correct the model.
         </p>
-      </div>
 
       {recon.isPending ? (
         <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -184,8 +186,15 @@ export function LiveStatePage() {
                                 className="border-border/60 border-t [&>td]:px-2 [&>td]:py-1.5"
                               >
                                 <td>
-                                  <span className="font-medium">{it.feature_class_code}</span>{" "}
-                                  <span className="text-muted-foreground font-mono">{it.feature_id.slice(0, 8)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => useDevicePanelStore.getState().open(it.feature_class_code, it.feature_id)}
+                                    className="hover:text-primary text-left hover:underline"
+                                    title="View device details"
+                                  >
+                                    <span className="font-medium">{it.feature_class_code}</span>{" "}
+                                    <span className="text-muted-foreground font-mono">{it.feature_id.slice(0, 8)}</span>
+                                  </button>
                                 </td>
                                 <td className="tabular-nums">{it.model_state ?? "—"}</td>
                                 <td className="tabular-nums">{it.telemetry_state ?? "—"}</td>
@@ -231,6 +240,14 @@ export function LiveStatePage() {
             </Card>
           </>
         )}
+      </div>
+      {selected && (
+        <DeviceDetailPanel
+          featureClass={selected.cls}
+          featureId={selected.id}
+          onClose={() => useDevicePanelStore.getState().close()}
+        />
+      )}
     </div>
   )
 }
