@@ -77,6 +77,14 @@ func Routes(db *bun.DB) chi.Router {
 	r.Patch("/crew-assignments/{id}", advanceAssignmentHandler(db))
 	r.Patch("/incidents/{id}/etr", setIncidentETRHandler(db))
 
+	// Customer callback queue (blocker #5, CIS/IVR): the external CIS pulls the
+	// pending list and marks each notified; one callback per affected supply is
+	// enqueued on restore.
+	r.Get("/callbacks", listCallbacksHandler(db))
+	r.Get("/incidents/{id}/callbacks", listIncidentCallbacksHandler(db))
+	r.Post("/callbacks/{id}/notified", markCallbackNotifiedHandler(db))
+	r.Post("/callbacks/{id}/cancel", cancelCallbackHandler(db))
+
 	r.Get("/incidents", listIncidentsHandler(db))
 	r.Get("/incidents/map", listIncidentsForMapHandler(db))
 	r.Post("/incidents/predict", predictIncidentsHandler(db))
@@ -254,6 +262,8 @@ type createTroubleCallRequest struct {
 	Latitude       *float64   `json:"latitude"`
 	ReportedAt     *time.Time `json:"reported_at"`
 	CallerRef      *string    `json:"caller_ref"`
+	AccountRef     *string    `json:"account_ref"`
+	Phone          *string    `json:"phone"`
 	CallType       string     `json:"call_type"`
 	Notes          *string    `json:"notes"`
 }
@@ -272,6 +282,8 @@ func createTroubleCallHandler(db *bun.DB) http.HandlerFunc {
 			Latitude:       req.Latitude,
 			ReportedAt:     req.ReportedAt,
 			CallerRef:      req.CallerRef,
+			AccountRef:     req.AccountRef,
+			Phone:          req.Phone,
 			CallType:       req.CallType,
 			Notes:          req.Notes,
 		})
@@ -545,6 +557,63 @@ func taskSubcontractorHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, wo)
+	}
+}
+
+func listCallbacksHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		offset, _ := strconv.Atoi(q.Get("offset"))
+		callbacks, err := ListCallbacks(r.Context(), db, CallbackFilter{
+			Status:     q.Get("status"),
+			IncidentID: q.Get("incident_id"),
+			Limit:      limit,
+			Offset:     offset,
+		})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"callbacks": callbacks})
+	}
+}
+
+func listIncidentCallbacksHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		callbacks, err := ListCallbacks(r.Context(), db, CallbackFilter{IncidentID: chi.URLParam(r, "id")})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"callbacks": callbacks})
+	}
+}
+
+func markCallbackNotifiedHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Note *string `json:"note"`
+		}
+		// Body optional (a bare mark-notified carries no note).
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		cb, err := MarkCallbackNotified(r.Context(), db, chi.URLParam(r, "id"), req.Note)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, cb)
+	}
+}
+
+func cancelCallbackHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cb, err := CancelCallback(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, cb)
 	}
 }
 

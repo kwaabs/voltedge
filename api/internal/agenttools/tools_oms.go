@@ -305,6 +305,27 @@ func omsTools() []Tool {
 			RequiredPerm: auth.PermOMSRead,
 			Handler:      toolOMSListCrews,
 		},
+		{
+			Name: "oms_list_callbacks",
+			Description: "List the customer callback queue (the same read the REST GET /oms/callbacks route " +
+				"returns) -- the 'notify this supply that power is back' list enqueued per affected service " +
+				"point when an outage is restored (blocker #5, the CIS/IVR integration). Each row carries the " +
+				"service point, the caller's premise id / phone when one was left, the reason and the status " +
+				"(pending / notified / cancelled). Filter by status (pending = the work list) and/or incident_id. " +
+				"The external CIS normally pulls this to call customers; mark one done with oms_mark_callback_notified.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"status":{"type":"string","enum":["pending","notified","cancelled"],"description":"Filter by status; pending = the outstanding work list."},
+					"incident_id":{"type":"string","description":"Filter to one incident's callbacks (uuid)."},
+					"limit":{"type":"integer","description":"Max rows (0 = all)."},
+					"offset":{"type":"integer","description":"Rows to skip (pagination)."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSListCallbacks,
+		},
 
 		// --- writes (oms:write) ---
 		{
@@ -722,6 +743,25 @@ func omsTools() []Tool {
 			Handler:      toolOMSAttributeIncidentDevice,
 		},
 		{
+			Name: "oms_mark_callback_notified",
+			Description: "Mark a customer callback done once the customer has been reached (the same write the " +
+				"REST POST /oms/callbacks/{id}/notified route performs, blocker #5). Stamps who and when; an " +
+				"optional note records the outcome (e.g. 'left voicemail'). A cancelled callback is refused. " +
+				"This WRITES: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The callback's id (uuid)."},
+					"note":{"type":"string","description":"Optional outcome note."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			Annotations:  &Annotations{Title: "Mark callback notified", ReadOnlyHint: &falseHint, DestructiveHint: &falseHint, IdempotentHint: &trueHint, OpenWorldHint: &falseHint},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSMarkCallbackNotified,
+		},
+		{
 			Name: "oms_dispatch_crew",
 			Description: "Send a crew to an incident (the same write the REST POST /oms/incidents/{id}/crews " +
 				"route performs): creates a 'dispatched' assignment, marks the crew dispatched, and -- if the " +
@@ -991,6 +1031,42 @@ func toolOMSListCrews(ctx context.Context, db bun.IDB, args json.RawMessage) (an
 		return nil, err
 	}
 	return map[string]any{"crews": crews}, nil
+}
+
+func toolOMSListCallbacks(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		Status     string `json:"status"`
+		IncidentID string `json:"incident_id"`
+		Limit      int    `json:"limit"`
+		Offset     int    `json:"offset"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	callbacks, err := oms.ListCallbacks(ctx, db, oms.CallbackFilter{
+		Status:     in.Status,
+		IncidentID: in.IncidentID,
+		Limit:      in.Limit,
+		Offset:     in.Offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"callbacks": callbacks}, nil
+}
+
+func toolOMSMarkCallbackNotified(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID   string  `json:"id"`
+		Note *string `json:"note"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	return oms.MarkCallbackNotified(ctx, db, in.ID, in.Note)
 }
 
 func toolOMSDispatchCrew(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

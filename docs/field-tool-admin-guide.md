@@ -1,5 +1,7 @@
 # VoltEdge Field Tool — Admin Guide
 
+_Last updated: 2026-10-28_
+
 **Who this is for:** administrators and supervisors who **set up, manage, review,
 and scale** the field tool — not the crews using it. If you're a crew member, read
 the **Field Tool Guide** instead.
@@ -103,6 +105,7 @@ To do the admin jobs in this guide:
 | `admin:field-packs` | Manage **everyone's** packs (list / disable / delete) |
 | `sync:review` | **View** the sync-review queue |
 | `sync:post` | **Act** on held edits (post / reject / resolve conflicts, set policy) |
+| `field:tracks:read` | **View** field workers' movement trails and located edits (the Field trails map, §5.6) |
 
 ---
 
@@ -334,6 +337,50 @@ it:
 - If the check itself errors (a database hiccup), the worker logs it and **applies the
   edit anyway** — conflict detection fails open, so do not treat it as a hard guarantee
   on a contended class.
+
+### 5.6 Field trails — where the work was done
+
+§5.1–5.5 review **what** a crew changed. The **field trail** reviews **where** they
+were while they did it — so you can answer the questions a desk review can't: *were
+they actually at the site? how did they get there? where did they pass?*
+
+**What the device records.** While a crew has a pack open, the field app quietly
+records two things off the GPS, with **no action needed from the crew**:
+
+- a **movement trail** — a breadcrumb every ~20 m (or every 30 s), the path they walked
+  or drove through the session; and
+- a **located edit** on **every** save / update / delete / connect / relate — the exact
+  spot the worker was standing when they made that change.
+
+The located edits ride the **same durable sync channel as the edits themselves**, so a
+change made deep offline keeps its location and never loses it; the trail uploads on the
+next sync. Recording is **foreground-only** — it runs while the app is open, and does
+**not** use a background-location permission — so a phone pocketed with the app
+backgrounded leaves a gap in the trail (the edits are still located).
+
+**Seeing it — the Field trails map.** Open **Field trails** in the web app
+(`/field-tracks`), gated on **`field:tracks:read`**. Pick a **worker**, narrow by
+**date**, and choose a **session**: the map draws the trail as a line (green start, blue
+end) with the located edits as pins — **amber** for a create/update, **red** for a
+delete, labelled by action. Each edit lists below the map; **Locate on map** jumps to
+that feature so you can cross-check the change against where it was made.
+
+**Access & privacy.** `field:tracks:read` is a **supervisor** capability — granted to
+`admin` and `break-glass-admin` out of the box; grant it to your supervisor roles in
+**Admin → Users / roles**. A crew **records its own trail** under its ordinary
+`features:write` (no extra grant), but **seeing another worker's trail is the privileged
+act** this permission gates. The app shows crews **no in-app notice** that they're
+recorded, so **tell your crews** that fieldwork location is logged — some jurisdictions
+require you to disclose staff location tracking.
+
+**Where it lives.** The trail is `ops.field_track_points`; the located edits are
+`ops.field_action_waypoints` (one row per edit, keyed by its sync op). Both are append-
+only audit data, kept independent of the edits they describe.
+
+> **Known gaps (today).** Offline **WAM** (defect/work-order/inspection) and **fault**
+> captures are not yet location-stamped, so those specific actions won't appear as pins
+> (the GIS edits — create/update/delete/connect/relate — do). And the trail is
+> foreground-only, so expect gaps when the phone is pocketed mid-walk.
 
 ---
 
@@ -656,6 +703,7 @@ crew's existing entitlements.
 | `connectivity:read`, `relationships:read`, `wam:read`, `faults:read`, `tags:read` | Crew: what a pack contains |
 | `admin:field-packs` | Admin: manage packs |
 | `sync:review` / `sync:post` | Admin: view / act on the review queue |
+| `field:tracks:read` | Supervisor: view the Field trails map (§5.6) |
 
 **Environment (`cmd/fieldsync`)**
 
@@ -682,6 +730,7 @@ crew's existing entitlements.
 | Reclaim storage | **Delete** the pack (permanent) |
 | Gate a class for review | Sync Review → set that class to **review** (`sync:post`) |
 | Check / release held edits | Sync Review → **Post** / **Reject** |
+| See where a crew worked | **Field trails** (`/field-tracks`, `field:tracks:read`) → worker → session (§5.6) |
 | Settle a conflict | Sync Review → conflict → **Apply anyway** / **Keep** |
 | Build faster for a fleet | PgBouncer + raise concurrencies + add `cmd/fieldsync` replicas |
 | Pre-build a shared area | Define a **cell** (`POST /field-packs/cells`) → build it (`…/build`) or schedule it |

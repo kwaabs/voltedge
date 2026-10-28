@@ -32,6 +32,19 @@ class FaultsStore extends ChangeNotifier {
   final PackDatabase _pack;
   final EditDatabase _db;
 
+  /// Returns the worker's live position as the server's `actor_location` wire
+  /// shape, or null when there's no fix. Set by the faults screen from the shared
+  /// field-track recorder; when present, every fault capture op is stamped so the
+  /// action is a located edit in the field breadcrumb audit trail (migration 0178).
+  /// Null provider/return leaves ops un-stamped — the server records no waypoint.
+  Map<String, dynamic>? Function()? actorLocation;
+
+  Map<String, dynamic> _stampLocation(Map<String, dynamic> payload) {
+    final loc = actorLocation?.call();
+    if (loc == null) return payload;
+    return {...payload, 'actor_location': loc};
+  }
+
   /// The pack's snapshot_at, carried onto every fault outbox op for parity with
   /// feature edits (the server doesn't conflict-check fault ops, but the base
   /// version keeps the audit trail consistent).
@@ -239,7 +252,7 @@ class FaultsStore extends ChangeNotifier {
       clearingTimeMs: clearingTimeMs,
       incidentId: hasIncident ? incidentId : null,
     );
-    _db.putFault(f, payload: payload, baseVersion: _baseVersion);
+    _db.putFault(f, payload: _stampLocation(payload), baseVersion: _baseVersion);
     _localFaults[faultId] = f;
     _pendingFaults.add(faultId);
     notifyListeners();
@@ -261,7 +274,7 @@ class FaultsStore extends ChangeNotifier {
       status: status,
       assetClass: assetClass,
       opId: _nextOpId(faultId),
-      payload: {'status': status},
+      payload: _stampLocation({'status': status}),
       updatedAt: now,
       baseVersion: _baseVersion,
     );
@@ -298,7 +311,7 @@ class FaultsStore extends ChangeNotifier {
       faultId: faultId,
       assetClass: assetClass,
       opId: _nextOpId(faultId),
-      payload: payload,
+      payload: _stampLocation(payload),
       createdAt: now,
       baseVersion: _baseVersion,
     );

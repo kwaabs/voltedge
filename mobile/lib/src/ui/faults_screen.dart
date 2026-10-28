@@ -8,6 +8,8 @@ import '../api/fieldsync_client.dart';
 import '../api/models.dart';
 import '../faults/faults_models.dart';
 import '../faults/faults_store.dart';
+import '../geo/field_track_recorder.dart';
+import '../geo/gnss_sample.dart';
 import '../geo/location_service.dart';
 import '../pack/pack_database.dart';
 import '../pack/pack_store.dart';
@@ -42,6 +44,11 @@ class _FaultsScreenState extends ConsumerState<FaultsScreen> {
   Object? _error;
   bool _syncing = false;
 
+  /// Feeds the shared field-track recorder the live GNSS stream so fault captures
+  /// made on this screen are stamped with where the worker was (field breadcrumb
+  /// audit trail, migration 0178). Foreground-only — closed in dispose.
+  ProviderSubscription<AsyncValue<GnssSample>>? _recorderSub;
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +64,18 @@ class _FaultsScreenState extends ConsumerState<FaultsScreen> {
         widget.pack.dataPath,
         p.join(widget.pack.dir, 'edits.sqlite'),
       )..addListener(_onChanged);
+      // Stamp fault captures with the worker's position: a recorder on the shared
+      // field session feeds store.actorLocation (no breadcrumb sink here — the trail
+      // is recorded on the map screen; this only supplies the edit stamp).
+      final recorder = FieldTrackRecorder(sessionId: ref.read(fieldSessionIdProvider));
+      store.actorLocation = recorder.actorLocation;
+      _recorderSub = ref.listenManual<AsyncValue<GnssSample>>(
+        gnssStreamProvider,
+        (prev, next) {
+          final sample = next.valueOrNull;
+          if (sample != null) recorder.onSample(sample);
+        },
+      );
       setState(() => _store = store);
       // Reconcile any ops left in flight from a prior session so a returning crew
       // sees applied/rejected without a manual sync. Fire-and-forget.
@@ -72,6 +91,7 @@ class _FaultsScreenState extends ConsumerState<FaultsScreen> {
 
   @override
   void dispose() {
+    _recorderSub?.close();
     _store?.removeListener(_onChanged);
     _store?.dispose();
     super.dispose();

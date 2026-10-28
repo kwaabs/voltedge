@@ -11,6 +11,7 @@ import 'geo/bluetooth_gnss.dart';
 import 'geo/gnss_sample.dart';
 import 'geo/gnss_source.dart';
 import 'pack/pack_store.dart';
+import 'util/uuid.dart';
 
 /// The settings repository is created and loaded in main(), then injected here
 /// via a ProviderScope override -- so reads across the app are synchronous.
@@ -25,6 +26,12 @@ final fieldsyncClientProvider = Provider<FieldsyncClient>(
 );
 
 final packStoreProvider = Provider<PackStore>((ref) => PackStore());
+
+/// The field session id (field breadcrumb audit trail, migration 0178): one id for
+/// this app run, SHARED across every field-capture screen (the map, WAM, faults) so
+/// a worker's movement trail and the located edit stamps on all three surfaces group
+/// under one session on the supervisor map. Minted once (the provider caches it).
+final fieldSessionIdProvider = Provider<String>((ref) => newUuidV4());
 
 /// The caller's remote builds (GET /packs). autoDispose so it refetches each
 /// time the home screen is shown; invalidate it to force a refresh.

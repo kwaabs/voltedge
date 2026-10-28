@@ -36,6 +36,20 @@ class WamStore extends ChangeNotifier {
   final PackDatabase _pack;
   final EditDatabase _db;
 
+  /// Returns the worker's live position as the server's `actor_location` wire
+  /// shape, or null when there's no fix. Set by the WAM screen from the shared
+  /// field-track recorder; when present, every WAM capture op is stamped so the
+  /// action is a located edit in the field breadcrumb audit trail (migration 0178).
+  /// Null provider (or null return) leaves ops un-stamped — the server records no
+  /// waypoint for them, a graceful absence.
+  Map<String, dynamic>? Function()? actorLocation;
+
+  Map<String, dynamic> _stampLocation(Map<String, dynamic> payload) {
+    final loc = actorLocation?.call();
+    if (loc == null) return payload;
+    return {...payload, 'actor_location': loc};
+  }
+
   /// `<pack.dir>/attachments` -- where a captured defect photo's downscaled bytes
   /// are copied (the same dir the map screen's attachments use, so one pack holds
   /// every crew photo whether taken on the map or in a WAM defect form).
@@ -339,7 +353,7 @@ class WamStore extends ChangeNotifier {
       reportedAt: reportedIso,
       notes: notes,
     );
-    _db.putWamDefect(d, payload: payload, baseVersion: _baseVersion);
+    _db.putWamDefect(d, payload: _stampLocation(payload), baseVersion: _baseVersion);
     _localDefects[defectId] = d;
     _pendingWam.add(defectId);
     notifyListeners();
@@ -360,7 +374,7 @@ class WamStore extends ChangeNotifier {
       status: status,
       assetClass: assetClass,
       opId: _nextOpId(defectId),
-      payload: {'status': status},
+      payload: _stampLocation({'status': status}),
       updatedAt: now,
       baseVersion: _baseVersion,
     );
@@ -399,7 +413,7 @@ class WamStore extends ChangeNotifier {
       workOrderId: workOrderId,
       assetClass: assetClass,
       opId: _nextOpId(workOrderId),
-      payload: payload,
+      payload: _stampLocation(payload),
       updatedAt: now,
       baseVersion: _baseVersion,
       status: status,
@@ -495,7 +509,7 @@ class WamStore extends ChangeNotifier {
       inspectedAt: inspectedIso,
       notes: notes,
     );
-    _db.putWamInspection(insp, payload: payload, baseVersion: _baseVersion);
+    _db.putWamInspection(insp, payload: _stampLocation(payload), baseVersion: _baseVersion);
     _localInspections[id] = insp;
     _pendingWam.add(id);
     // Recording an inspection can complete its work order; reflect that optimistically

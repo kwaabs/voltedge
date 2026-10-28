@@ -316,7 +316,10 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
       // session's movement trail and stamp every edit with the worker's position.
       // The recorder mints the session id; EditStore.actorLocation reads its latest
       // fix so each outbox op carries where the edit was made.
-      final recorder = FieldTrackRecorder(edit);
+      final recorder = FieldTrackRecorder(
+        sessionId: ref.read(fieldSessionIdProvider),
+        onBreadcrumb: edit.recordTrackPoint,
+      );
       edit.actorLocation = recorder.actorLocation;
       _startRecorder(recorder);
       setState(() {

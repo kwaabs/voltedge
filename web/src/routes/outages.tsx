@@ -68,6 +68,8 @@ import {
   useIncidentCrews,
   useSetIncidentETR,
   useTaskSubcontractor,
+  useIncidentCallbacks,
+  useMarkCallbackNotified,
   useAssociateTroubleCall,
   useCancelSwitchingOrder,
   useCreatePlannedOutage,
@@ -2832,6 +2834,7 @@ export function OutageDetailPage() {
   )
   const causeCard = <IncidentCauseCard inc={inc} canWrite={canWrite} />
   const crewsCard = <IncidentCrewsCard inc={inc} canWrite={canWrite} />
+  const callbacksCard = <CustomerCallbacksCard incidentId={inc.id} canWrite={canWrite} />
   const switchingCard = <SwitchingDrawer incident={inc} canWrite={canWrite} />
   const timelineCard = <IncidentTimelineCard incidentId={inc.id} />
 
@@ -2968,6 +2971,7 @@ export function OutageDetailPage() {
             </div>
             <div className="flex min-w-0 flex-col gap-4">
               {crewsCard}
+              {callbacksCard}
               {switchingCard}
               {timelineCard}
               {callsCard}
@@ -2980,6 +2984,7 @@ export function OutageDetailPage() {
             {overviewCard}
             {causeCard}
             {crewsCard}
+            {callbacksCard}
             {switchingCard}
             {timelineCard}
             {callsCard}
@@ -3560,6 +3565,70 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
 
 /** One label/value pair in the incident Overview definition list. Rendered as a
  * fragment so each cell lands in the parent's two-column grid. */
+/** The restoration callback queue for one incident (blocker #5): one row per
+ * affected supply to notify that power is back. The external CIS/IVR normally
+ * works this list, but an operator can mark one done after a manual call. Shown
+ * only once callbacks exist (they're enqueued on restore). */
+function CustomerCallbacksCard({ incidentId, canWrite }: { incidentId: string; canWrite: boolean }) {
+  const callbacks = useIncidentCallbacks(incidentId)
+  const mark = useMarkCallbackNotified()
+  const rows = callbacks.data?.callbacks ?? []
+  if (rows.length === 0) return null
+
+  const pending = rows.filter((c) => c.status === "pending").length
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <PhoneCall className="size-4" />
+          Customer callbacks
+        </CardTitle>
+        <CardDescription>
+          {pending > 0
+            ? `${pending} of ${rows.length} supplies still to notify that power is back`
+            : `All ${rows.length} notified`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="max-h-72 overflow-y-auto pt-0">
+        <div className="flex flex-col divide-y">
+          {rows.map((c) => (
+            <div key={c.id} className="flex flex-wrap items-center gap-x-2 py-1.5 text-sm">
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[11px] font-medium capitalize",
+                  c.status === "notified"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                    : c.status === "cancelled"
+                      ? "bg-muted text-muted-foreground line-through"
+                      : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+                )}
+              >
+                {c.status}
+              </span>
+              <span className="font-mono text-xs">{c.service_point_id.slice(0, 8)}</span>
+              {c.phone && <span className="text-muted-foreground text-xs">{c.phone}</span>}
+              {c.account_ref && <span className="text-muted-foreground text-xs">acct {c.account_ref}</span>}
+              {canWrite && c.status === "pending" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-6 px-1.5 text-xs"
+                  disabled={mark.isPending}
+                  onClick={() =>
+                    mark.mutate({ id: c.id }, { onError: (e) => toastError(e, "Could not mark the callback.") })
+                  }
+                >
+                  Mark notified
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <>

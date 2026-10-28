@@ -356,6 +356,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <tr><td><code>admin:field-packs</code></td><td>Manage <b>everyone’s</b> packs (list / disable / delete) and administer shared cells</td></tr>
     <tr><td><code>sync:review</code></td><td><b>View</b> the sync-review queue</td></tr>
     <tr><td><code>sync:post</code></td><td><b>Act</b> on held edits (post / reject / resolve conflicts, set policy)</td></tr>
+    <tr><td><code>field:tracks:read</code></td><td><b>View</b> field workers’ movement trails and located edits (the Field trails map, Chapter 5)</td></tr>
   </table></div>
   <p>The review surface is <b>method-aware</b>: reading it (<code>GET</code>) needs <code>sync:review</code>, every change needs <code>sync:post</code>. Switch to <b>Sam</b> in Chapter 5 to feel the difference.</p>
   <h4 style="margin-top:20px">Chapter summary</h4>
@@ -559,12 +560,20 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <li>If the check itself errors, the worker logs it and <b>applies the edit anyway</b> — detection fails open, so don’t treat it as a hard lock on a contended class.</li>
   </ul>
 
+  <h3>Field trails — where the work was done</h3>
+  <p>The rest of this chapter reviews <b>what</b> a crew changed. The <b>field trail</b> reviews <b>where</b> they were while they did it — so you can answer the questions a desk review can’t: <em>were they actually at the site? how did they get there? where did they pass?</em></p>
+  <p><b>What the device records.</b> While a crew has a pack open, the app quietly records two things off the GPS, with <b>no action from the crew</b>: a <b>movement trail</b> (a breadcrumb every ~20&nbsp;m or 30&nbsp;s — the path they walked/drove) and a <b>located edit</b> on <b>every</b> save / update / delete / connect / relate (the exact spot they stood for that change). The located edits ride the <b>same durable sync channel as the edits themselves</b>, so a change made deep offline keeps its location; the trail uploads on the next sync. Recording is <b>foreground-only</b> — it runs while the app is open and uses <b>no background-location permission</b>, so a pocketed phone leaves a gap in the trail (the edits are still located).</p>
+  <p><b>Seeing it.</b> Open <b>Field trails</b> in the web app (<code>/field-tracks</code>), gated on <span class="perm">field:tracks:read</span>. Pick a <b>worker</b>, narrow by <b>date</b>, choose a <b>session</b>: the map draws the trail as a line (green start, blue end) with the located edits as pins — <b>amber</b> create/update, <b>red</b> delete, labelled by action. Each edit lists below the map; <b>Locate on map</b> jumps to that feature to cross-check the change against where it was made.</p>
+  <p><b>Access &amp; privacy.</b> <span class="perm">field:tracks:read</span> is a <b>supervisor</b> capability — granted to <code>admin</code> and <code>break-glass-admin</code> out of the box; grant it to your supervisor roles. A crew <b>records its own trail</b> under its ordinary <span class="perm">features:write</span> (no extra grant); <b>seeing another worker’s trail is the privileged act</b> this permission gates. The app shows crews <b>no in-app notice</b> that they’re recorded, so <b>tell your crews</b> fieldwork location is logged — some jurisdictions require disclosing staff location tracking.</p>
+  <p>The trail lives in <code>ops.field_track_points</code>; the located edits in <code>ops.field_action_waypoints</code> (one row per edit). <b>Known gaps today:</b> offline <b>WAM</b> and <b>fault</b> captures are not yet location-stamped (the GIS edits are), and the trail is foreground-only.</p>
+
   <h4>Chapter summary</h4>
   <ul>
     <li>Policy is per class plus a global default: <code>auto</code> or <code>review</code>, and independently <code>detect conflicts</code>.</li>
     <li>Post releases a held edit; Reject quarantines it with a reason the crew sees; conflicts resolve as Apply anyway or Keep.</li>
     <li><b>One device, one lane:</b> a held edit or unresolved conflict blocks all of that device’s later edits.</li>
     <li>A conflict compares the live row’s last change with the pack snapshot the edit was made against — updates and deletes only, and only if the edit carries a stamp.</li>
+    <li><b>Field trails</b> (<code>/field-tracks</code>, <span class="perm">field:tracks:read</span>) review <b>where</b> work was done — the movement trail plus a located stamp on every edit.</li>
   </ul>
 </section>
 
@@ -710,7 +719,8 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <tr><td><code>features:read</code> / <code>features:write</code></td><td>Crew: download / sync</td></tr>
     <tr><td><code>connectivity:read</code>, <code>relationships:read</code>, <code>wam:read</code>, <code>faults:read</code>, <code>tags:read</code></td><td>Crew: what a pack contains (and what shared cells they may pull)</td></tr>
     <tr><td><code>admin:field-packs</code></td><td>Admin: manage packs, administer cells</td></tr>
-    <tr><td><code>sync:review</code> / <code>sync:post</code></td><td>Admin: view / act on the review queue</td></tr></table></div>
+    <tr><td><code>sync:review</code> / <code>sync:post</code></td><td>Admin: view / act on the review queue</td></tr>
+    <tr><td><code>field:tracks:read</code></td><td>Supervisor: view the Field trails map (<code>/field-tracks</code>)</td></tr></table></div>
   <h4>Environment (<code>cmd/fieldsync</code>)</h4>
   <div class="tbl"><table><tr><th>Variable</th><th>Default</th><th>Side</th></tr>
     <tr><td><code>FIELDSYNC_MAX_FEATURES</code></td><td>200000</td><td>build (size cap)</td></tr>
@@ -746,7 +756,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
 </section>
 </div>
 
-<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Field Tool Admin — interactive edition. Every widget runs on a simulated Oakwood back-office held entirely in your browser; nothing here talks to a server and nothing here changes your real packs, queue or cells. The statuses, gate order, scheduler and retention rules mirror the field engine’s source.</p></footer>
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Field Tool Admin — interactive edition. Every widget runs on a simulated Oakwood back-office held entirely in your browser; nothing here talks to a server and nothing here changes your real packs, queue or cells. The statuses, gate order, scheduler and retention rules mirror the field engine’s source. · <b>Last updated 2026-10-28</b></p></footer>
 
 </div>
 <script>

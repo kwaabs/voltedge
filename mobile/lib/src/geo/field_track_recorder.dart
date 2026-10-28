@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 
 import '../edit/edit_database.dart';
-import '../edit/edit_store.dart';
 import '../util/uuid.dart';
 import 'gnss_sample.dart';
 
@@ -18,15 +17,23 @@ import 'gnss_sample.dart';
 ///      mutating edit with where the worker was when they made it (EditStore wires
 ///      this into each outbox op's payload).
 ///
-/// The session id is minted per recorder instance (one open-pack span). The recorder
-/// is fed samples via [onSample] rather than subscribing itself, so its lifecycle
-/// and the GNSS stream stay owned by the screen.
+/// The recorder is fed samples via [onSample] rather than subscribing itself, so
+/// its lifecycle and the GNSS stream stay owned by the screen. Pass the shared
+/// field [sessionId] so every screen's breadcrumbs and edit waypoints group under
+/// one session. [onBreadcrumb] is the sink for movement-trail points — the map
+/// screen passes its edit store's recorder (so the trail persists and uploads);
+/// a screen that only needs the edit-location stamp (WAM / faults) passes null and
+/// just reads [actorLocation].
 class FieldTrackRecorder {
-  FieldTrackRecorder(this._edit, {String? deviceId, String? sessionId})
-      : _deviceId = deviceId,
-        sessionId = sessionId ?? newUuidV4();
+  FieldTrackRecorder({
+    String? sessionId,
+    String? deviceId,
+    void Function(LocalTrackPoint)? onBreadcrumb,
+  })  : sessionId = sessionId ?? newUuidV4(),
+        _deviceId = deviceId,
+        _onBreadcrumb = onBreadcrumb;
 
-  final EditStore _edit;
+  final void Function(LocalTrackPoint)? _onBreadcrumb;
   final String? _deviceId;
 
   /// The device-minted field session this recorder's breadcrumbs and waypoints
@@ -64,7 +71,7 @@ class FieldTrackRecorder {
   }
 
   void _drop(GnssSample s) {
-    _edit.recordTrackPoint(LocalTrackPoint(
+    _onBreadcrumb?.call(LocalTrackPoint(
       id: newUuidV4(),
       sessionId: sessionId,
       recordedAt: s.timestamp.toUtc(),

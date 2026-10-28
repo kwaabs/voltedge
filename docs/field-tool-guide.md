@@ -1,5 +1,7 @@
 # VoltEdge Field Tool — Field Crew Guide
 
+_Last updated: 2026-10-28_
+
 **Who this is for:** field technicians and crews who use the VoltEdge app on a
 phone or tablet to view and update the network **in the field, with no signal**,
 and sync their work back when they return to coverage.
@@ -471,6 +473,14 @@ or **GPS source** in Map settings):
 > External receivers are **Android-only**; on iOS the app uses the built-in GPS.
 > If Bluetooth is off or permission hasn't been granted, the picker tells you
 > exactly what to do (**Allow Bluetooth**, or pair the device in system settings).
+
+### Your field trail
+
+While you have a pack open, the app records your **GPS trail** — your path through
+the session and the spot you were standing at each change you make — and uploads it
+when you sync. It's part of the record of the work (your supervisor can review where a
+job was done), it runs **only while the app is open** (nothing is recorded in the
+background), and it needs nothing from you.
 
 ---
 

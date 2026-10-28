@@ -27,6 +27,10 @@ export interface TroubleCall {
   latitude: number | null
   reported_at: string
   caller_ref: string | null
+  /** The caller's CIS premise/account id and callback number, when an IVR/CIS
+   * customer report filed the call (migration 0179); null otherwise. */
+  account_ref: string | null
+  phone: string | null
   call_type: CallType
   status: CallStatus
   incident_id: string | null
@@ -774,6 +778,49 @@ export function useDispatchCrew() {
       method: "POST",
       body: JSON.stringify({ crew_id, note, raise_work_order, work_order_title }),
     }),
+  )
+}
+
+// --- customer callbacks (blocker #5, CIS/IVR) ------------------------------
+
+/** One "notify this supply that power is back" callback (oms.customer_callbacks).
+ * The external CIS/IVR pulls pending ones and marks each notified; one is enqueued
+ * per affected supply on restore. */
+export interface CustomerCallback {
+  id: string
+  incident_id: string
+  service_point_id: string
+  account_ref: string | null
+  phone: string | null
+  reason: string
+  status: string
+  note: string | null
+  notified_by: string | null
+  created_at: string
+  notified_at: string | null
+}
+
+/** The callback queue for one incident (the operator's manual call-back list). */
+export function useIncidentCallbacks(incidentId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "incident-callbacks", incidentId ?? ""],
+    queryFn: () => apiFetch<{ callbacks: CustomerCallback[] }>(`/oms/incidents/${incidentId}/callbacks`),
+    enabled: incidentId != null,
+    staleTime: 15_000,
+  })
+}
+
+/** Mark a callback done (the customer was reached); an optional note. */
+export function useMarkCallbackNotified() {
+  return useOmsMutation<{ id: string; note?: string }>(({ id, note }) =>
+    apiFetch(`/oms/callbacks/${id}/notified`, { method: "POST", body: JSON.stringify({ note }) }),
+  )
+}
+
+/** Drop a pending callback from the queue. */
+export function useCancelCallback() {
+  return useOmsMutation<{ id: string }>(({ id }) =>
+    apiFetch(`/oms/callbacks/${id}/cancel`, { method: "POST" }),
   )
 }
 

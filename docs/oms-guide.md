@@ -1,5 +1,7 @@
 # OMS — Outage Management
 
+_Last updated: 2026-10-28_
+
 **Written for:** control-room operators who take trouble calls and drive outages to restoration, planners scheduling planned work, and engineers reading reliability performance.
 
 **OMS (Outage Management System)** turns scattered **customer trouble calls** into **incidents** (an outage blamed on a device), predicts who's affected, drives the **switching order** that isolates and restores supply, and rolls the result up into **reliability indices**. It sits between two neighbours it references rather than repeats: a **fault** (see the **Faults** guide) *explains* an incident; and the **switchgear** it operates (see **Switching & Protection**) — including the fact that executing a switching step now flips a device's **live `device_state`**.

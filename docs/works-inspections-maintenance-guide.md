@@ -1,5 +1,7 @@
 # VoltEdge Works, Inspections & Maintenance Guide
 
+_Last updated: 2026-10-28_
+
 *A practical, task-oriented manual for the people who find what's wrong with the network, plan the work that fixes it, and keep it healthy on a cycle — using VoltEdge's Work & Asset Management (WAM) module.*
 
 ---

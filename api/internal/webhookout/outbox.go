@@ -42,6 +42,10 @@ const (
 	EventIncidentRaised   = "oms.incident.raised"
 	EventIncidentRestored = "oms.incident.restored"
 	EventIncidentUpdated  = "oms.incident.updated"
+	// Fired once when restoring an incident enqueues customer callbacks (blocker
+	// #5): the external CIS/IVR reacts by pulling GET /oms/callbacks to notify the
+	// affected premises their supply is back.
+	EventCallbackDue = "oms.callback.due"
 
 	EventWorkOrderCreated   = "wam.workorder.created"
 	EventWorkOrderCompleted = "wam.workorder.completed"

@@ -18,7 +18,7 @@ import (
 // `location` is never scanned directly (it has no Go field) -- it is only read
 // back through ST_X/ST_Y aliased to the scanonly Longitude/Latitude fields, the
 // same split api/internal/territory uses for its boundary geometry.
-const troubleCallColumns = "id, service_point_id, address, reported_at, caller_ref, call_type, status, incident_id, notes, created_at, updated_at"
+const troubleCallColumns = "id, service_point_id, address, reported_at, caller_ref, account_ref, phone, call_type, status, incident_id, notes, created_at, updated_at"
 
 func selectTroubleCalls(db bun.IDB, dst any) *bun.SelectQuery {
 	return db.NewSelect().Model(dst).
@@ -41,6 +41,8 @@ type CreateCallParams struct {
 	Latitude       *float64
 	ReportedAt     *time.Time
 	CallerRef      *string
+	AccountRef     *string
+	Phone          *string
 	CallType       string
 	Notes          *string
 }
@@ -96,6 +98,12 @@ func CreateTroubleCall(ctx context.Context, db bun.IDB, p CreateCallParams) (*Tr
 	}
 	if p.CallerRef != nil {
 		add("caller_ref", "?", strings.TrimSpace(*p.CallerRef))
+	}
+	if p.AccountRef != nil && strings.TrimSpace(*p.AccountRef) != "" {
+		add("account_ref", "?", strings.TrimSpace(*p.AccountRef))
+	}
+	if p.Phone != nil && strings.TrimSpace(*p.Phone) != "" {
+		add("phone", "?", strings.TrimSpace(*p.Phone))
 	}
 	if p.Notes != nil {
 		add("notes", "?", *p.Notes)
@@ -757,6 +765,68 @@ func RecordLastGasp(ctx context.Context, db bun.IDB, servicePointID string, occu
 	})
 }
 
+// CustomerReportParams is one customer outage report filed by an external IVR/CIS
+// (blocker #5). CallerRef is the CIS's own report/ticket id and is REQUIRED — it is
+// the idempotency key (a re-delivered report with the same ref returns the existing
+// open call rather than piling up duplicates). A locator is required like any call:
+// a service point, an address, or a lat/lng. AccountRef/Phone carry the caller's
+// CIS premise id and callback number through to the restoration callback queue.
+type CustomerReportParams struct {
+	ServicePointID *string
+	Address        *string
+	Longitude      *float64
+	Latitude       *float64
+	CallerRef      string
+	AccountRef     *string
+	Phone          *string
+	CallType       string
+	ReportedAt     *time.Time
+	Notes          *string
+}
+
+// RecordCustomerReport logs a customer outage report that arrived through an
+// external IVR / CIS as a trouble call, carrying the caller's premise id and
+// callback number — the human-report counterpart to RecordLastGasp (AMI). It feeds
+// the same intake/prediction pipeline an operator-logged call does. Idempotent on
+// the CIS report id (caller_ref): a re-delivered report returns the standing open
+// call rather than duplicating it.
+func RecordCustomerReport(ctx context.Context, db bun.IDB, p CustomerReportParams) (*TroubleCall, error) {
+	ref := strings.TrimSpace(p.CallerRef)
+	if ref == "" {
+		return nil, invalidf("a customer report needs a caller_ref (the CIS report id, used as the idempotency key)")
+	}
+
+	// Idempotent re-delivery: an open call already standing for this report id is
+	// returned as-is (the CIS retried); a cleared/cancelled one does not block a
+	// fresh report reusing the ref after a later outage.
+	existing := new(TroubleCall)
+	err := selectTroubleCalls(db, existing).
+		Where("caller_ref = ?", ref).
+		Where("status = ?", CallStatusOpen).
+		Order("reported_at DESC").
+		Limit(1).
+		Scan(ctx)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("oms: checking for an open customer report: %w", err)
+	}
+
+	return CreateTroubleCall(ctx, db, CreateCallParams{
+		ServicePointID: p.ServicePointID,
+		Address:        p.Address,
+		Longitude:      p.Longitude,
+		Latitude:       p.Latitude,
+		ReportedAt:     p.ReportedAt,
+		CallerRef:      &ref,
+		AccountRef:     p.AccountRef,
+		Phone:          p.Phone,
+		CallType:       p.CallType,
+		Notes:          p.Notes,
+	})
+}
+
 // ConfirmIncident advances an incident to confirmed and materialises the
 // per-supply customer_interruptions the reliability indices sum over: it
 // re-traces the blamed/chosen device's downstream supplies (SERVICE_POINTs and
@@ -1180,6 +1250,18 @@ func RestoreIncident(ctx context.Context, db *bun.DB, id string) (*Incident, err
 		}
 		if err := recordEvent(ctx, tx, EntityIncident, id, EventIncidentRestoredE, nil); err != nil {
 			return err
+		}
+		// Blocker #5: enqueue a "supply is back" callback per affected supply, and
+		// signal the external CIS/IVR that callbacks are waiting (only when some were
+		// enqueued -- an incident with no frozen interruptions notifies no one).
+		n, err := enqueueRestorationCallbacks(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			if err := emitCallbackDue(ctx, tx, id, n); err != nil {
+				return err
+			}
 		}
 		return webhookout.Emit(ctx, tx, webhookout.EventIncidentRestored, webhookout.KindIncident, out.ID, out)
 	})

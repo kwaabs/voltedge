@@ -10,6 +10,8 @@ import '../api/fieldsync_client.dart';
 import '../api/models.dart';
 import '../attach/attachment_capture.dart';
 import '../edit/edit_database.dart';
+import '../geo/field_track_recorder.dart';
+import '../geo/gnss_sample.dart';
 import '../geo/location_service.dart';
 import '../pack/pack_database.dart';
 import '../pack/pack_store.dart';
@@ -49,6 +51,11 @@ class _WamScreenState extends ConsumerState<WamScreen>
   bool _syncing = false;
   late final TabController _tabs;
 
+  /// Feeds the shared field-track recorder the live GNSS stream so WAM captures
+  /// made on this screen are stamped with where the worker was (field breadcrumb
+  /// audit trail, migration 0178). Foreground-only — closed in dispose.
+  ProviderSubscription<AsyncValue<GnssSample>>? _recorderSub;
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +72,18 @@ class _WamScreenState extends ConsumerState<WamScreen>
         widget.pack.dataPath,
         p.join(widget.pack.dir, 'edits.sqlite'),
       )..addListener(_onChanged);
+      // Stamp WAM captures with the worker's position: a recorder on the shared
+      // field session feeds store.actorLocation (no breadcrumb sink here — the trail
+      // itself is recorded on the map screen; this only supplies the edit stamp).
+      final recorder = FieldTrackRecorder(sessionId: ref.read(fieldSessionIdProvider));
+      store.actorLocation = recorder.actorLocation;
+      _recorderSub = ref.listenManual<AsyncValue<GnssSample>>(
+        gnssStreamProvider,
+        (prev, next) {
+          final sample = next.valueOrNull;
+          if (sample != null) recorder.onSample(sample);
+        },
+      );
       setState(() => _store = store);
       // Reconcile any ops left in flight from a prior session so a returning crew
       // sees applied/rejected without a manual sync. Fire-and-forget.
@@ -81,6 +100,7 @@ class _WamScreenState extends ConsumerState<WamScreen>
   @override
   void dispose() {
     _tabs.dispose();
+    _recorderSub?.close();
     _store?.removeListener(_onChanged);
     _store?.dispose();
     super.dispose();

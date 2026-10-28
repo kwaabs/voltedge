@@ -84,6 +84,11 @@ type TroubleCall struct {
 	Latitude       *float64  `bun:"latitude,scanonly" json:"latitude"`
 	ReportedAt     time.Time `bun:"reported_at" json:"reported_at"`
 	CallerRef      *string   `bun:"caller_ref" json:"caller_ref"`
+	// AccountRef / Phone carry the caller's CIS premise id and callback number when
+	// an IVR/CIS customer_report filed the call (0179); null for an operator-logged
+	// call, AMI last-gasp, or a map click. The CIS owns the customer model.
+	AccountRef     *string   `bun:"account_ref" json:"account_ref"`
+	Phone          *string   `bun:"phone" json:"phone"`
 	CallType       string    `bun:"call_type" json:"call_type"`
 	Status         string    `bun:"status" json:"status"`
 	IncidentID     *string   `bun:"incident_id" json:"incident_id"`

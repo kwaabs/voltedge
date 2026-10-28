@@ -5,7 +5,7 @@ package webhook
 // outage can appear on the board from telemetry instead of waiting for a customer
 // to ring in. It is the field counterpart to call-driven prediction.
 //
-// One target, two `kind`s:
+// One target, three `kind`s:
 //   - "device_trip": a protective device reported tripped/locked out. Raises (or
 //     returns the already-open) incident blamed on that device, freezing its
 //     downstream supplies as interruptions -- oms.RaiseIncidentFromDevice, which
@@ -15,6 +15,12 @@ package webhook
 //     for its service point (oms.RecordLastGasp) -- ground truth that THIS supply
 //     is dark, feeding the same intake pipeline a human call does. Deduped on an
 //     open AMI call per SP so retransmits don't pile up.
+//   - "customer_report" (IVR/CIS, blocker #5): a customer outage report filed
+//     through an external automated phone system / customer-information system.
+//     Logs a trouble call (oms.RecordCustomerReport) carrying the caller's premise
+//     id and callback number, so the restoration callback queue can reach them.
+//     Idempotent on the CIS report id (caller_ref), defaulting to the event's
+//     external_id. The human-report counterpart to last_gasp (AMI).
 //
 // Device / service point correlation mirrors the operation adapter: direct refs
 // (device_class+device_id / service_point_id) win; otherwise an external id
@@ -55,6 +61,18 @@ type outageChange struct {
 	// last_gasp: the dark service point, direct or by external id.
 	ServicePointID         string `json:"service_point_id"`
 	ServicePointExternalID string `json:"service_point_external_id"`
+
+	// customer_report (IVR/CIS): a customer outage report. Locator is a service
+	// point (direct/external) OR an address OR a lat/lng. caller_ref is the CIS's
+	// own report id (idempotency key); account_ref / phone carry the premise id and
+	// callback number; call_type is no_supply (default) / partial / flicker.
+	CallerRef  string   `json:"caller_ref"`
+	AccountRef string   `json:"account_ref"`
+	Phone      string   `json:"phone"`
+	Address    string   `json:"address"`
+	Longitude  *float64 `json:"longitude"`
+	Latitude   *float64 `json:"latitude"`
+	CallType   string   `json:"call_type"`
 }
 
 type outageAdapter struct{}
@@ -106,8 +124,39 @@ func (outageAdapter) apply(ctx context.Context, tx bun.IDB, ep *Endpoint, raw js
 		}
 		return itemResult{Op: "create", ExternalID: externalID, Target: "outage", EntityID: call.ID}, nil
 
+	case "customer_report", "ivr", "cis", "customer_call":
+		// A customer outage report filed through an external IVR/CIS. Resolve the
+		// service point when one is named (direct or by external id); otherwise the
+		// address / lat-lng locator carries it (RecordCustomerReport enforces that at
+		// least one locator is present). caller_ref defaults to the event's
+		// external_id so a sender that doesn't repeat it still gets idempotency.
+		var spRef *string
+		if strings.TrimSpace(ch.ServicePointID) != "" || strings.TrimSpace(ch.ServicePointExternalID) != "" {
+			_, spID, err := resolveFeatureRef(ctx, tx, systemCode, "", ch.ServicePointID, ch.ServicePointExternalID, "service point")
+			if err != nil {
+				return itemResult{}, err
+			}
+			spRef = &spID
+		}
+		callerRef := defaulted(strings.TrimSpace(ch.CallerRef), externalID)
+		call, err := oms.RecordCustomerReport(ctx, tx, oms.CustomerReportParams{
+			ServicePointID: spRef,
+			Address:        trimToPtr(ch.Address),
+			Longitude:      ch.Longitude,
+			Latitude:       ch.Latitude,
+			CallerRef:      callerRef,
+			AccountRef:     trimToPtr(ch.AccountRef),
+			Phone:          trimToPtr(ch.Phone),
+			CallType:       strings.TrimSpace(ch.CallType),
+			ReportedAt:     ch.OccurredAt,
+		})
+		if err != nil {
+			return itemResult{}, mapOMSError(err)
+		}
+		return itemResult{Op: "create", ExternalID: externalID, Target: "outage", EntityID: call.ID}, nil
+
 	default:
-		return itemResult{}, invalid("outage change %q: unknown kind %q (want device_trip or last_gasp)", externalID, ch.Kind)
+		return itemResult{}, invalid("outage change %q: unknown kind %q (want device_trip, last_gasp or customer_report)", externalID, ch.Kind)
 	}
 }
 
@@ -147,6 +196,17 @@ func resolveFeatureRef(ctx context.Context, tx bun.IDB, systemCode, directClass,
 		return "", "", fmt.Errorf("webhook: %s external-ref lookup: %w", label, err)
 	}
 	return resolved.FeatureClassCode, resolved.FeatureID, nil
+}
+
+// trimToPtr returns a trimmed *string, or nil when the input is blank -- so an
+// absent optional field (address / account_ref / phone) is passed as nil, not an
+// empty string the intake would treat as present.
+func trimToPtr(s string) *string {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return nil
+	}
+	return &t
 }
 
 // mapOMSError surfaces an oms client-fixable error (e.g. an unknown device or
