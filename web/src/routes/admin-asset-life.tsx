@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
+const AGING_PAGE_SIZE = 15
 
 function toastError(err: unknown, fallback: string) {
   useToastStore.getState().pushError(err instanceof ApiError ? err.message : fallback)
@@ -41,8 +42,16 @@ function BucketBadge({ bucket }: { bucket: AgingItem["bucket"] }) {
 
 function AgingReportCard({ classNameByCode }: { classNameByCode: Record<string, string> }) {
   const [dueWithin, setDueWithin] = useState("2")
+  const [page, setPage] = useState(0)
   const report = useAgingReport(undefined, Number(dueWithin) || 0)
   const data = report.data
+
+  // Client-side pagination over the already worst-first (server-capped at 1000)
+  // list, so the card stays a fixed, scannable height instead of a long table.
+  const items = data?.items ?? []
+  const pageCount = Math.max(1, Math.ceil(items.length / AGING_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const pageItems = items.slice(safePage * AGING_PAGE_SIZE, safePage * AGING_PAGE_SIZE + AGING_PAGE_SIZE)
 
   return (
     <Card>
@@ -50,7 +59,7 @@ function AgingReportCard({ classNameByCode }: { classNameByCode: Record<string, 
         <div className="flex flex-col gap-1">
           <CardTitle className="text-base">Aging report</CardTitle>
           <CardDescription>
-            In-service assets ranked by remaining useful life. Only classes with a catalog entry (below) are assessed.
+            In-service assets ranked by remaining useful life. Only classes with a catalog entry (above) are assessed.
           </CardDescription>
         </div>
         <div className="flex flex-col gap-1">
@@ -61,7 +70,10 @@ function AgingReportCard({ classNameByCode }: { classNameByCode: Record<string, 
             min={0}
             step="0.5"
             value={dueWithin}
-            onChange={(e) => setDueWithin(e.target.value)}
+            onChange={(e) => {
+              setDueWithin(e.target.value)
+              setPage(0)
+            }}
           />
         </div>
       </CardHeader>
@@ -105,7 +117,7 @@ function AgingReportCard({ classNameByCode }: { classNameByCode: Record<string, 
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map((it) => (
+                  {pageItems.map((it) => (
                     <tr key={`${it.feature_class}:${it.feature_id}`} className="border-t">
                       <td className="px-2 py-1.5">
                         <div className="font-medium">{it.name ?? it.feature_id.slice(0, 8)}</div>
@@ -132,6 +144,30 @@ function AgingReportCard({ classNameByCode }: { classNameByCode: Record<string, 
                 </tbody>
               </table>
             </div>
+            {items.length > AGING_PAGE_SIZE && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  Showing {safePage * AGING_PAGE_SIZE + 1}–{Math.min((safePage + 1) * AGING_PAGE_SIZE, items.length)} of{" "}
+                  {items.length}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+                    Previous
+                  </Button>
+                  <span className="text-muted-foreground">
+                    Page {safePage + 1} of {pageCount}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage >= pageCount - 1}
+                    onClick={() => setPage(safePage + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
             {data.truncated && (
               <p className="text-muted-foreground text-xs">
                 Showing the worst {data.items.length}; narrow by adding fewer classes to the catalog or tightening the
@@ -263,19 +299,17 @@ export function AdminAssetLifePage() {
     code == null ? "Class default" : (schema?.subtypes.find((s) => s.code === code)?.name ?? `#${code}`)
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4">
+    <div className="flex h-full w-full flex-col gap-4 overflow-y-auto p-4">
       <div>
         <h1 className="flex items-center gap-2 text-lg font-semibold">
           <CalendarClock className="size-5" /> Asset lifecycle
         </h1>
         <p className="text-muted-foreground text-sm">
           Track how close each in-service asset is to the end of its expected life, and plan replacements. The report
-          reads each feature's lifecycle status and commission date; the catalog below says how long each class should
+          reads each feature's lifecycle status and commission date; the catalog says how long each class should
           last.
         </p>
       </div>
-
-      <AgingReportCard classNameByCode={classNameByCode} />
 
       <Card>
         <CardHeader className="flex flex-row items-end justify-between gap-2">
@@ -349,6 +383,8 @@ export function AdminAssetLifePage() {
           </CardContent>
         )}
       </Card>
+
+      <AgingReportCard classNameByCode={classNameByCode} />
 
       {dialog && featureClass && (
         <ExpectancyDialog
