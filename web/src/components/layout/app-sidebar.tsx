@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Database, FileUp, Map, QrCode, Route, Siren, Wrench, Zap, ZapOff } from "lucide-react"
+import { Activity, BookOpen, Database, FileUp, type LucideIcon, Map, QrCode, Route, Siren, Wrench, Zap, ZapOff } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
@@ -22,15 +22,36 @@ import { usePermission } from "@/hooks/use-auth"
  * primary GIS canvas), grouped separately and visually demoted rather
  * than competing with it. See docs/phase-3-map-loop.md's IA notes.
  */
-const dataItems = [
+/** A Data nav entry. `perm` is the single gate; `anyPerm` (if set) shows the entry
+ * when the user holds ANY of the listed permissions; `match` (if set) are the path
+ * prefixes that mark it active (for an umbrella entry spanning more than one
+ * route). */
+interface NavItem {
+  to: string
+  label: string
+  icon: LucideIcon
+  perm: string
+  anyPerm?: string[]
+  match?: string[]
+}
+
+const dataItems: NavItem[] = [
   { to: "/features", label: "Feature classes", icon: Database, perm: "features:read" },
   { to: "/imports", label: "Import data", icon: FileUp, perm: "features:write" },
   { to: "/outages", label: "Outage Management", icon: Siren, perm: "oms:read" },
   { to: "/faults", label: "Faults", icon: ZapOff, perm: "faults:read" },
   // Operations is the umbrella for the device surface: its page carries both the
-  // operation log and the Live state (telemetry) tab, so there's no separate
-  // Live State nav entry.
-  { to: "/operations", label: "Operations", icon: Activity, perm: "operations:read" },
+  // operation log and the Live state (telemetry) tab, so there's no separate Live
+  // State entry. Visible to anyone with either permission; a telemetry-only user
+  // (no operations:read) is routed to the Live state tab instead of the 403'd log.
+  {
+    to: "/operations",
+    label: "Operations",
+    icon: Activity,
+    perm: "operations:read",
+    anyPerm: ["operations:read", "telemetry:read"],
+    match: ["/operations", "/live-state"],
+  },
   { to: "/works", label: "Works", icon: Wrench, perm: "wam:read" },
   { to: "/field-tracks", label: "Field trails", icon: Route, perm: "field:tracks:read" },
   { to: "/t", label: "Resolve tag", icon: QrCode, perm: "tags:read" },
@@ -44,7 +65,14 @@ export function AppSidebar() {
   // Only surface a link the caller could actually use -- Slice C would 403
   // the rest, so hiding them keeps the nav honest rather than offering dead
   // ends. The API remains the real gate; this just mirrors it.
-  const visibleData = dataItems.filter((item) => can(item.perm))
+  const visibleData = dataItems
+    .filter((item) => (item.anyPerm ? item.anyPerm.some((p) => can(p)) : can(item.perm)))
+    // A telemetry-only user reaches the Operations umbrella via its Live state tab.
+    .map((item) =>
+      item.to === "/operations" && !can("operations:read") && can("telemetry:read")
+        ? { ...item, to: "/live-state" }
+        : item,
+    )
   // The admin menu now lives on its own /admin landing page (it had grown to
   // fifteen entries -- too many for the sidebar). Show the single entry point
   // whenever the caller can reach at least one admin destination.
@@ -85,7 +113,7 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {visibleData.map((item) => {
-                  const isActive = pathname.startsWith(item.to)
+                  const isActive = (item.match ?? [item.to]).some((p) => pathname.startsWith(p))
                   return (
                     <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>

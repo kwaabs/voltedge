@@ -22,7 +22,7 @@ export function OperationsTabs() {
   if (tabs.length < 2) return null
 
   return (
-    <div className="flex shrink-0 gap-1 border-b">
+    <div className="bg-background sticky top-0 z-10 flex shrink-0 gap-1 border-b">
       {tabs.map((t) => {
         const active = pathname === t.to || pathname.startsWith(`${t.to}/`)
         const Icon = t.icon
