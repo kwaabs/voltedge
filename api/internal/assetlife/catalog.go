@@ -76,7 +76,9 @@ func CreateExpectancy(ctx context.Context, db bun.IDB, p ExpectancyParams) (*Lif
 		ExpectedYears:    p.ExpectedYears,
 		Notes:            p.Notes,
 	}
-	if _, err := db.NewInsert().Model(row).Returning("*").Exec(ctx); err != nil {
+	// ExcludeColumn("id") so the zero-value pk isn't sent as "" to the uuid column
+	// (invalid input syntax 22P02); the DB default gen_random_uuid() fills it.
+	if _, err := db.NewInsert().Model(row).ExcludeColumn("id").Returning("*").Exec(ctx); err != nil {
 		return nil, fmt.Errorf("assetlife: creating expectancy: %w", err)
 	}
 	return row, nil
