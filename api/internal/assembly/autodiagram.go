@@ -3,12 +3,75 @@ package assembly
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 )
+
+// KitDiagramPreviewElement is one positioned entry of a kit's single-line TEMPLATE,
+// trimmed to what the editor preview renders (kind + position + size + a label).
+// It is the stored template skeleton, NOT a generated per-component diagram -- a
+// "which single-line does this kit produce" picture, bound to no real features.
+type KitDiagramPreviewElement struct {
+	Kind      string   `json:"kind"`
+	X         float64  `json:"x"`
+	Y         float64  `json:"y"`
+	Width     *float64 `json:"width,omitempty"`
+	Height    *float64 `json:"height,omitempty"`
+	Text      *string  `json:"text,omitempty"`
+	SlotClass *string  `json:"slot_class,omitempty"`
+}
+
+// KitDiagramPreview is the resolved single-line template for a kit: its name (empty
+// when the kit generates no single-line) and the template's positioned elements.
+type KitDiagramPreview struct {
+	TemplateName string                     `json:"template_name"`
+	Elements     []KitDiagramPreviewElement `json:"elements"`
+}
+
+// KitDiagramPreviewFor resolves the single-line template a kit maps to and returns
+// its skeleton for the editor preview (#2-light). An explicit name (the editor's
+// own diagram-template field, when set) wins; otherwise it resolves by (anchor
+// class, config) exactly like buildAutoDiagram does on placement. A linked-but-
+// missing template, or a kit with no template at all, returns an empty element list
+// (the name alone still tells the author what will be generated).
+func KitDiagramPreviewFor(ctx context.Context, db *bun.DB, anchorClass, config, explicitName string) (*KitDiagramPreview, error) {
+	name := strings.TrimSpace(explicitName)
+	if name == "" {
+		resolved, err := kitDiagramTemplateName(ctx, db, anchorClass, config)
+		if err != nil {
+			return nil, err
+		}
+		name = resolved
+	}
+	out := &KitDiagramPreview{TemplateName: name, Elements: []KitDiagramPreviewElement{}}
+	if name == "" {
+		return out, nil
+	}
+	var payload []byte
+	err := db.QueryRowContext(ctx,
+		`SELECT payload FROM runtime.diagram_templates WHERE name = ? ORDER BY created_at DESC LIMIT 1`, name).Scan(&payload)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return out, nil // name linked but template row gone -- still report the name
+	case err != nil:
+		return nil, err
+	}
+	var p struct {
+		Elements []KitDiagramPreviewElement `json:"elements"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+	if p.Elements != nil {
+		out.Elements = p.Elements
+	}
+	return out, nil
+}
 
 // kitDiagramTemplateName resolves which runtime.diagram_templates row backs a kit's
 // single-line. The link is DATA-DRIVEN (migration 0163): it reads

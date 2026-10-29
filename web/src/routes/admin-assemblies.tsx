@@ -1,5 +1,5 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react"
-import { ArrowDown, ArrowUp, Loader2, Package, Plus, Trash2 } from "lucide-react"
+import { type PointerEvent as RPointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { ArrowDown, ArrowUp, Loader2, Maximize2, Package, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ApiError } from "@/lib/api"
@@ -9,11 +9,13 @@ import { useToastStore } from "@/stores/toast-store"
 import {
   type Kit,
   type KitComponent,
+  type KitDiagramPreviewElement,
   type KitInput,
   type KitValidation,
   useAssemblyKit,
   useAssemblyKits,
   useDeleteAssemblyKit,
+  useKitDiagramPreview,
   useSaveAssemblyKit,
   useValidateAssemblyKit,
 } from "@/hooks/use-assemblies"
@@ -331,6 +333,9 @@ function shortLabel(s: string): string {
  * the anchor, matching what the field means.
  */
 function AssemblyPreview({ draft }: { draft: Draft }) {
+  const [view, setView] = useState({ zoom: 1, x: 0, y: 0 })
+  const drag = useRef<{ x: number; y: number; px: number; py: number; kx: number; ky: number } | null>(null)
+
   // Index == position: node 0 is the anchor, node k is component k-1.
   const nodes = [
     { label: draft.anchor_feature_class || "anchor", x: 0, y: 0, isAnchor: true },
@@ -373,20 +378,85 @@ function AssemblyPreview({ draft }: { draft: Draft }) {
     add(c.support_parent_position, "support")
   })
 
+  // Zoom keeps the anchor point fixed; the buttons anchor on the centre, so the
+  // schematic grows/shrinks in place. Drag pans. Reset returns to the auto-fit.
+  function zoomAt(factor: number, ax: number, ay: number) {
+    setView((v) => {
+      const z = Math.max(0.3, Math.min(6, v.zoom * factor))
+      const k = z / v.zoom
+      return { zoom: z, x: ax - k * (ax - v.x), y: ay - k * (ay - v.y) }
+    })
+  }
+  function onDown(e: RPointerEvent<SVGSVGElement>) {
+    const r = e.currentTarget.getBoundingClientRect()
+    drag.current = { x: e.clientX, y: e.clientY, px: view.x, py: view.y, kx: W / r.width, ky: H / r.height }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  function onMove(e: RPointerEvent<SVGSVGElement>) {
+    const d = drag.current
+    if (!d) return
+    setView((v) => ({ ...v, x: d.px + (e.clientX - d.x) * d.kx, y: d.py + (e.clientY - d.y) * d.ky }))
+  }
+  function onUp(e: RPointerEvent<SVGSVGElement>) {
+    drag.current = null
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      // the capture may already be released
+    }
+  }
+
   return (
     <div className="bg-card rounded-lg border p-3">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Preview</h3>
-        <div className="text-muted-foreground flex items-center gap-3 text-[10px]">
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-0.5 w-4 bg-blue-500" /> wire
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="border-muted-foreground inline-block w-4 border-t border-dashed" /> support
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="text-muted-foreground flex items-center gap-3 text-[10px]">
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-0.5 w-4 bg-blue-500" /> wire
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="border-muted-foreground inline-block w-4 border-t border-dashed" /> support
+            </span>
+          </div>
+          <div className="text-muted-foreground flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => zoomAt(1 / 1.25, W / 2, H / 2)}
+              className="hover:bg-accent rounded p-1"
+              title="Zoom out"
+            >
+              <ZoomOut className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => zoomAt(1.25, W / 2, H / 2)}
+              className="hover:bg-accent rounded p-1"
+              title="Zoom in"
+            >
+              <ZoomIn className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setView({ zoom: 1, x: 0, y: 0 })}
+              className="hover:bg-accent rounded p-1"
+              title="Reset view"
+            >
+              <Maximize2 className="size-3.5" />
+            </button>
+          </div>
         </div>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-56 w-full" preserveAspectRatio="xMidYMid meet">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="h-56 w-full cursor-grab touch-none select-none active:cursor-grabbing"
+        preserveAspectRatio="xMidYMid meet"
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerLeave={onUp}
+      >
+        <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
         {edges.map((e, i) => (
           <line
             key={i}
@@ -397,6 +467,7 @@ function AssemblyPreview({ draft }: { draft: Draft }) {
             className={e.kind === "wire" ? "stroke-blue-500" : "stroke-muted-foreground"}
             strokeWidth={1.5}
             strokeDasharray={e.kind === "support" ? "4 3" : undefined}
+            vectorEffect="non-scaling-stroke"
           />
         ))}
         {nodes.map((n, i) => {
@@ -414,6 +485,7 @@ function AssemblyPreview({ draft }: { draft: Draft }) {
                 rx={5}
                 className={n.isAnchor ? "fill-primary/15 stroke-primary" : "fill-muted stroke-border"}
                 strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
               />
               <text x={cx} y={cy + 3.5} textAnchor="middle" className="fill-foreground text-[9px] font-medium">
                 {shortLabel(n.label)}
@@ -435,7 +507,127 @@ function AssemblyPreview({ draft }: { draft: Draft }) {
             </g>
           )
         })}
+        </g>
       </svg>
+    </div>
+  )
+}
+
+/** A faithful render of the single-line TEMPLATE's skeleton (slots + annotations
+ * at their stored positions). Diagram coords are y-down (unlike the kit-offset
+ * schematic), so it's drawn as-is. Lines/buses (path-based) are omitted in this
+ * light preview — it shows where the generated single-line puts each slot. */
+function TemplateSkeleton({ elements }: { elements: KitDiagramPreviewElement[] }) {
+  const pts: { x: number; y: number }[] = []
+  elements.forEach((e) => {
+    const w = e.width ?? 60
+    const h = e.height ?? 24
+    pts.push({ x: e.x, y: e.y }, { x: e.x + w, y: e.y + h })
+  })
+  const xs = pts.map((p) => p.x)
+  const ys = pts.map((p) => p.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const spanX = maxX - minX || 1
+  const spanY = maxY - minY || 1
+  const W = 320
+  const H = 200
+  const pad = 16
+  const scale = Math.min((W - 2 * pad) / spanX, (H - 2 * pad) / spanY)
+  const ox = pad + (W - 2 * pad - spanX * scale) / 2
+  const oy = pad + (H - 2 * pad - spanY * scale) / 2
+  const sx = (x: number) => ox + (x - minX) * scale
+  const sy = (y: number) => oy + (y - minY) * scale
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 h-48 w-full" preserveAspectRatio="xMidYMid meet">
+      {elements.map((e, i) => {
+        const x = sx(e.x)
+        const y = sy(e.y)
+        const w = (e.width ?? 60) * scale
+        const h = (e.height ?? 24) * scale
+        if (e.kind === "slot") {
+          return (
+            <g key={i}>
+              <rect
+                x={x}
+                y={y}
+                width={w}
+                height={h}
+                rx={3}
+                className="fill-primary/10 stroke-primary"
+                strokeWidth={1}
+                strokeDasharray="3 2"
+                vectorEffect="non-scaling-stroke"
+              />
+              <text x={x + w / 2} y={y + h / 2 + 3} textAnchor="middle" className="fill-foreground text-[8px]">
+                {shortLabel(e.slot_class ?? "slot")}
+              </text>
+            </g>
+          )
+        }
+        if (e.kind === "text" && e.text) {
+          return (
+            <text key={i} x={x} y={y} className="fill-muted-foreground text-[8px]">
+              {e.text}
+            </text>
+          )
+        }
+        if (e.kind === "box") {
+          return (
+            <rect
+              key={i}
+              x={x}
+              y={y}
+              width={w}
+              height={h}
+              className="fill-none stroke-border"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          )
+        }
+        return <circle key={i} cx={x} cy={y} r={2.5} className="fill-muted-foreground" />
+      })}
+    </svg>
+  )
+}
+
+/** #2-light: which single-line this kit generates, resolved live from (anchor,
+ * code) or the explicit template field, with a render of that template's layout.
+ * Distinct from the kit-offset schematic above — this is the REAL template the
+ * placement auto-diagram uses, not a per-component synthesis. */
+function GeneratedSingleLinePreview({ draft }: { draft: Draft }) {
+  const preview = useKitDiagramPreview(draft.anchor_feature_class, draft.code, draft.diagram_template_name)
+  if (!draft.anchor_feature_class) return null
+
+  const name = preview.data?.template_name ?? ""
+  const elements = preview.data?.elements ?? []
+
+  return (
+    <div className="bg-card mt-3 rounded-lg border p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Generated single-line</h3>
+        {preview.isFetching && <Loader2 className="text-muted-foreground size-3.5 animate-spin" />}
+      </div>
+      {preview.isError ? (
+        <p className="text-destructive text-xs">Couldn't resolve the single-line template.</p>
+      ) : !name ? (
+        <p className="text-muted-foreground text-xs">
+          No single-line is generated for this anchor / code. Set a template above, or this kit places without a
+          diagram.
+        </p>
+      ) : (
+        <>
+          <p className="text-xs">
+            Auto-generates <span className="font-medium">{name}</span>
+            {elements.length > 0 && <span className="text-muted-foreground"> · {elements.length} elements</span>}
+          </p>
+          {elements.length > 0 && <TemplateSkeleton elements={elements} />}
+        </>
+      )}
     </div>
   )
 }
@@ -502,6 +694,8 @@ function KitEditor({
           />
         </Field>
       </div>
+
+      <GeneratedSingleLinePreview draft={draft} />
 
       <div className="mt-6 flex items-center justify-between">
         <h2 className="text-sm font-semibold tracking-wide uppercase">Components (in creation order)</h2>

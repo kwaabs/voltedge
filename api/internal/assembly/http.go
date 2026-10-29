@@ -40,6 +40,9 @@ func Routes(db *bun.DB) chi.Router {
 	// These add their gate ON TOP of the mount's features:read/write, which every
 	// authoring role already holds.
 	r.With(auth.RequirePermission(auth.PermAssembliesRead, auth.PermAssembliesRead)).Get("/templates", listKitsHandler(db))
+	// The single-line template a kit maps to, for the editor preview (#2-light).
+	// Static segment, so chi matches it ahead of /templates/{id}.
+	r.With(auth.RequirePermission(auth.PermAssembliesRead, auth.PermAssembliesRead)).Get("/templates/diagram-preview", kitDiagramPreviewHandler(db))
 	r.With(auth.RequirePermission(auth.PermAssembliesRead, auth.PermAssembliesRead)).Get("/templates/{id}", getKitHandler(db))
 	r.With(auth.RequirePermission(auth.PermAssembliesWrite, auth.PermAssembliesWrite)).Post("/templates", createKitHandler(db))
 	r.With(auth.RequirePermission(auth.PermAssembliesWrite, auth.PermAssembliesWrite)).Post("/templates/validate", validateKitHandler(db))
@@ -112,6 +115,21 @@ func deleteKitHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// kitDiagramPreviewHandler resolves a kit's single-line template and returns its
+// skeleton for the editor preview. Query: anchor (class), code (config), and an
+// optional name (the editor's explicit diagram-template field, when set).
+func kitDiagramPreviewHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		preview, err := KitDiagramPreviewFor(r.Context(), db, q.Get("anchor"), q.Get("code"), q.Get("name"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, preview)
 	}
 }
 

@@ -121,6 +121,42 @@ export function useAssemblyKit(id: string | null) {
   })
 }
 
+/** One positioned element of a kit's single-line TEMPLATE (mirrors
+ * assembly.KitDiagramPreviewElement) -- the stored skeleton, not a generated
+ * diagram. */
+export interface KitDiagramPreviewElement {
+  kind: string
+  x: number
+  y: number
+  width?: number
+  height?: number
+  text?: string
+  slot_class?: string
+}
+
+/** The single-line template a kit maps to (GET /assemblies/templates/diagram-preview).
+ * template_name is "" when the kit generates no single-line. */
+export interface KitDiagramPreview {
+  template_name: string
+  elements: KitDiagramPreviewElement[]
+}
+
+/** Resolve the single-line template for a draft kit (#2-light editor preview): an
+ * explicit name wins, else it resolves by (anchor class, code) as placement does.
+ * Enabled once an anchor class is chosen. */
+export function useKitDiagramPreview(anchor: string, code: string, name: string) {
+  const params = new URLSearchParams()
+  if (anchor) params.set("anchor", anchor)
+  if (code) params.set("code", code)
+  if (name) params.set("name", name)
+  return useQuery({
+    queryKey: ["assembly-kit-diagram-preview", anchor, code, name],
+    queryFn: () => apiFetch<KitDiagramPreview>(`/assemblies/templates/diagram-preview?${params.toString()}`),
+    enabled: Boolean(anchor),
+    staleTime: 30_000,
+  })
+}
+
 /** Create (no id) or update (id) a kit. Invalidates the list and the single-kit
  * cache so the editor and the map's Assemblies menu both refresh. */
 export function useSaveAssemblyKit() {
