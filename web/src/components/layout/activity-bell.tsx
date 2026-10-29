@@ -4,7 +4,7 @@ import { useNavigate } from "react-router"
 
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { useMyOpenWorkOrders } from "@/hooks/use-activity"
+import { useAssignmentStream, useMyOpenWorkOrders } from "@/hooks/use-activity"
 import { usePermission } from "@/hooks/use-auth"
 import { useExpiringEasements, useVegetationTrimDue } from "@/hooks/use-spatial"
 import type { WorkOrder } from "@/hooks/use-wam"
@@ -111,6 +111,9 @@ export function ActivityBell() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
 
+  // Live push: refresh the bell/board the instant a job is assigned to this user
+  // (the poll below stays as the fallback).
+  useAssignmentStream(canReadWam)
   const workOrders = useMyOpenWorkOrders(canReadWam).data?.work_orders ?? []
   const easements = useExpiringEasements({ withinDays: DUE_WITHIN_DAYS, enabled: canReadFeatures }).data?.count ?? 0
   const trims = useVegetationTrimDue({ withinDays: DUE_WITHIN_DAYS, enabled: canReadFeatures }).data?.count ?? 0

@@ -10,8 +10,21 @@ import (
 
 	"github.com/uptrace/bun"
 
+	"github.com/kwaabs/voltedge/api/internal/events"
 	"github.com/kwaabs/voltedge/api/internal/webhookout"
 )
+
+// publishAssignment pushes a live "assigned to you" event to the order's assignee
+// (if it has one), so their activity bell / Works board update instantly instead
+// of on the next poll. Best-effort and non-blocking (see internal/events).
+func publishAssignment(o *WorkOrder) {
+	if o == nil || o.AssignedToUserID == nil {
+		return
+	}
+	if uid := strings.TrimSpace(*o.AssignedToUserID); uid != "" {
+		events.Publish(uid, "wam.assignment", map[string]any{"work_order_id": o.ID, "title": o.Title})
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Validation helpers -- each maps an out-of-set value to a client-fixable 400.
@@ -450,6 +463,7 @@ func CreateWorkOrder(ctx context.Context, db bun.IDB, p CreateWorkOrderParams) (
 	if err := webhookout.Emit(ctx, db, webhookout.EventWorkOrderCreated, webhookout.KindWorkOrder, o.ID, o); err != nil {
 		return nil, err
 	}
+	publishAssignment(o) // a new order created already assigned to a user
 	return o, nil
 }
 
@@ -653,6 +667,11 @@ func UpdateWorkOrder(ctx context.Context, db bun.IDB, id string, p UpdateWorkOrd
 	}
 	if err := webhookout.Emit(ctx, db, event, webhookout.KindWorkOrder, o.ID, o); err != nil {
 		return nil, err
+	}
+	// Only when THIS patch (re)assigned the order to a user -- not on an unrelated
+	// edit of an already-assigned order, which would re-notify the same person.
+	if p.AssignedToUserID != nil && strings.TrimSpace(*p.AssignedToUserID) != "" {
+		publishAssignment(o)
 	}
 	return o, nil
 }

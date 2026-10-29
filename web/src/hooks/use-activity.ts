@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
+import { useEffect } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
 import type { WorkOrder } from "@/hooks/use-wam"
@@ -60,6 +61,35 @@ export function useActivity(filter: ActivityFilter) {
 // tab is hidden, so a backgrounded tab isn't polling. True push (SSE) would
 // replace this timer with a NOTIFY-driven invalidation, not a rewrite.
 const POLL_MS = 20_000
+
+/**
+ * Subscribe to the server's live event stream (SSE, GET /api/events) and refresh
+ * the activity bell + Works board the instant a work order is assigned to the
+ * signed-in user — push, not the 20s poll, drives the common case. The poll stays
+ * as the fallback (a dropped stream, a logged-out gap, or — in a multi-replica
+ * deployment — an assignment made on another replica). Same-origin, so the session
+ * cookie authenticates it automatically; EventSource reconnects on its own. Gated
+ * to a user who can see work orders at all.
+ */
+export function useAssignmentStream(enabled: boolean) {
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!enabled) return
+    const es = new EventSource("/api/events")
+    es.onmessage = (e) => {
+      try {
+        const evt = JSON.parse(e.data) as { type?: string }
+        if (evt.type === "wam.assignment") {
+          queryClient.invalidateQueries({ queryKey: ["activity", "my-open-work-orders"] })
+          queryClient.invalidateQueries({ queryKey: ["wam"] })
+        }
+      } catch {
+        // ignore a malformed frame
+      }
+    }
+    return () => es.close()
+  }, [enabled, queryClient])
+}
 
 /** The signed-in user's OPEN work orders assigned to them, polled for the bell.
  * Reuses the WAM board endpoint with mine=true&open=true. */

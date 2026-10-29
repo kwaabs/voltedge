@@ -38,6 +38,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/coupler"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/deviceops"
+	"github.com/kwaabs/voltedge/api/internal/events"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 	"github.com/kwaabs/voltedge/api/internal/docs"
 	"github.com/kwaabs/voltedge/api/internal/drafts"
@@ -211,6 +212,12 @@ func main() {
 	// /healthz stays public -- container orchestration probes it with no
 	// session, and it exposes nothing but DB reachability.
 	r.Get("/healthz", healthzHandler(db))
+
+	// Live notifications (internal/events): a per-user Server-Sent-Events stream the
+	// web client subscribes to so an assigned work order lands on the activity bell
+	// instantly, not on the next poll. Behind the global SessionLoader; the handler
+	// 401s an anonymous request and only ever streams the caller's own events.
+	r.Get("/events", events.Handler())
 
 	// Inbound webhook receiver (0124, internal/webhook): the PUBLIC ingestion
 	// surface external systems push feature (later reading/work/fault) changes to.
