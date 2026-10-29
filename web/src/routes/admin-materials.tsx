@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { usePermission } from "@/hooks/use-auth"
 import { type AdminMaterialSpec, useAdminMaterialSpecs } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
@@ -196,12 +197,77 @@ function NumberFieldsGrid({ value, onChange }: { value: NumberFields; onChange: 
   )
 }
 
+const NEW_CATEGORY = "\u0000new-category"
+
+/** The Category picker: a dropdown of the categories already in the catalog, plus
+ * a "+ New category…" option that reveals a text input to add one deliberately.
+ * Keeps categories consistent (no typo/casing drift) while staying open-ended —
+ * matching the free-text-but-not-a-domain design of the column. Mounts fresh each
+ * time a dialog opens, so its add-mode seeds correctly from the current value. */
+function CategoryField({
+  value,
+  onChange,
+  categories,
+}: {
+  value: string
+  onChange: (v: string) => void
+  categories: string[]
+}) {
+  const [adding, setAdding] = useState(() => value.trim() !== "" && !categories.includes(value))
+  return (
+    <>
+      <select
+        className={inputClass}
+        value={adding ? NEW_CATEGORY : value}
+        onChange={(e) => {
+          if (e.target.value === NEW_CATEGORY) {
+            setAdding(true)
+            onChange("")
+          } else {
+            setAdding(false)
+            onChange(e.target.value)
+          }
+        }}
+      >
+        {!adding && value === "" && (
+          <option value="" disabled>
+            — select —
+          </option>
+        )}
+        {categories.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+        <option value={NEW_CATEGORY}>+ New category…</option>
+      </select>
+      {adding && (
+        <input
+          className={inputClass}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="New category name"
+          autoFocus
+        />
+      )}
+    </>
+  )
+}
+
 /** Edit an existing spec's own name/category/engineering numbers --
  * api/internal/admin's PATCH .../material-specs/{code}. Always safe:
  * nothing physical reads these columns directly, a domain value just
  * carries an id pointer to whichever row is here now (see
  * metadata.MaterialSpec's own doc comment). */
-function EditMaterialSpecRow({ spec, onDone }: { spec: AdminMaterialSpec; onDone: () => void }) {
+function EditMaterialSpecRow({
+  spec,
+  onDone,
+  categories,
+}: {
+  spec: AdminMaterialSpec
+  onDone: () => void
+  categories: string[]
+}) {
   const [name, setName] = useState(spec.name)
   const [category, setCategory] = useState(spec.category)
   const [numbers, setNumbers] = useState<NumberFields>(numberFieldsFrom(spec))
@@ -243,7 +309,7 @@ function EditMaterialSpecRow({ spec, onDone }: { spec: AdminMaterialSpec; onDone
       submitLabel="Save"
       canSubmit={canSave}
       saving={saving}
-      className="max-w-2xl"
+      className="max-w-3xl"
     >
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
@@ -252,11 +318,91 @@ function EditMaterialSpecRow({ spec, onDone }: { spec: AdminMaterialSpec; onDone
         </div>
         <div className="flex flex-col gap-1">
           <label className={labelClass}>Category</label>
-          <input className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)} />
+          <CategoryField value={category} onChange={setCategory} categories={categories} />
         </div>
       </div>
       <NumberFieldsGrid value={numbers} onChange={setNumbers} />
     </FormDialog>
+  )
+}
+
+/** The dense table view of the catalog — every spec's numbers in one scannable
+ * grid (horizontally scrollable, since there are many columns). The same edit /
+ * delete actions as the cards. */
+function MaterialsTable({
+  specs,
+  canWrite,
+  onEdit,
+  onDelete,
+}: {
+  specs: AdminMaterialSpec[]
+  canWrite: boolean
+  onEdit: (code: string) => void
+  onDelete: (spec: AdminMaterialSpec) => void
+}) {
+  const num = (v: number | undefined) => (v !== undefined ? String(v) : "—")
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/50 text-muted-foreground">
+          <tr className="[&>th]:px-2 [&>th]:py-1.5 [&>th]:text-left [&>th]:font-medium [&>th]:whitespace-nowrap">
+            <th>Name</th>
+            <th>Code</th>
+            <th>Category</th>
+            <th>R Ω/km</th>
+            <th>X Ω/km</th>
+            <th>A</th>
+            <th>⌀ mm</th>
+            <th>kg/km</th>
+            <th>max °C</th>
+            <th>ε</th>
+            <th>α</th>
+            <th>α_R /°C</th>
+            <th>/km</th>
+            <th>/ea</th>
+            {canWrite && <th></th>}
+          </tr>
+        </thead>
+        <tbody>
+          {specs.map((m) => (
+            <tr key={m.code} className="border-border/60 border-t [&>td]:px-2 [&>td]:py-1.5 [&>td]:whitespace-nowrap">
+              <td className="font-medium">{m.name}</td>
+              <td className="font-mono">{m.code}</td>
+              <td className="text-muted-foreground">{m.category}</td>
+              <td className="tabular-nums">{num(m.resistance_ohm_per_km)}</td>
+              <td className="tabular-nums">{num(m.reactance_ohm_per_km)}</td>
+              <td className="tabular-nums">{num(m.ampacity_amps)}</td>
+              <td className="tabular-nums">{num(m.diameter_mm)}</td>
+              <td className="tabular-nums">{num(m.weight_kg_per_km)}</td>
+              <td className="tabular-nums">{num(m.max_operating_temp_c)}</td>
+              <td className="tabular-nums">{num(m.emissivity)}</td>
+              <td className="tabular-nums">{num(m.absorptivity)}</td>
+              <td className="tabular-nums">{num(m.resistance_temp_coefficient_per_c)}</td>
+              <td className="tabular-nums">{num(m.cost_per_km)}</td>
+              <td className="tabular-nums">{num(m.unit_cost)}</td>
+              {canWrite && (
+                <td className="text-right">
+                  <div className="flex justify-end">
+                    <Button variant="ghost" size="icon" className="size-7" title="Edit" onClick={() => onEdit(m.code)}>
+                      <Pencil className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive size-7"
+                      title="Delete"
+                      onClick={() => onDelete(m)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -283,6 +429,12 @@ export function AdminMaterialsPage() {
   const [saving, setSaving] = useState(false)
   const [editingCode, setEditingCode] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminMaterialSpec | null>(null)
+  const [view, setView] = useState<"cards" | "table">("table")
+  // Distinct categories already in the catalog, to suggest in the (still free-text)
+  // Category field so entries don't fragment on a typo/casing difference.
+  const categorySuggestions = Array.from(new Set((data?.material_specs ?? []).map((m) => m.category)))
+    .filter(Boolean)
+    .sort()
 
   function close() {
     setOpen(false)
@@ -321,12 +473,29 @@ export function AdminMaterialsPage() {
               a field resolves to real numbers instead of just a label.
             </p>
           </div>
-          {canWrite && (
-            <Button size="sm" onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New material spec
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="flex overflow-hidden rounded-md border">
+              {(["cards", "table"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={cn(
+                    "px-3 py-1 text-xs capitalize",
+                    view === v ? "bg-accent text-accent-foreground font-medium" : "hover:bg-accent/50",
+                  )}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            {canWrite && (
+              <Button size="sm" onClick={() => setOpen(true)}>
+                <Plus className="size-4" />
+                New material spec
+              </Button>
+            )}
+          </div>
         </div>
 
         <FormDialog
@@ -338,7 +507,7 @@ export function AdminMaterialsPage() {
           submitLabel="Create"
           canSubmit={canSave}
           saving={saving}
-          className="max-w-2xl"
+          className="max-w-3xl"
         >
           <div className="grid grid-cols-3 gap-3">
             <div className="flex flex-col gap-1">
@@ -367,7 +536,7 @@ export function AdminMaterialsPage() {
               <label className={labelClass}>
                 Category <span className="text-destructive">*</span>
               </label>
-              <input className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)} />
+              <CategoryField value={category} onChange={setCategory} categories={categorySuggestions} />
             </div>
           </div>
           <NumberFieldsGrid value={numbers} onChange={setNumbers} />
@@ -382,12 +551,16 @@ export function AdminMaterialsPage() {
           <p className="text-destructive text-sm">Could not load material specs.</p>
         ) : data.material_specs.length === 0 ? (
           <p className="text-muted-foreground text-sm">No material specs yet.</p>
+        ) : view === "table" ? (
+          <MaterialsTable
+            specs={data.material_specs}
+            canWrite={canWrite}
+            onEdit={setEditingCode}
+            onDelete={setDeleteTarget}
+          />
         ) : (
           <div className="flex flex-col gap-2">
-            {data.material_specs.map((m) =>
-              editingCode === m.code ? (
-                <EditMaterialSpecRow key={m.code} spec={m} onDone={() => setEditingCode(null)} />
-              ) : (
+            {data.material_specs.map((m) => (
                 <Card key={m.code}>
                   <CardHeader className="flex flex-row items-center gap-2 pb-2">
                     <Wrench className="text-muted-foreground size-4" />
@@ -477,11 +650,18 @@ export function AdminMaterialsPage() {
                     )}
                   </CardContent>
                 </Card>
-              ),
-            )}
+            ))}
           </div>
         )}
       </div>
+
+      {editingCode &&
+        (() => {
+          const spec = data?.material_specs.find((m) => m.code === editingCode)
+          return spec ? (
+            <EditMaterialSpecRow spec={spec} onDone={() => setEditingCode(null)} categories={categorySuggestions} />
+          ) : null
+        })()}
 
       <ConfirmDeleteDialog
         open={deleteTarget !== null}
