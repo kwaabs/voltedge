@@ -101,7 +101,9 @@ func CreateFaultMode(ctx context.Context, db bun.IDB, p FaultModeParams) (*Fault
 		SortOrder:        p.SortOrder,
 		Active:           p.Active == nil || *p.Active,
 	}
-	if _, err := db.NewInsert().Model(m).Returning("*").Exec(ctx); err != nil {
+	// ExcludeColumn("id") so the zero-value pk isn't sent as "" to the uuid column
+	// (invalid input syntax 22P02); the DB default gen_random_uuid() fills it.
+	if _, err := db.NewInsert().Model(m).ExcludeColumn("id").Returning("*").Exec(ctx); err != nil {
 		return nil, fmt.Errorf("faults: creating fault mode: %w", err)
 	}
 	return m, nil
