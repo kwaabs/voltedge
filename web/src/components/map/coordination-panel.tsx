@@ -9,7 +9,12 @@ import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import type { CoordinationDevice, CoordinationResult } from "@/stores/coordination-store"
+import type {
+  CoordinationDevice,
+  CoordinationResult,
+  CoordinationSweepResult,
+  FuseSavingResult,
+} from "@/stores/coordination-store"
 import { useCoordinationStore } from "@/stores/coordination-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
@@ -330,6 +335,225 @@ function CoordinationExplanation({
   )
 }
 
+/** A pass/fail/unknown verdict chip for one fuse-saving check. ok === undefined
+ * renders a muted "unknown" (a curve was unresolved); true/false render
+ * green/red with the supplied labels. */
+function VerdictChip({ ok, pass, fail }: { ok?: boolean; pass: string; fail: string }) {
+  if (ok === undefined) {
+    return <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 text-xs">—</span>
+  }
+  return ok ? (
+    <span className="rounded bg-green-600/15 px-1.5 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
+      {pass}
+    </span>
+  ) : (
+    <span className="text-destructive bg-destructive/10 rounded px-1.5 py-0.5 text-xs font-medium">{fail}</span>
+  )
+}
+
+/**
+ * The recloser/fuse-saving scheme result view (POST /analysis/fuse-saving). For
+ * every lateral fuse below the source it shows the two scheme verdicts against
+ * its nearest upstream recloser: FUSE SAVED (the recloser's fast curve trips
+ * before the fuse min-melt, so a transient fault doesn't blow the fuse) and FUSE
+ * CLEARS (the fuse totally clears before the recloser's slow/delayed trip locks
+ * out the whole feeder on a permanent fault). The fuse-saving crossover current
+ * -- the upper fault-current bound the fuse is saved over -- is shown when the
+ * curves cross. Issues (either verdict failing) are listed first; clicking a row
+ * focuses the fuse on the map.
+ */
+function FuseSavingView({
+  result,
+  classNameFor,
+  resized,
+}: {
+  result: FuseSavingResult
+  classNameFor: (code: string) => string
+  resized: boolean
+}) {
+  return (
+    <div className={cn("overflow-y-auto", resized ? "min-h-0 flex-1" : "max-h-[calc(80vh-2.5rem)]")}>
+      <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          {result.pair_count === 0 ? (
+            <span>No recloser/fuse laterals below this source</span>
+          ) : result.issue_count === 0 ? (
+            <span className="rounded bg-green-600/15 px-1.5 py-0.5 font-medium text-green-700 dark:text-green-400">
+              All {result.pair_count} coordinated
+            </span>
+          ) : (
+            <span className="text-destructive bg-destructive/10 rounded px-1.5 py-0.5 font-medium">
+              {result.issue_count} issue{result.issue_count === 1 ? "" : "s"}
+            </span>
+          )}
+          {result.pair_count > 0 && (
+            <>
+              <span>{result.fuse_saved_count}/{result.pair_count} saved</span>
+              <span>{result.fuse_clears_count}/{result.pair_count} clear</span>
+            </>
+          )}
+        </div>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => useCoordinationStore.getState().rearm()}>
+          Run again
+        </Button>
+      </div>
+
+      {result.truncated && (
+        <div className="text-muted-foreground border-b px-3 py-1.5 text-xs">
+          Feeder has more recloser/fuse laterals than the cap — this report is not exhaustive.
+        </div>
+      )}
+
+      {result.pairs.length > 0 ? (
+        <ul className="divide-y">
+          {result.pairs.map((p, i) => (
+            <li
+              key={i}
+              onClick={() => useSelectionStore.getState().select(p.fuse.feature_class, p.fuse.feature_id, { focus: true })}
+              className="hover:bg-accent cursor-pointer px-3 py-2"
+              title="Show the fuse on the map"
+            >
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate">
+                  {classNameFor(p.recloser.feature_class)} {shortId(p.recloser.feature_id)}
+                  <span className="text-muted-foreground"> → </span>
+                  {classNameFor(p.fuse.feature_class)} {shortId(p.fuse.feature_id)}
+                </span>
+                {p.fault_current_amps !== undefined && (
+                  <span className="text-muted-foreground shrink-0 text-xs whitespace-nowrap">
+                    fault {formatCurrent(p.fault_current_amps)}
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <VerdictChip ok={p.fuse_saved} pass="Fuse saved" fail="Fuse melts (transient)" />
+                <VerdictChip ok={p.fuse_clears} pass="Fuse clears" fail="Lockout risk" />
+                {p.max_save_current_amps !== undefined && (
+                  <span className="text-muted-foreground text-xs">saved ≤ {formatCurrent(p.max_save_current_amps)}</span>
+                )}
+              </div>
+              {p.note && <div className="text-muted-foreground mt-1 text-xs">{p.note}</div>}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="text-muted-foreground p-6 text-center text-sm">
+          No lateral fuse below this source has an upstream recloser — there is no reclose scheme to check. Arm a feeder
+          source above the reclosers, or add recloser fast/slow curves and fuse curves.
+        </div>
+      )}
+
+      <div className="text-muted-foreground border-t px-3 py-2 text-xs">
+        Each lateral fuse is checked against its nearest upstream recloser. <b>Fuse saved</b>: the recloser's fast curve
+        trips before the fuse minimum-melt, so a transient fault clears without blowing the fuse (saved up to the
+        crossover current). <b>Fuse clears</b>: on a permanent fault the fuse totally clears before the recloser's
+        slow/delayed trip, so only the faulted lateral is lost — not the whole feeder.
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The feeder-wide sweep result view (POST /analysis/coordination-sweep). Where
+ * the single study renders one path's TCC chart, the sweep has graded every
+ * series protective pair below the source and reports each pair's WORST margin,
+ * so this is a ranked list (miscoordinated first) plus a one-line verdict, not a
+ * chart. Clicking a pair focuses its downstream device on the map. It shares the
+ * panel's scroll shell and the single study's green/red margin semantics.
+ */
+function CoordinationSweepView({
+  result,
+  classNameFor,
+  resized,
+}: {
+  result: CoordinationSweepResult
+  classNameFor: (code: string) => string
+  resized: boolean
+}) {
+  const allCoordinated = result.miscoordinated_count === 0
+  return (
+    <div className={cn("overflow-y-auto", resized ? "min-h-0 flex-1" : "max-h-[calc(80vh-2.5rem)]")}>
+      <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          {result.pair_count === 0 ? (
+            <span>No gradeable pairs on this feeder</span>
+          ) : allCoordinated ? (
+            <span className="rounded bg-green-600/15 px-1.5 py-0.5 font-medium text-green-700 dark:text-green-400">
+              All coordinated
+            </span>
+          ) : (
+            <span className="text-destructive bg-destructive/10 rounded px-1.5 py-0.5 font-medium">
+              {result.miscoordinated_count} miscoordinated
+            </span>
+          )}
+          <span>{result.devices_faulted} device(s) faulted</span>
+          <span>{result.pair_count} pair(s)</span>
+          {result.ungraded_count > 0 && <span>{result.ungraded_count} ungraded</span>}
+          <span>CTI {formatNumber(result.cti_seconds, 2)}s</span>
+        </div>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => useCoordinationStore.getState().rearm()}>
+          Run again
+        </Button>
+      </div>
+
+      {result.truncated && (
+        <div className="text-muted-foreground border-b px-3 py-1.5 text-xs">
+          Feeder has more protective devices than the sweep cap — this report is not exhaustive.
+        </div>
+      )}
+
+      {result.pairs.length > 0 ? (
+        <div className="px-3 py-2">
+          <p className="text-muted-foreground mb-1 text-xs font-medium">Series pairs (worst margin)</p>
+          <ul className="space-y-0.5 text-sm">
+            {result.pairs.map((p, i) => (
+              <li
+                key={i}
+                onClick={() =>
+                  useSelectionStore.getState().select(p.downstream.feature_class, p.downstream.feature_id, { focus: true })
+                }
+                className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded px-1 py-0.5"
+                title="Show the downstream device on the map"
+              >
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    p.coordinated === undefined ? "bg-muted-foreground" : p.coordinated ? "bg-green-600" : "bg-destructive",
+                  )}
+                />
+                <span className="truncate">
+                  {classNameFor(p.downstream.feature_class)} {shortId(p.downstream.feature_id)}
+                  <span className="text-muted-foreground"> → </span>
+                  {classNameFor(p.upstream.feature_class)} {shortId(p.upstream.feature_id)}
+                </span>
+                {p.margin_s !== undefined ? (
+                  <span className={cn("ml-auto whitespace-nowrap", p.coordinated ? "text-muted-foreground" : "text-destructive")}>
+                    {formatNumber(p.margin_s, 2)}s
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground ml-auto text-xs">ungraded</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="text-muted-foreground p-6 text-center text-sm">
+          No series protective pairs were gradeable below this source — add protection settings or check that the
+          downstream devices resolve a trip.
+        </div>
+      )}
+
+      <div className="text-muted-foreground border-t px-3 py-2 text-xs">
+        Each protective device below the source is faulted in turn; the pair it forms with the next protective device
+        upstream is graded against the CTI, and the <b>worst</b> (smallest) margin seen for each pair is reported.
+        Miscoordinated pairs are listed first — a pair is miscoordinated when its margin falls below the CTI, so the
+        backup may trip before (or too close to) the device it protects.
+      </div>
+    </div>
+  )
+}
+
 /**
  * Floating panel for api/internal/powerflow's protection-coordination engine
  * (POST /analysis/coordination) -- the protection counterpart of the
@@ -348,6 +572,8 @@ export function CoordinationPanel() {
   const result = useCoordinationStore((s) => s.result)
   const armedStart = useCoordinationStore((s) => s.armedStart)
   const armedFault = useCoordinationStore((s) => s.armedFault)
+  const sweepResult = useCoordinationStore((s) => s.sweepResult)
+  const fuseSavingResult = useCoordinationStore((s) => s.fuseSavingResult)
   const pickingFault = useCoordinationStore((s) => s.pickingFault)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("11000")
@@ -368,7 +594,7 @@ export function CoordinationPanel() {
     return () => window.removeEventListener("keydown", onKey)
   }, [pickingFault])
 
-  if (!armed && !result) return null
+  if (!armed && !result && !sweepResult && !fuseSavingResult) return null
 
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
 
@@ -400,6 +626,62 @@ export function CoordinationPanel() {
     }
   }
 
+  // The feeder-wide sweep: same armed source and voltage/CTI inputs as the single
+  // study, but no fault pick -- the engine faults at every protective device below
+  // the source itself (POST /analysis/coordination-sweep) and returns each pair's
+  // worst margin.
+  async function runSweep() {
+    const start = useCoordinationStore.getState().armedStart
+    if (!start) return
+    const nv = resolveNominalVoltage(voltageInput)
+    if (!nv.ok) {
+      useToastStore.getState().pushError(nv.message)
+      return
+    }
+    const cti = Number(ctiInput)
+    if (!Number.isFinite(cti) || cti < 0) {
+      useToastStore.getState().pushError("CTI must be a non-negative number.")
+      return
+    }
+
+    useCoordinationStore.getState().setLoading(true)
+    try {
+      const response = await apiFetch<CoordinationSweepResult>("/analysis/coordination-sweep", {
+        method: "POST",
+        body: JSON.stringify({ start, ...(nv.value !== undefined && { nominal_voltage_v: nv.value }), cti_seconds: cti }),
+      })
+      useCoordinationStore.getState().setSweepResult(response)
+    } catch (err) {
+      useCoordinationStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not run this coordination sweep.")
+    }
+  }
+
+  // The recloser/fuse-saving check: same armed source and voltage/CTI inputs as
+  // the sweep (POST /analysis/fuse-saving), no fault pick. Evaluates each lateral
+  // fuse against its nearest upstream recloser's fast/slow reclose scheme.
+  async function runFuseSaving() {
+    const start = useCoordinationStore.getState().armedStart
+    if (!start) return
+    const nv = resolveNominalVoltage(voltageInput)
+    if (!nv.ok) {
+      useToastStore.getState().pushError(nv.message)
+      return
+    }
+
+    useCoordinationStore.getState().setLoading(true)
+    try {
+      const response = await apiFetch<FuseSavingResult>("/analysis/fuse-saving", {
+        method: "POST",
+        body: JSON.stringify({ start, ...(nv.value !== undefined && { nominal_voltage_v: nv.value }) }),
+      })
+      useCoordinationStore.getState().setFuseSavingResult(response)
+    } catch (err) {
+      useCoordinationStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not run this fuse-saving check.")
+    }
+  }
+
   const deviceLabel = (d: CoordinationDevice) => `${classNameFor(d.feature_class)} ${shortId(d.feature_id)}`
 
   return (
@@ -415,7 +697,11 @@ export function CoordinationPanel() {
         </Button>
       </div>
 
-      {!result ? (
+      {fuseSavingResult ? (
+        <FuseSavingView result={fuseSavingResult} classNameFor={classNameFor} resized={fp.resized} />
+      ) : sweepResult ? (
+        <CoordinationSweepView result={sweepResult} classNameFor={classNameFor} resized={fp.resized} />
+      ) : !result ? (
         <div className="flex flex-col gap-3 p-3">
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground w-16 shrink-0">Source</span>
@@ -476,10 +762,35 @@ export function CoordinationPanel() {
               value={ctiInput}
               onChange={(e) => setCtiInput(e.target.value)}
             />
-            <Button size="sm" className="ml-auto" onClick={runCoordination} disabled={loading || !armedFault}>
-              {loading ? "Running…" : "Run"}
-            </Button>
+            <div className="ml-auto flex gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={runFuseSaving}
+                disabled={loading}
+                title="Check each lateral fuse against its upstream recloser's fast/slow reclose scheme — no fault pick needed"
+              >
+                {loading ? "…" : "Fuse-saving"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={runSweep}
+                disabled={loading}
+                title="Grade every series protective pair on the feeder below the source — no fault pick needed"
+              >
+                {loading ? "…" : "Sweep feeder"}
+              </Button>
+              <Button size="sm" onClick={runCoordination} disabled={loading || !armedFault}>
+                {loading ? "Running…" : "Run"}
+              </Button>
+            </div>
           </div>
+          <p className="text-muted-foreground text-xs">
+            <b>Run</b> grades one source→fault path (pick a fault). <b>Sweep feeder</b> faults at every protective
+            device and reports each pair's worst margin. <b>Fuse-saving</b> checks each lateral fuse against its
+            recloser's reclose scheme. The last two need no fault pick.
+          </p>
         </div>
       ) : (
         <>

@@ -2,6 +2,7 @@ package powerflow
 
 import (
 	"context"
+	"math"
 	"sort"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
@@ -60,8 +61,23 @@ type restorationOption struct {
 	WorstNode         *featureRef  `json:"worst_node,omitempty"`
 	Violations        []featureRef `json:"violations"`
 	Overloaded        []featureRef `json:"overloaded"`
-	Feasible          bool         `json:"feasible"`
-	Note              string       `json:"note,omitempty"`
+
+	// The back-feed CAPACITY margin for this transfer. WorstLoadingPct is the
+	// highest post-transfer loading of any rated element on the donor path
+	// (conductor against its ampacity, transformer against its rating);
+	// LimitingElement is that element and LimitingKind says which rating bound it
+	// ("ampacity" | "transformer"). LimitingHeadroomKVA is the spare apparent power
+	// at that element before it reaches 100 % -- negative when the transfer already
+	// pushes it over. These quantify "does the back-feed path have capacity?", where
+	// Overloaded only lists the elements already past 100 %. All zero/nil when the
+	// swept donor has no rated element to judge (no ampacity/rating resolved).
+	WorstLoadingPct     float64     `json:"worst_loading_pct"`
+	LimitingElement     *featureRef `json:"limiting_element,omitempty"`
+	LimitingKind        string      `json:"limiting_kind,omitempty"`
+	LimitingHeadroomKVA *float64    `json:"limiting_headroom_kva,omitempty"`
+
+	Feasible bool   `json:"feasible"`
+	Note     string `json:"note,omitempty"`
 }
 
 // contingencyResponse is the full study: the donor feeder's base load and reach,
@@ -74,7 +90,11 @@ type contingencyResponse struct {
 	BaseLoadKW      float64             `json:"base_load_kw"`
 	BaseLoadKVAR    float64             `json:"base_load_kvar"`
 	BaseNodeCount   int                 `json:"base_node_count"`
-	Options         []restorationOption `json:"options"`
+	// BaseWorstLoadingPct is the donor feeder's worst loading BEFORE any transfer --
+	// the "before" picture an operator reads the per-option WorstLoadingPct against
+	// (how much of the donor is already used). 0 when nothing on it is rated.
+	BaseWorstLoadingPct float64             `json:"base_worst_loading_pct"`
+	Options             []restorationOption `json:"options"`
 }
 
 // runContingency is POST /analysis/contingency: an N-1 / backfeed restoration
@@ -113,6 +133,9 @@ func runContingency(ctx context.Context, db bun.IDB, req contingencyRequest) (*c
 	if st := base.states[base.start]; st != nil {
 		baseLoadKW, baseLoadKVAR = st.cumKW, st.cumKVAR
 	}
+	// The donor's worst loading as it stands, for the "before" picture.
+	baseNodes, _ := formatResults(base.tr, base.states, base.classCodes)
+	baseWorstLoadingPct, _, _, _ := backfeedLimit(baseNodes)
 
 	loader := newFeatureClassLoader()
 
@@ -196,11 +219,14 @@ func runContingency(ctx context.Context, db bun.IDB, req contingencyRequest) (*c
 
 		// Post-transfer overloads reuse load-flow's own loading check; undervoltage
 		// / overvoltage reuse Slice 1's band judging over this swept state.
-		_, overloaded := formatResults(swept.tr, swept.states, swept.classCodes)
+		sweptNodes, overloaded := formatResults(swept.tr, swept.states, swept.classCodes)
 		if overloaded == nil {
 			overloaded = []featureRef{}
 		}
 		opt.Overloaded = overloaded
+		// Quantify the back-feed capacity: the limiting (most-loaded) element on the
+		// post-transfer donor, its rating bound, and the spare kVA before it tops out.
+		opt.WorstLoadingPct, opt.LimitingElement, opt.LimitingKind, opt.LimitingHeadroomKVA = backfeedLimit(sweptNodes)
 
 		worstPu := 0.0
 		var worst *featureRef
@@ -239,11 +265,49 @@ func runContingency(ctx context.Context, db bun.IDB, req contingencyRequest) (*c
 		NominalVoltageV: base.nominalV, // the base actually used (derived secondary at a transformer start)
 		MinVoltagePu:    minPu,
 		MaxVoltagePu:    maxPu,
-		BaseLoadKW:      baseLoadKW,
-		BaseLoadKVAR:    baseLoadKVAR,
-		BaseNodeCount:   len(base.tr.order),
-		Options:         options,
+		BaseLoadKW:          baseLoadKW,
+		BaseLoadKVAR:        baseLoadKVAR,
+		BaseNodeCount:       len(base.tr.order),
+		BaseWorstLoadingPct: baseWorstLoadingPct,
+		Options:             options,
 	}, nil
+}
+
+// backfeedLimit finds the most-loaded rated element among a swept feeder's nodes
+// -- the one that bounds how much the donor can carry. It returns that element's
+// loading %, its ref, which rating bound limited it ("ampacity" for a conductor
+// against its thermal rating, "transformer" for a rated node against its kVA),
+// and the spare apparent power before it reaches 100 %: headroom = S · (100−L)/L,
+// negative when the transfer already pushes it over. All zero/nil when no node
+// carries a resolved loading (nothing rated on the feeder).
+func backfeedLimit(nodes []nodeResult) (worstPct float64, limiting *featureRef, kind string, headroomKVA *float64) {
+	best := -1
+	for i := range nodes {
+		if nodes[i].LoadingPct == nil {
+			continue
+		}
+		if best < 0 || *nodes[i].LoadingPct > *nodes[best].LoadingPct {
+			best = i
+		}
+	}
+	if best < 0 {
+		return 0, nil, "", nil
+	}
+	n := nodes[best]
+	worstPct = *n.LoadingPct
+	ref := featureRef{FeatureClass: n.FeatureClass, FeatureID: n.FeatureID}
+	limiting = &ref
+	if n.AmpacityAmps != nil {
+		kind = "ampacity"
+	} else {
+		kind = "transformer"
+	}
+	if worstPct > 0 {
+		sKVA := math.Hypot(n.CumulativeKW, n.CumulativeKVAR)
+		h := sKVA * (100 - worstPct) / worstPct
+		headroomKVA = &h
+	}
+	return worstPct, limiting, kind, headroomKVA
 }
 
 // nodeSet turns a node slice into a membership set.

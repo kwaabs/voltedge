@@ -108,6 +108,18 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/incidents/{id}/restoration-orders", generateRestorationOrderHandler(db))
 	r.Get("/restoration", restorationForDeviceHandler(db))
 
+	// Standalone planned-switching builder (switching-gap #2): author a program
+	// not tied to any incident, and edit its steps. The get/cancel/execute/
+	// clearance routes below are shared with the incident flow (they key on the
+	// order/step id, not the incident).
+	r.Get("/planned-switching", listPlannedSwitchingHandler(db))
+	r.Post("/planned-switching", createPlannedSwitchingHandler(db))
+	r.Patch("/switching-orders/{id}", updatePlannedSwitchingHandler(db))
+	r.Post("/switching-orders/{id}/steps", addSwitchingStepHandler(db))
+	r.Post("/switching-orders/{id}/reorder", reorderSwitchingStepsHandler(db))
+	r.Patch("/switching-steps/{id}", updateSwitchingStepHandler(db))
+	r.Delete("/switching-steps/{id}", deleteSwitchingStepHandler(db))
+
 	r.Post("/switching-orders/{id}/clearance", issueClearanceHandler(db))
 	r.Get("/switching-orders/{id}", getSwitchingOrderHandler(db))
 	r.Post("/switching-orders/{id}/cancel", cancelSwitchingOrderHandler(db))
@@ -1020,6 +1032,177 @@ func executeStepHandler(db *bun.DB) http.HandlerFunc {
 			executed = *req.Executed
 		}
 		order, err := SetStepExecuted(r.Context(), db, chi.URLParam(r, "id"), executed)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, order)
+	}
+}
+
+// --- standalone planned-switching builder (switching-gap #2) ---
+
+func listPlannedSwitchingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		orders, err := ListPlannedSwitching(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"switching_orders": orders})
+	}
+}
+
+// createPlannedSwitchingBody is POST /planned-switching's body. target_device,
+// when given, seeds the program with the standard isolate+restore steps for that
+// device; otherwise an empty program is created under the given reference.
+type createPlannedSwitchingBody struct {
+	Reference    string     `json:"reference"`
+	Purpose      *string    `json:"purpose"`
+	Notes        *string    `json:"notes"`
+	PlannedStart *time.Time `json:"planned_start"`
+	PlannedEnd   *time.Time `json:"planned_end"`
+	TargetDevice *struct {
+		FeatureClass string `json:"feature_class"`
+		FeatureID    string `json:"feature_id"`
+	} `json:"target_device"`
+}
+
+func createPlannedSwitchingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body createPlannedSwitchingBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		in := CreatePlannedSwitchingInput{
+			Reference:    body.Reference,
+			Purpose:      body.Purpose,
+			Notes:        body.Notes,
+			PlannedStart: body.PlannedStart,
+			PlannedEnd:   body.PlannedEnd,
+		}
+		if body.TargetDevice != nil && body.TargetDevice.FeatureID != "" {
+			in.TargetDevice = &trace.FeatureRef{
+				FeatureClass: body.TargetDevice.FeatureClass,
+				FeatureID:    body.TargetDevice.FeatureID,
+			}
+		}
+		order, err := CreatePlannedSwitching(r.Context(), db, in)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, order)
+	}
+}
+
+type updatePlannedSwitchingBody struct {
+	Reference    *string    `json:"reference"`
+	Purpose      *string    `json:"purpose"`
+	Notes        *string    `json:"notes"`
+	PlannedStart *time.Time `json:"planned_start"`
+	PlannedEnd   *time.Time `json:"planned_end"`
+	Status       *string    `json:"status"`
+}
+
+func updatePlannedSwitchingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body updatePlannedSwitchingBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		order, err := UpdatePlannedSwitching(r.Context(), db, chi.URLParam(r, "id"), UpdatePlannedSwitchingInput{
+			Reference:    body.Reference,
+			Purpose:      body.Purpose,
+			Notes:        body.Notes,
+			PlannedStart: body.PlannedStart,
+			PlannedEnd:   body.PlannedEnd,
+			Status:       body.Status,
+		})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, order)
+	}
+}
+
+// switchingStepBody is the shared body for adding and editing a program step.
+type switchingStepBody struct {
+	Phase       string  `json:"phase"`
+	Action      string  `json:"action"`
+	Instruction string  `json:"instruction"`
+	DeviceClass *string `json:"device_class"`
+	DeviceID    *string `json:"device_id"`
+}
+
+func (b switchingStepBody) toInput() StepInput {
+	return StepInput{
+		Phase:       b.Phase,
+		Action:      b.Action,
+		Instruction: b.Instruction,
+		DeviceClass: b.DeviceClass,
+		DeviceID:    b.DeviceID,
+	}
+}
+
+func addSwitchingStepHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body switchingStepBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		order, err := AddSwitchingStep(r.Context(), db, chi.URLParam(r, "id"), body.toInput())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, order)
+	}
+}
+
+func updateSwitchingStepHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body switchingStepBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		order, err := UpdateSwitchingStep(r.Context(), db, chi.URLParam(r, "id"), body.toInput())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, order)
+	}
+}
+
+func deleteSwitchingStepHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		order, err := DeleteSwitchingStep(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, order)
+	}
+}
+
+type reorderStepsBody struct {
+	StepIDs []string `json:"step_ids"`
+}
+
+func reorderSwitchingStepsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body reorderStepsBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		order, err := ReorderSwitchingSteps(r.Context(), db, chi.URLParam(r, "id"), body.StepIDs)
 		if err != nil {
 			writeError(w, err)
 			return

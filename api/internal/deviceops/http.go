@@ -32,6 +32,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/", recordHandler(db))
 	r.Get("/counts", countsHandler(db))
 	r.Get("/inventory", inventoryHandler(db))
+	r.Get("/abnormal", abnormalHandler(db))
 	r.Get("/device/{class}/{id}", deviceTimelineHandler(db))
 	r.Get("/{id}", getHandler(db))
 	return r
@@ -118,6 +119,17 @@ func inventoryHandler(db *bun.DB) http.HandlerFunc {
 			DeviceClass: r.URL.Query().Get("device_class"),
 			State:       r.URL.Query().Get("state"),
 		})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
+	}
+}
+
+func abnormalHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		devices, err := Abnormal(r.Context(), db, AbnormalFilter{DeviceClass: r.URL.Query().Get("device_class")})
 		if err != nil {
 			writeError(w, err)
 			return

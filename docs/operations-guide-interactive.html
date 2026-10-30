@@ -126,10 +126,11 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <span class="brand"><span class="dot"></span>VoltEdge</span>
   <nav class="chaps" id="chaps">
     <a href="#c1">1 · What it is</a>
-    <a href="#c2">2 · The three reports</a>
+    <a href="#c2">2 · The four reports</a>
     <a href="#c3">3 · How it fills</a>
-    <a href="#c4">4 · SCADA feed</a>
-    <a href="#c5">5 · Links & access</a>
+    <a href="#c4">4 · Switching</a>
+    <a href="#c5">5 · SCADA feed</a>
+    <a href="#c6">6 · Links & access</a>
   </nav>
   <button class="tbtn" id="themeBtn" title="Toggle light/dark">◑</button>
 </div></div>
@@ -173,12 +174,15 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
 
   <!-- ===================== 2 ===================== -->
   <section class="ch" id="c2">
-    <div class="ch-head"><span class="ch-num">2</span><h2>The three reports</h2>
-      <p>One page, three lenses. Flip between them — the sample log below is live.</p></div>
+    <div class="ch-head"><span class="ch-num">2</span><h2>The four reports</h2>
+      <p>One page, four lenses. Flip between them — the sample log below is live.</p></div>
 
     <p><b>Timeline</b> is the live "what just happened" board. <b>By device</b> is the trip-count rollup — the
       reliability signal (which recloser operates most). <b>Devices</b> is the inventory: every operable device,
-      its current state, and its last operation (or <i>never</i>).</p>
+      its current state, and its last operation (or <i>never</i>). <b>Abnormal</b> is the off-normal report:
+      every switching device whose <i>live</i> position contradicts its <i>declared normal</i> position — a
+      normally-open tie left closed, or a normally-closed device left open. Try it: two devices in the sample are
+      off normal (an isolated switch and a closed tie).</p>
 
     <div class="widget">
       <div class="w-head"><span class="eyebrow">Live widget</span><h4>Operations explorer</h4>
@@ -188,6 +192,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
           <button data-view="timeline" aria-pressed="true">Timeline</button>
           <button data-view="bydevice" aria-pressed="false">By device</button>
           <button data-view="devices" aria-pressed="false">Devices</button>
+          <button data-view="abnormal" aria-pressed="false">Abnormal</button>
         </div>
         <span style="flex:1"></span>
         <select class="fld" id="fType"><option value="">All operations</option>
@@ -205,10 +210,17 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
         <button class="btn pri" id="nLog">Log operation</button>
       </div>
     </div>
-    <p class="muted" style="font-size:13.5px">Logging appends to the sample log and updates all three views at
+    <p class="muted" style="font-size:13.5px">Logging appends to the sample log and updates every view at
       once — exactly what the real <code>POST /operations</code> does. The device list in <b>Devices</b> is
       discovered from the classes that model a <code>device_state</code>, so it includes devices that have never
       operated.</p>
+
+    <div class="tip"><b>Abnormal is a report, not an alarm</b> VoltEdge doesn't page anyone or auto-correct a
+      position — it <i>lists</i> the off-normal devices so you can see at a glance whether the network is in its
+      normal configuration, and decide. The report is discovered automatically: the engine finds every class that
+      models <b>both</b> <code>device_state</code> <b>and</b> <code>normal_state</code> and reads the rows where
+      the two disagree (<span class="mono">api/internal/deviceops/abnormal.go:38–88</span>,
+      <code>GET /operations/abnormal</code>), so a fuse — no declared normal posture — is simply out of scope.</div>
   </section>
 
   <!-- ===================== 3 ===================== -->
@@ -222,7 +234,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
         <tr><td><span class="src">crew</span></td><td>the manual Log-operation action</td><td>whatever you enter</td></tr>
         <tr><td><span class="src">switching_order</span></td><td>you mark an open/close switching step <b>executed</b></td><td>an <span class="badge open">open</span>/<span class="badge close">close</span>, linked to the step</td></tr>
         <tr><td><span class="src">relay / scada / derived</span></td><td>a fault names the device that cleared it</td><td>a <span class="badge trip">trip</span>, linked to the fault — once per fault</td></tr>
-        <tr><td><span class="src">scada</span></td><td>an external system pushes an event (ch. 4)</td><td>whatever it sends</td></tr>
+        <tr><td><span class="src">scada</span></td><td>an external system pushes an event (ch. 5)</td><td>whatever it sends</td></tr>
         <tr><td><span class="src">telemetry</span></td><td>an operator applies a device's telemetry in <b>Live state</b></td><td>the <span class="badge open">open</span>/<span class="badge close">close</span> they confirmed, correcting the model</td></tr>
       </tbody>
     </table></div>
@@ -243,16 +255,58 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
     <div class="tip"><b>One trip per fault</b> Booking the same fault again doesn't double-log — the trip dedupes
       on the fault id. Try the third button: it emits nothing.</div>
 
-    <div class="tip"><b>Live state tab</b> The Operations page shares a tab with <b>Live state</b> — device telemetry
-      reconciled against the model (telemetered / agreeing / disagreeing / stale). Where the field and the model
-      disagree, an operator (<code>oms:write</code>) presses <b>Apply field</b> to catch the model up; that correction
-      is logged here as a <span class="src">telemetry</span> operation. Click any device row (either tab) to open a
-      detail panel with its summary, operation history, attachments and a <b>View on map</b> button.</div>
+    <div class="tip"><b>One surface, three tabs</b> The Operations page carries <b>Operations</b> (this log),
+      <b>Live state</b> and <b>Switching</b> (ch. 4) as tabs under one sidebar entry. <b>Live state</b> reconciles
+      device telemetry against the model (telemetered / agreeing / disagreeing / stale); where the field and the
+      model disagree, an operator (<code>oms:write</code>) presses <b>Apply field</b> to catch the model up, logged
+      here as a <span class="src">telemetry</span> operation. Click any device row (any tab) to open a detail panel
+      with its summary, operation history, attachments and a <b>View on map</b> button.</div>
   </section>
 
   <!-- ===================== 4 ===================== -->
   <section class="ch" id="c4">
-    <div class="ch-head"><span class="ch-num">4</span><h2>Feeding it from SCADA</h2>
+    <div class="ch-head"><span class="ch-num">4</span><h2>Switching — planned programs</h2>
+      <p>The third tab. Author an open/verify/earth/close program for planned work, then tick it off.</p></div>
+
+    <p>The <b>Switching</b> tab is where an operator authors and runs a <b>planned switching program</b> — an
+      ordered open / verify / earth / close list — for planned work (a maintenance isolation, a construction
+      cut-over) that is <b>not tied to any outage</b>. It's the standalone sibling of the switching order OMS
+      generates for an incident: it writes to the same tables and uses the same execution, so ticking a step off
+      here flips the device's live <code>device_state</code> and logs the operation (source
+      <span class="src">switching_order</span>) exactly as an incident order does
+      (<span class="mono">web/src/routes/switching.tsx</span>,
+      <span class="mono">api/internal/oms/planned_switching.go</span>).</p>
+
+    <div class="tbl"><table>
+      <thead><tr><th>Step</th><th>What you do</th></tr></thead>
+      <tbody>
+        <tr><td><b>Create</b></td><td>a program with a title and an optional booked window — <b>empty</b>, or <b>seeded from a target device</b> (pick a device and VoltEdge pre-fills the standard <b>open → verify → earth → close</b> program to isolate and restore it).</td></tr>
+        <tr><td><b>Edit the steps</b></td><td>add, edit, delete, reorder (move up/down). Each step is a <b>phase</b> (isolate / restore), an <b>action</b> (open / close / earth / verify / note), an <b>instruction</b>, and — for an open/close — the <b>device</b>.</td></tr>
+        <tr><td><b>Issue</b></td><td>draft → issued, when it's ready for the field.</td></tr>
+        <tr><td><b>Run it</b></td><td>tick each step as the crew performs it. <b>open</b> sets the device <span class="badge open">OPEN</span>, <b>close</b> sets <span class="badge close">CLOSED</span>, un-ticking restores the opposite — each through the validated, history-logged, <b>safety-interlocked</b> path (a blocking tag refuses it), and each a logged operation. Status: draft → issued → in_progress → completed.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="tip"><b>Edit the program, operate the device</b> You can only edit, delete or reorder a step that
+      <i>hasn't been executed</i> — once a step has flipped a device it's part of the record. To undo an operation,
+      un-tick the step; to abandon a program, <b>Cancel</b> it (the steps are kept).</div>
+
+    <div class="callout">The deep model behind switching — what each device is, what opening one does to the network,
+      barriers, isolation boundaries, and how an <i>incident</i> switching order is generated — lives in the
+      <b>Switching &amp; Protection</b> guide. This tab is the operator's authoring-and-execution surface for it.</div>
+
+    <p class="muted" style="font-size:13.5px">Endpoints: <code>GET</code>/<code>POST /oms/planned-switching</code>,
+      <code>PATCH /oms/switching-orders/{id}</code> (retitle / issue),
+      <code>POST /oms/switching-orders/{id}/steps</code>, <code>POST /oms/switching-orders/{id}/reorder</code>,
+      <code>PATCH</code>/<code>DELETE /oms/switching-steps/{id}</code>, reusing the shared
+      <code>.../execute</code> and <code>.../cancel</code>
+      (<span class="mono">api/internal/oms/http.go:115–126</span>). View needs <code>oms:read</code>; build and run
+      need <code>oms:write</code>.</p>
+  </section>
+
+  <!-- ===================== 5 ===================== -->
+  <section class="ch" id="c5">
+    <div class="ch-head"><span class="ch-num">5</span><h2>Feeding it from SCADA</h2>
       <p>An external system pushes operations straight in — through the same hardened webhook pipeline that feeds features, readings, work orders and faults.</p></div>
 
     <ol class="steps">
@@ -281,9 +335,9 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
       how many times the event arrives.</div>
   </section>
 
-  <!-- ===================== 5 ===================== -->
-  <section class="ch" id="c5">
-    <div class="ch-head"><span class="ch-num">5</span><h2>Links &amp; access</h2>
+  <!-- ===================== 6 ===================== -->
+  <section class="ch" id="c6">
+    <div class="ch-head"><span class="ch-num">6</span><h2>Links &amp; access</h2>
       <p>Where operations sit in the operational family, and who can see and log them.</p></div>
 
     <h3>The operation → fault → outage chain</h3>
@@ -318,6 +372,9 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
       <tbody>
         <tr><td><span class="perm">operations:read</span></td><td>viewer, analyst, editor, field-technician, admin, break-glass</td></tr>
         <tr><td><span class="perm">operations:write</span></td><td>editor, field-technician, admin, break-glass</td></tr>
+        <tr><td><span class="perm">telemetry:read</span> — view Live state</td><td>operational roles, per your configuration</td></tr>
+        <tr><td><span class="perm">oms:read</span> — view the Switching tab</td><td>operational roles, per your configuration</td></tr>
+        <tr><td><span class="perm">oms:write</span> — Apply field; build &amp; run switching programs</td><td>operators who run the network</td></tr>
       </tbody>
     </table></div>
   </section>
@@ -325,7 +382,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <footer>
     VoltEdge — Device Operations. The widgets run a faithful mock of the real model on sample data; nothing here
     writes to a live system. See the markdown <b>Device Operations</b> guide for the reference version.
-    <br>Last updated: 2026-10-28
+    <br>Last updated: 2026-10-30
   </footer>
 </div>
 
@@ -349,14 +406,18 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   addEventListener("scroll",spy,{passive:true}); spy();
 
   // ---- sample data ----
-  // Devices (the inventory): class, id, current state. Some have never operated.
+  // Devices (the inventory): class, id, current state, and (for the switching
+  // family) the declared normal_state the Abnormal report compares against. A fuse
+  // carries no normal_state, so it's out of the Abnormal scope.
   var devices=[
-    {cls:"MV_RECLOSER", id:"rec-0039", st:"CLOSED"},
-    {cls:"MV_BREAKER",  id:"brk-0041", st:"CLOSED"},
-    {cls:"MV_SWITCH",   id:"sw-0112",  st:"OPEN"},
-    {cls:"MV_FUSE",     id:"fus-0203", st:"CLOSED"},
-    {cls:"MV_SWITCH",   id:"sw-0118",  st:"CLOSED"}  // never operates in the seed
+    {cls:"MV_RECLOSER", id:"rec-0039", st:"CLOSED", nrm:"NORMALLY_CLOSED"},
+    {cls:"MV_BREAKER",  id:"brk-0041", st:"CLOSED", nrm:"NORMALLY_CLOSED"},
+    {cls:"MV_SWITCH",   id:"sw-0112",  st:"OPEN",   nrm:"NORMALLY_CLOSED"}, // ABNORMAL: open but should be closed (isolated for work)
+    {cls:"MV_FUSE",     id:"fus-0203", st:"CLOSED"},                        // no normal_state → not in Abnormal scope
+    {cls:"MV_SWITCH",   id:"sw-0118",  st:"CLOSED", nrm:"NORMALLY_OPEN"}    // ABNORMAL: a tie left closed
   ];
+  function nrmLabel(n){return n==="NORMALLY_OPEN"?"Open":n==="NORMALLY_CLOSED"?"Closed":"—";}
+  function isAbnormal(d){return (d.nrm==="NORMALLY_OPEN"&&d.st==="CLOSED")||(d.nrm==="NORMALLY_CLOSED"&&d.st==="OPEN");}
   function dlabel(d){return d.cls+" "+d.id;}
   var now=Date.now(), H=3600e3;
   // Operations log, newest-first-ish (we sort on render).
@@ -417,7 +478,21 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
     });
     body.innerHTML=h+'</tbody></table>';
   }
-  function render(){ view==="timeline"?renderTimeline():view==="bydevice"?renderByDevice():renderDevices(); }
+  function renderAbnormal(){
+    var rows=[]; devices.forEach(function(d,i){ if(isAbnormal(d)) rows.push({d:d,i:i}); });
+    document.getElementById("opCount").textContent=rows.length+" off normal";
+    if(!rows.length){ body.innerHTML='<div class="empty">Every switching device is in its normal position — the network is in its normal configuration.</div>'; return; }
+    var h='<table><thead><tr><th>Device</th><th>Normal</th><th>Current</th><th>Last operation</th><th>When</th></tr></thead><tbody>';
+    rows.forEach(function(r){var d=r.d, last=null; ops.forEach(function(o){if(o.dev===r.i&&(!last||o.t>last.t))last=o;});
+      h+='<tr><td>'+esc(d.cls)+'<br><span class="muted mono" style="font-size:11px">'+esc(d.id)+'</span></td>'+
+         '<td class="muted">'+nrmLabel(d.nrm)+'</td>'+
+         '<td><b style="background:var(--amber-tint);color:var(--amber);padding:2px 7px;border-radius:5px">'+esc(d.st)+'</b></td>'+
+         '<td>'+(last?badge(last.type):'<span class="muted">—</span>')+'</td>'+
+         '<td class="muted" style="white-space:nowrap">'+(last?when(last.t):'—')+'</td></tr>';
+    });
+    body.innerHTML=h+'</tbody></table>';
+  }
+  function render(){ view==="timeline"?renderTimeline():view==="bydevice"?renderByDevice():view==="abnormal"?renderAbnormal():renderDevices(); }
 
   [].slice.call(document.querySelectorAll('[data-view]')).forEach(function(b){
     b.onclick=function(){
@@ -466,7 +541,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
     simFlash.className="flash warn"; simFlash.textContent="No new operation — one trip per fault.";
   };
 
-  // ---- chapter 4: SCADA ----
+  // ---- chapter 5: SCADA ----
   var payload={external_id:"SCADA-EVT-90432",op_type:"trip",device_external_id:"RTU-42-OC",occurred_at:"2026-10-18T14:03:11Z",cause:"overcurrent"};
   document.getElementById("scadaPayload").innerHTML=JSON.stringify(payload,null,2)
     .replace(/"(\w+)":/g,'<span class="k">"$1"</span>:').replace(/: "([^"]*)"/g,': <span class="s">"$1"</span>');

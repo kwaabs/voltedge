@@ -45,6 +45,10 @@ var adapters = map[string]adapter{
 	// WAM's work orders as read-only shadows -- distinct from "work", which creates
 	// VoltEdge-OWNED work orders from an external feed.
 	"workorder": workOrderMirrorAdapter{},
+	// protection ingests as-built relay / overcurrent SETTINGS into the protection
+	// register (0185) from an external relay-setting DB / SCADA, stamping source so
+	// an ingested setting is distinguishable from a hand entry.
+	"protection": protectionSettingsAdapter{},
 }
 
 // featureAdapter ingests feature changes through crud.CreateFeature /

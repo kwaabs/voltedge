@@ -105,9 +105,36 @@ function ContingencyExplanation({
             <>closing it energizes no additional load.</>
           )}
         </p>
+        {best.restored_node_count > 0 && best.worst_loading_pct > 0 && (
+          <p>
+            <b>Back-feed capacity:</b> the heaviest-loaded element on the donor path then sits at{" "}
+            <b className={cn(best.worst_loading_pct > 100 && "text-destructive")}>
+              {formatNumber(best.worst_loading_pct, 0)}%
+            </b>
+            {best.limiting_element && (
+              <>
+                {" "}
+                ({classNameFor(best.limiting_element.feature_class)}, {best.limiting_kind ?? "rated"})
+              </>
+            )}
+            {best.limiting_headroom_kva !== undefined &&
+              (best.limiting_headroom_kva >= 0 ? (
+                <>
+                  {" "}
+                  — <b>{formatNumber(best.limiting_headroom_kva, 0)} kVA</b> of headroom remains.
+                </>
+              ) : (
+                <>
+                  {" "}
+                  — <b className="text-destructive">{formatNumber(-best.limiting_headroom_kva, 0)} kVA over</b> its rating.
+                </>
+              ))}
+          </p>
+        )}
         {best.restored_node_count > 0 && (
           <Formula>{`restored = ${formatNumber(best.restored_load_kw)} kW across ${best.restored_node_count} node(s)
 worst V  = ${formatNumber(best.min_voltage_pu, 3)} pu     (band ${formatNumber(result.min_voltage_pu, 2)}–${formatNumber(result.max_voltage_pu, 2)} pu)
+loading  = ${formatNumber(best.worst_loading_pct, 0)}% worst${best.limiting_headroom_kva !== undefined ? ` (${best.limiting_headroom_kva >= 0 ? "+" : "−"}${formatNumber(Math.abs(best.limiting_headroom_kva), 0)} kVA)` : ""}
 verdict  = ${best.feasible ? "Feasible" : "Infeasible"} — ${best.violations.length} violation(s) / ${best.overloaded.length} overload(s)`}</Formula>
         )}
         </>
@@ -229,6 +256,11 @@ export function ContingencyPanel() {
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
             <span>Base load {formatNumber(result.base_load_kw)} kW</span>
             <span>{result.base_node_count} nodes</span>
+            {result.base_worst_loading_pct > 0 && (
+              <span className={cn(result.base_worst_loading_pct > 100 && "text-destructive")}>
+                Donor {formatNumber(result.base_worst_loading_pct, 0)}% loaded
+              </span>
+            )}
             <span>
               {result.options.length} candidate tie{result.options.length === 1 ? "" : "s"}
             </span>
@@ -253,6 +285,9 @@ export function ContingencyPanel() {
                     <th className="bg-popover px-3 py-1.5 font-medium">Tie</th>
                     <th className="bg-popover px-3 py-1.5 font-medium">Restores</th>
                     <th className="bg-popover px-3 py-1.5 font-medium">Worst (pu)</th>
+                    <th className="bg-popover px-3 py-1.5 font-medium" title="Worst post-transfer loading on the donor path and the element that limits it">
+                      Capacity
+                    </th>
                     <th className="bg-popover px-3 py-1.5 font-medium">Result</th>
                   </tr>
                 </thead>
@@ -320,6 +355,37 @@ function ContingencyRow({
       <td className="px-3 py-1.5">
         {opt.restored_node_count > 0 && opt.min_voltage_pu > 0 ? (
           <span className={cn(problems > 0 && "text-destructive")}>{formatNumber(opt.min_voltage_pu, 3)}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="px-3 py-1.5 whitespace-nowrap">
+        {opt.restored_node_count > 0 && opt.worst_loading_pct > 0 ? (
+          <>
+            <div className={cn(opt.worst_loading_pct > 100 && "text-destructive font-medium")}>
+              {formatNumber(opt.worst_loading_pct, 0)}%
+              {opt.limiting_headroom_kva !== undefined && (
+                <span className="text-muted-foreground ml-1 text-xs">
+                  ({opt.limiting_headroom_kva >= 0 ? "+" : "−"}
+                  {formatNumber(Math.abs(opt.limiting_headroom_kva), 0)} kVA)
+                </span>
+              )}
+            </div>
+            {opt.limiting_element && (
+              <div
+                className="text-muted-foreground cursor-pointer text-xs hover:underline"
+                title={`Limiting element (${opt.limiting_kind ?? "rated"}) — click to show on the map`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  useSelectionStore
+                    .getState()
+                    .select(opt.limiting_element!.feature_class, opt.limiting_element!.feature_id, { focus: true })
+                }}
+              >
+                {classNameFor(opt.limiting_element.feature_class)}
+              </div>
+            )}
+          </>
         ) : (
           <span className="text-muted-foreground">—</span>
         )}

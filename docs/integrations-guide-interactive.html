@@ -160,7 +160,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>Integrations</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · Overview</a><a href="#c2">2 · Catalog</a><a href="#c3">3 · Links</a><a href="#c4">4 · References</a><a href="#c5">5 · Live fetch</a><a href="#c6">6 · Webhooks</a><a href="#c7">7 · Mapping</a><a href="#c8">8 · Correlate</a><a href="#c9">9 · Pull &amp; out</a><a href="#c10">10 · Agent/MCP</a><a href="#c11">11 · Security</a><a href="#c12">12 · Check</a>
+      <a href="#c1">1 · Overview</a><a href="#c2">2 · Catalog</a><a href="#c3">3 · Links</a><a href="#c4">4 · References</a><a href="#c5">5 · Live fetch</a><a href="#c6">6 · Webhooks</a><a href="#c6b">6¾ · Protection</a><a href="#c7">7 · Mapping</a><a href="#c8">8 · Correlate</a><a href="#c9">9 · Pull &amp; out</a><a href="#c10">10 · Agent/MCP</a><a href="#c11">11 · Security</a><a href="#c12">12 · Check</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -346,6 +346,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
         <tr><td><code>fault</code></td><td>The Faults engine</td></tr>
         <tr><td><code>operation</code></td><td>The device-operations log</td></tr>
         <tr><td><code>outage</code></td><td>The OMS — <b>raises VoltEdge's own incident</b> from a SCADA/AMI signal</td></tr>
+        <tr><td><code>protection</code></td><td>The protection-settings register — <b>relay / overcurrent settings</b> from an external relay DB (ch. 6¾)</td></tr>
         <tr><td><code>incident</code></td><td>The OMS — read-only <b>mirror</b> of an external incident</td></tr>
         <tr><td><code>workorder</code></td><td>The WAM — read-only <b>mirror</b> of an external work order</td></tr>
       </table></div>
@@ -364,6 +365,38 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   </div>
   <div class="caution"><b>caution</b> The timestamp must be within <b>5 minutes</b> of now — an out-of-window request is rejected <em>even with a valid signature</em>, defeating replay. An <code>Idempotency-Key</code> de-duplicates a retried delivery (returns the original id at <code>200</code>); a fresh one is <code>202 Accepted</code> and applied by an out-of-process worker.</div>
   <div class="tip"><b>tip</b> The endpoint's <b>Deliveries</b> log (newest 100) shows every attempt's status; <b>Test</b> pastes-and-applies a payload inline to validate auth + mapping before go-live; <b>Replay</b> re-enqueues a stored delivery. The receiver never stores the <code>Authorization</code> header or the raw signature — only non-secret metadata.</div>
+</section>
+
+<!-- 6¾ -->
+<section class="ch" id="c6b">
+  <div class="ch-head"><div class="ch-num">6¾</div><h2>Feed the protection register</h2><p>Push a device's as-built relay / overcurrent settings in from a relay DB or SCADA — correlated, provenance-stamped.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span><p>VoltEdge keeps an <b>as-built protection-settings register</b> — one row per protective device holding its relay / overcurrent settings (pickups, time dials, CT ratio, curves, reclose scheme). Those settings usually <em>live</em> in a relay-setting database or SCADA; the <code>protection</code> target lets that system <b>push</b> them in instead of an engineer re-typing them. It's the protection sibling of <code>operation</code>: both resolve a <b>device</b> and write under <span class="perm">features:write</span> as the endpoint's service user — but a setting is an <b>upsertable entity keyed on the device</b>, so a repeat <em>replaces</em> it and <code>op:"delete"</code> removes it.</p></div>
+  <div class="twocol">
+    <div>
+      <h4 style="margin-bottom:4px">Naming the device</h4>
+      <p style="font-size:14px">A change names the device <b>directly</b> (<code>device_class</code> + <code>device_id</code>, VoltEdge's own ids) <b>or</b> by its <b>external id</b> (<code>device_external_id</code>) — resolved through the <code>external_ref</code> reverse index using the endpoint's <b>System code</b>, exactly the correlation <code>operation</code> uses. <code>external_id</code> is only a label here (the device is the key); there's no event-dedup.</p>
+      <div class="caution" style="margin-top:10px"><b>caution</b> The resolved device must be a <b>protective / switching</b> class — <code>MV_BREAKER</code>, <code>MV_RECLOSER</code>, <code>MV_FUSE</code>, <code>MV_SWITCH</code>, <code>MV_ISOLATOR</code>, <code>MV_SECTIONALIZER</code>, <code>LV_SWITCH</code> or <code>PROTECTIVE_RELAY</code>. A <code>device_external_id</code> that resolves to a transformer or a line is <b>rejected</b>, so a mis-stamped reference can't quietly write settings onto a cable.</p></div>
+    </div>
+    <div>
+      <h4 style="margin-bottom:4px">The change shape</h4>
+      <div class="jsonbox">{
+  <span class="k">"op"</span>: <span class="s">"upsert"</span>,      <span class="p">// or "delete"</span>
+  <span class="k">"device_external_id"</span>: <span class="s">"FDR7-CB7-RELAY"</span>,
+  <span class="k">"relay_model"</span>: <span class="s">"SEL-751"</span>,
+  <span class="k">"ct_ratio"</span>: <span class="s">"400/5"</span>,
+  <span class="k">"phase_pickup_a"</span>: <span class="s">400</span>,
+  <span class="k">"phase_time_dial"</span>: <span class="s">0.5</span>,
+  <span class="k">"phase_curve"</span>: <span class="s">"IEC_SI"</span>,
+  <span class="k">"phase_instantaneous_a"</span>: <span class="s">15000</span>,
+  <span class="k">"ground_pickup_a"</span>: <span class="s">40</span>,
+  <span class="k">"reclose_operations"</span>: <span class="s">4</span>,
+  <span class="k">"reclose_intervals"</span>: <span class="s">"0, 2, 5 s"</span>
+}</div>
+      <p class="muted" style="font-size:13px">Batch under <code>{"changes":[ … ]}</code>. Any omitted setting is written null (an upsert is a full replace). Fields: <code>relay_model</code>, <code>ct_ratio</code>, <code>phase_*</code> / <code>ground_*</code> (<code>pickup_a</code>, <code>time_dial</code>, <code>curve</code>, <code>instantaneous_a</code>), <code>reclose_operations</code>, <code>reclose_intervals</code>, <code>notes</code>.</p>
+    </div>
+  </div>
+  <div class="en-b"><span class="tag en">Provenance</span><p>Every register row records the <b>source</b> of its last write. An <b>ingested</b> write stamps <code>source =</code> the endpoint's System code (falling back to the endpoint id); a <b>register-UI</b> edit stamps <code>source = "manual"</code>. Because an upsert is last-writer-wins, <code>source</code> reflects <em>who touched it last</em> — correct an ingested setting by hand and it flips back to <code>manual</code>. The register screen badges any non-<code>manual</code> source, so a feed-driven row is visible at a glance.</p></div>
+  <div class="tip"><b>tip</b> On <b>Admin → Webhooks → New</b>, pick <b>Target: Protection settings</b>, a service user with <span class="perm">features:write</span>, and — if changes name devices by <code>device_external_id</code> — the <b>External system code</b> (the optional input now shown for the device-resolving targets <code>operation</code>, <code>outage</code> and <code>protection</code>). A system that already holds VoltEdge's own ids can skip the webhook and write the register directly: <code>PUT /protection/settings/{class}/{id}</code> (<span class="perm">features:write</span>). See the <b>Switching &amp; Protection</b> guide for the register itself.</div>
 </section>
 
 <!-- 7 -->
@@ -471,7 +504,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <footer>
     <p><b>VoltEdge · Integrations &amp; External Systems</b> — the interactive companion to the Markdown guide. Everything here runs on the real rules: AES-256-GCM sealed credentials, the <code>{id}</code>/<code>{field}</code> template fill with its relative-path guard, the strict mapping spec, HMAC-SHA256 over <code>timestamp + "." + body</code> with a 5-minute replay window, and adopt-not-duplicate correlation against the reverse index.</p>
     <p class="muted">The HMAC is computed in your browser with the Web Crypto API; the mapping transform runs the same const/path/fields + map/default rules the server does. No network, no data leaves the page.</p>
-    <p class="muted">Last updated: 2026-10-28</p>
+    <p class="muted">Last updated: 2026-10-30</p>
   </footer>
 </section>
 

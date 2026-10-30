@@ -80,6 +80,68 @@ export interface CoordinationResult {
   coordinated?: boolean
 }
 
+/** Mirrors api/internal/powerflow's coordinationSweepResponse -- the
+ * feeder-wide version of a coordination study (POST /analysis/coordination-sweep).
+ * Instead of grading one source->fault path it faults AT every series protective
+ * device below the source and reports each adjacent pair's WORST margin, so one
+ * run answers "is the whole feeder coordinated, and which pairs are not?". pairs
+ * are the same shape a single study returns (downstream/upstream/margin_s/
+ * coordinated), already ordered miscoordinated-first. devices_faulted is how many
+ * protective devices were actually gradeable; truncated is set when the feeder has
+ * more protective devices than the sweep cap (the report is then not exhaustive). */
+export interface CoordinationSweepResult {
+  start: TraceFeatureRef
+  cti_seconds: number
+  devices_faulted: number
+  pair_count: number
+  miscoordinated_count: number
+  ungraded_count: number
+  pairs: CoordinationPair[]
+  truncated: boolean
+}
+
+/** One recloser -> downstream-fuse reclose-scheme evaluation -- mirrors
+ * api/internal/powerflow's fuseSavingPair. The four time fields are the operate
+ * times at fault_current_amps (each on its own device's base). fuse_saved is the
+ * fuse-saving verdict (recloser fast curve trips before the fuse min-melt, so a
+ * transient fault doesn't blow the fuse); fuse_clears is the permanent-fault
+ * verdict (the fuse totally clears before the recloser's slow/delayed trip locks
+ * out the feeder). Each is absent when a curve it needs was unresolved.
+ * max_save_current_amps is the fuse-saving crossover (fast == min-melt) on the
+ * fuse base -- the upper fault-current bound the fuse is saved over; absent when
+ * the two curves never cross over their shared range. */
+export interface FuseSavingPair {
+  recloser: TraceFeatureRef
+  fuse: TraceFeatureRef
+  fault_current_amps?: number
+  fast_time_s?: number
+  slow_time_s?: number
+  fuse_min_melt_s?: number
+  fuse_total_clear_s?: number
+  fuse_saved?: boolean
+  fuse_clears?: boolean
+  max_save_current_amps?: number
+  note?: string
+}
+
+/** Mirrors api/internal/powerflow's fuseSavingResponse (POST
+ * /analysis/fuse-saving) -- the recloser/fuse-saving scheme check over the whole
+ * feeder below the source. For each lateral fuse and its nearest upstream
+ * recloser it reports both scheme verdicts. fuse_saved_count / fuse_clears_count
+ * are how many pairs pass each check; issue_count is how many fail EITHER (a
+ * fuse that melts on a transient, or one that doesn't clear before lockout).
+ * pairs are ordered issues-first. truncated is set when the feeder has more
+ * recloser/fuse laterals than the sweep cap. */
+export interface FuseSavingResult {
+  start: TraceFeatureRef
+  pair_count: number
+  fuse_saved_count: number
+  fuse_clears_count: number
+  issue_count: number
+  pairs: FuseSavingPair[]
+  truncated: boolean
+}
+
 /**
  * Same "not persisted, several siblings read one store" shape as
  * fault-current-store.ts, with one extra input: coordination needs a *second*
@@ -101,6 +163,16 @@ interface CoordinationState {
   pickingFault: boolean
   result: CoordinationResult | null
   loading: boolean
+  // The feeder-wide sweep shares the same armed source as the single study (it
+  // needs no fault pick) and the same transient `loading` flag (the two never run
+  // at once from one panel), so it rides this store rather than a sibling: only
+  // its result is separate, so the panel can show either the single TCC study or
+  // the sweep report without one clobbering the other's armed state.
+  sweepResult: CoordinationSweepResult | null
+  // The recloser/fuse-saving check rides this store for the same reason the sweep
+  // does: same armed source, no fault pick, mutually exclusive with the other two
+  // views. Only its result is separate.
+  fuseSavingResult: FuseSavingResult | null
   arm: (start: TraceFeatureRef) => void
   startPickFault: () => void
   cancelPickFault: () => void
@@ -108,6 +180,8 @@ interface CoordinationState {
   rearm: () => void
   setLoading: (loading: boolean) => void
   setResult: (result: CoordinationResult) => void
+  setSweepResult: (result: CoordinationSweepResult) => void
+  setFuseSavingResult: (result: FuseSavingResult) => void
   clear: () => void
 }
 
@@ -120,18 +194,22 @@ export const useCoordinationStore = create<CoordinationState>()(
       pickingFault: false,
       result: null,
       loading: false,
+      sweepResult: null,
+      fuseSavingResult: null,
       arm: (start) =>
-        set({ armed: true, armedStart: start, armedFault: null, pickingFault: false, result: null, loading: false }),
+        set({ armed: true, armedStart: start, armedFault: null, pickingFault: false, result: null, loading: false, sweepResult: null, fuseSavingResult: null }),
       startPickFault: () => set({ pickingFault: true }),
       cancelPickFault: () => set({ pickingFault: false }),
       // Setting the fault (from a map click while picking, or the peer-picker)
       // also ends the pick gesture.
       setFault: (fault) => set({ armedFault: fault, pickingFault: false }),
-      rearm: () => set({ armed: true, pickingFault: false, result: null, loading: false }),
+      rearm: () => set({ armed: true, pickingFault: false, result: null, loading: false, sweepResult: null, fuseSavingResult: null }),
       setLoading: (loading) => set({ loading }),
       setResult: (result) => set({ result, loading: false }),
+      setSweepResult: (sweepResult) => set({ sweepResult, loading: false }),
+      setFuseSavingResult: (fuseSavingResult) => set({ fuseSavingResult, loading: false }),
       clear: () =>
-        set({ armed: false, armedStart: null, armedFault: null, pickingFault: false, result: null, loading: false }),
+        set({ armed: false, armedStart: null, armedFault: null, pickingFault: false, result: null, loading: false, sweepResult: null, fuseSavingResult: null }),
     }),
     resultPersist("voltedge-coordination-result"),
   ),

@@ -41,6 +41,8 @@ Every study is one `POST` under `/analysis`, is **strictly read-only** (it compu
 | **Fault & protection** | Fault current (3-phase + SLG) | `/analysis/fault-current` | 4 |
 | | Fault location (distance-to-fault) | `/analysis/fault-location` | 4 (§4.10) |
 | | Protection coordination | `/analysis/coordination` | 5 |
+| | Protection coordination — feeder sweep | `/analysis/coordination-sweep` | 5 (§5.8) |
+| | Fuse-saving scheme check | `/analysis/fuse-saving` | 5 (§5.9) |
 | | Conductor ampacity (IEEE 738) | `/analysis/ampacity` | 6 |
 | | Arc-flash (IEEE 1584) | `/analysis/arc-flash` | 7 |
 | **Capacity & planning** | Contingency / backfeed (N-1) | `/analysis/contingency` | 8 |
@@ -64,7 +66,9 @@ Not every study has been checked to the same depth, and the platform is honest a
 | Voltage profile | `/analysis/voltage-profile` | Derived | Reuses the validated load-flow sweep; the per-unit band and I²R loss summary are arithmetic over it. |
 | Conductor ampacity | `/analysis/ampacity` | Derived | First-principles IEEE 738 thermal balance; standards-based, not cross-checked against a reference here. |
 | Protection coordination | `/analysis/coordination` | Derived | Uses the validated fault engine for through-fault current; the TCC timing/grading is not independently verified. |
-| Contingency / backfeed (N-1) | `/analysis/contingency` | Derived | Re-solves a backfed section with the validated sweep; the transfer logic is not independently tested. |
+| Protection coordination — feeder sweep | `/analysis/coordination-sweep` | Derived | The same per-pair grading as coordination, re-run with a fault at every protective device; no new physics, so it inherits coordination's tier. |
+| Fuse-saving scheme check | `/analysis/fuse-saving` | Derived | Reads the same tabulated recloser/fuse curves coordination does; the fast-vs-min-melt / slow-vs-total-clear comparison and the crossover search are reasoned, not benchmarked. |
+| Contingency / backfeed (N-1) | `/analysis/contingency` | Derived | Re-solves a backfed section with the validated sweep; the transfer logic — and the back-feed capacity margin (§8.1) read off its loadings — is not independently tested. |
 | Hosting capacity (DER) | `/analysis/hosting-capacity` | Derived | Binary search over the validated sweep for the first binding constraint. |
 | EV feeder headroom | `/analysis/ev-hosting` | Derived | Binary search over the validated sweep (under-voltage mirror of hosting capacity). |
 | Load-growth forecast | `/analysis/load-growth` | Derived | A **scenario projection**: it re-runs the validated sweep (and, for DER headroom, the hosting-capacity search) across a horizon under a *stated* growth assumption. The physics is validated; the result is only as sound as the growth input — a what-if, **not** a prediction of actual future demand. |
@@ -834,7 +838,52 @@ The one pair: `margin_s = 0.59 − 0.08 = 0.51 s`, which is **≥ 0.3 s**, so `c
 
 **Now the failure case.** Suppose someone lowers the relay's time dial to **0.1** to speed up tripping. The relay's operate time at 10× drops to `≈ 0.30 s`, so `margin_s = 0.30 − 0.08 = 0.22 s < 0.3 s` — the pair comes back `coordinated: false`, and the overall verdict flips to **not coordinated**. The study has caught that the "faster" relay setting now trips the whole feeder too close behind the lateral fuse: for a slightly different fault the *breaker* could beat the *fuse*, blacking out the entire feeder for a fault one lateral could have contained. The fix is to restore a higher time dial (or a slower curve) and re-run until the margin returns above CTI.
 
-### 5.8 Tips & gotchas ▶
+### 5.8 Sweeping the whole feeder at once ▶∑
+
+**▶** §5.1–5.7 grade **one** source→fault path. But a feeder has many protective devices, and a single study only tells you about the pair on the path you picked. The **feeder sweep** (`/analysis/coordination-sweep`) answers the maintenance question directly: *"is **every** series pair below this source coordinated, and which ones are not?"* Arm it on the feeder head and it grades the whole thing in one call, returning the pairs **worst-margin-first** so the problems are at the top of the list.
+
+**∑** It postulates a bolted fault **at each protective device** on the feeder and reuses the single study for each. The method (`runCoordinationSweep`, `powerflow/coordination_sweep.go:46`):
+
+1. **Build the tree once.** The start-dependent, expensive part — `resolveNode → buildTree` from the source — runs a single time.
+2. **Find the fault points.** Walk the tree order and keep every node whose class is protective — `isProtectiveClass` is `MV_BREAKER`, `MV_FUSE`, `MV_SWITCH`, `LV_SWITCH`, `MV_RECLOSER` (`coordination_sweep.go:141`). These are the devices a fault "just below" would ask to coordinate with whatever is upstream. The start itself is skipped.
+3. **Grade at each.** For every fault point it calls the **same** `runCoordination` (§5.5) — so each run re-grades cheaply off the one topology, producing the series pairs for that fault.
+4. **Merge, keeping the worst.** A given (downstream, upstream) pair may be graded at several of those faults; the sweep keeps the **worst (smallest) margin** seen for it (`pairWorse`, `coordination_sweep.go:152`: a graded pair always beats an ungraded one, and among graded pairs the smaller margin wins). So one row per pair tells you its tightest case across the feeder.
+5. **Order & cap.** Pairs sort **miscoordinated-first, then ascending margin, ungraded last** (`pairLess`, `coordination_sweep.go:164`). A pathological feeder is bounded at **`maxSweepDevices = 40`** fault points (`coordination_sweep.go:25`); hitting it sets `truncated: true` so the report is never read as exhaustive.
+
+The response carries `devices_faulted`, `pair_count`, `miscoordinated_count`, `ungraded_count`, the ordered `pairs[]` (each a `downstream`/`upstream`/`margin_s`/`coordinated` just like the single study), and `truncated`. It needs the same `nominal_voltage_v` and `cti_seconds` as a single study, and **no fault pick** — the engine chooses the fault points itself.
+
+> **▶ Worked example — one sweep of Feeder 7.** Instead of running §5.7 for the lateral, then again for the ring tail, then again for the recloser, Tom arms the sweep on the feeder head. It faults at CB-7, REC-7, FSW-12, the RMU fused way and the ring sectionaliser, grades each chain, and returns the merged pairs:
+>
+> | Pair (downstream → upstream) | worst margin | coordinated? |
+> |---|---|---|
+> | FSW-12 → REC-7 | 0.44 s | ✓ |
+> | RMU fused way → REC-7 | 0.41 s | ✓ |
+> | REC-7 → CB-7 | 1.04 s | ✓ |
+>
+> `miscoordinated_count: 0` — the whole feeder grades. Had the relay's time dial been dropped to 0.1 (the §5.7 failure), the `REC-7 → CB-7` row would surface at the **top** of the list with a negative margin and `miscoordinated_count: 1`, found without having to guess which fault to study.
+
+💡 The sweep is **feeder-wide triage**; a single study (§5.1) is the **drill-down**. Run the sweep to find the bad pairs, then run one coordination study at the relevant fault to see the full chart and operate times for the pair you're fixing.
+
+### 5.9 Fuse-saving scheme check ▶∑
+
+**▶** A recloser protecting a lateral fuse runs a **two-curve** scheme. On a *transient* fault its **fast** curve should trip before the fuse melts — so a momentary fault doesn't blow (and strand) the lateral: the fuse is *saved*. On a *permanent* fault the fuse should totally clear before the recloser's **slow** curve locks the whole feeder out — so only the faulted lateral drops: the fuse *clears*. The fuse-saving check (`/analysis/fuse-saving`) evaluates both for **every** recloser→fuse lateral below a source, in one call.
+
+**∑** For each fuse (`MV_FUSE`, or a fused `MV_SWITCH`/`LV_SWITCH` — `fuseCurveRefFor`, `powerflow/fusesaving.go:182`) it finds the **nearest upstream recloser** by walking the tree parent chain (`nearestUpstreamRecloser`, `fusesaving.go:206`); a fuse with no recloser above it is not part of any reclose scheme and is skipped. At the prospective fault current *at the fuse*, with the recloser curve read at that current **referred to the recloser's own base** and the fuse bands at the fuse's base, it computes two verdicts:
+
+```
+fuse_saved  = t_fast(I)          <  t_fuse_min_melt(I)     (fast curve beats the fuse melting → transient saved)
+fuse_clears = t_fuse_total_clear(I) <  t_slow(I)           (fuse clears before the slow/lockout trip → permanent isolated)
+```
+
+and the **fuse-saving crossover** — the fault current at which the fast curve *overtakes* the fuse minimum-melt, i.e. the **upper bound of the range the fuse is actually saved over**. Because both curves are monotonic, `fuseSaveCrossover` (`fusesaving.go:329`) finds it by log-spaced sampling of `g(I) = t_fast(I·ratio) − t_min_melt(I)` across the two curves' shared current domain and a **geometric bisection** on the sign change; it's reported as `max_save_current_amps` (absent when the curves never cross — the per-fault verdict then says which side the scheme sits on).
+
+The response lists each pair (`recloser`, `fuse`, `fault_current_amps`, the four operate times `fast_time_s`/`slow_time_s`/`fuse_min_melt_s`/`fuse_total_clear_s`, `fuse_saved`, `fuse_clears`, `max_save_current_amps`), **issues-first**, with `pair_count`, `fuse_saved_count`, `fuse_clears_count` and `issue_count` (a pair where **either** verdict failed). It is capped at **`maxFuseSavingPairs = 60`** laterals (`fusesaving.go:35`).
+
+⚠️ **This is the automated, feeder-level companion to the hand reasoning in the Switching & Protection guide (§7.9, fuse-saving vs. fuse-blowing).** It evaluates the scheme **at one fault current per fuse** (the bolted fault at the fuse) plus the crossover — it is not a full shot-by-shot sequence simulation, and it does not model the fuse's cumulative heating from earlier recloser shots. Read `fuse_saved: false` as *"the fuse will blow on the first fast shot at this fault level"* and `max_save_current_amps` as the current below which the scheme holds.
+
+> **▶ Worked example — the Oakwood lateral under REC-7.** The 100 T lateral fuse sits below the mid-feeder recloser. At the lateral's ~3.9 kA fault level the recloser's **fast** curve takes ≈ 0.05 s while the fuse minimum-melt is ≈ 0.012 s — so `fuse_saved: false` (the fuse blows on the first fast shot), and the crossover `max_save_current_amps` lands near **1.1 kA** (below that current the fast shot *would* save the fuse). The **slow** curve (≈ 0.46 s) is well above the fuse total-clear (≈ 0.023 s), so `fuse_clears: true`. The read: on this feeder the fuse is *not* saved at the lateral's real fault level — run the recloser **fuse-blowing** (slow-only) unless the fault current at the tee is below ~1.1 kA. The same conclusion the hand analysis reaches in the Switching & Protection guide, now computed over every lateral at once.
+
+### 5.10 Tips & gotchas ▶
 
 - **Run it for a fault at the end of each protected section.** Coordination that holds for a close-in fault can fail for a remote one (lower current, different curve slopes) — check the cases that matter.
 - **A `note` explains every unresolved device.** "No PROTECTIVE_RELAY linked via protection_trip", "fuse has no curve_ref", "through-current at or below pickup — relay does not operate" — read it before assuming the device is fine.
@@ -1124,6 +1173,9 @@ Each candidate tie comes back as a **`restorationOption`**:
 | `min_voltage_pu` / `worst_node` | the worst post-transfer voltage and where |
 | `violations` | nodes outside the band after transfer |
 | `overloaded` | branches/transformers over 100 % after transfer |
+| `worst_loading_pct` | the **back-feed capacity margin**: the loading of the most-loaded rated element on the donor *after* the transfer (§8.1.1) |
+| `limiting_element` / `limiting_kind` | *which* element that is, and whether it hit its `ampacity` (conductor) or `transformer` (kVA) rating |
+| `limiting_headroom_kva` | spare apparent power at that element before 100 % — **negative** when the transfer pushes it over |
 | `normal_state` | the tie's declared posture — `NORMALLY_OPEN` ties rank **first** |
 | `feasible` | **true only if** the transfer restores load AND introduces no violation and no overload |
 | `note` | why an option is infeasible or trivial (a loop; no load gained) |
@@ -1131,6 +1183,20 @@ Each candidate tie comes back as a **`restorationOption`**:
 ⚠️ **`feasible: true` is the switching move an operator can make as-is.** A `false` with a violation or overload means the transfer *works electrically* but leaves the donor out of limits — a partial transfer or load shed might still help, but not a straight close.
 
 **∑** `runContingency` sweeps the donor **as it stands** (the base case); its **barrier hits are exactly the open boundary switches** a transfer could close, so with no explicit `tie` the study evaluates *every* one of them, ranked NORMALLY_OPEN-first (a purpose-built standby path is the natural first choice). For each candidate it re-sweeps with that tie's `device_state` **overridden closed** in memory (`runSweep(..., map[node]bool{c: true}, ...)`) — **no connectivity is mutated**. Then it computes nothing new: **restored load = the delta in the source's accumulated demand** (base vs swept `cumKW`), restored nodes = everything newly reached, overloads reuse load flow's own `formatResults` loading check, violations reuse Chapter 2's band judging. Two special results are reported honestly rather than as failures: closing a tie that forms a **loop/mesh** (a parallel path, not a radial transfer) is caught as a `buildTree` validation error and flagged (*"run LOOP_CHECK_TRACE"*); a tie that **dead-ends** (restores no load) says so.
+
+#### 8.1.1 Back-feed capacity — the limiting element and its headroom ∑
+
+The `overloaded` list answers a **binary** question ("is anything over 100 %?"). But a dispatcher deciding a transfer wants the **margin**: *how close is the tightest element, which one is it, and how much more could it take?* The study reports that too, by reading the per-node loadings the swept donor already carries.
+
+**`backfeedLimit`** (`powerflow/contingency.go:283`) scans the swept donor's nodes for the **single most-loaded rated element** — a conductor against its ampacity, or a transformer against its kVA rating, from the same `formatResults` `loading_pct` load flow computes (Chapter 2). That element is the `limiting_element`; `limiting_kind` is `ampacity` or `transformer`; `worst_loading_pct` is its loading. Its spare capacity follows from one identity — at loading `L %` carrying apparent power `S`, the element's rating is `S / (L/100)`, so the headroom to 100 % is
+
+```
+limiting_headroom_kva = S · (100 − L) / L
+```
+
+(`contingency.go:305-308`, with `S = √(kW² + kvar²)` at that element). A **negative** figure means the transfer already pushes it past its rating — the same condition that put it in `overloaded`, now quantified. The response also carries `base_worst_loading_pct` (`contingency.go:96`) — the donor's worst loading **before** any transfer — so the per-option figure reads against a "before" picture: a donor already at 85 % has far less to give than one at 40 %.
+
+⚠️ This is a **planning-level margin at the limiting element**, not a guarantee that a specific amount of extra load can be placed anywhere: a transfer loads the donor at specific points, and the headroom is the slack at the *one* element that binds first. It shares the contingency tier (**Derived**) — the loadings come from the validated sweep; the margin arithmetic over them is reasoned, not benchmarked.
 
 ### 8.2 DER hosting capacity ▶
 
@@ -1182,12 +1248,14 @@ This is the "resolve-once + in-memory re-sweep + ramp-then-bisect" engine the pl
 
 **∑** The study re-sweeps Feeder 9 with each tie overridden closed:
 
-| Tie | Restored load | Restored nodes | Worst voltage | Overloaded | Feasible |
-|---|---|---|---|---|---|
-| **TIE-79-A** (NOP) | +0.8 MW | 46 | 0.958 pu | — | ✅ **true** |
-| **TIE-79-B** | +1.4 MW | 71 | 0.941 pu ⚠️ | 1 cable @ 108 % ⚠️ | ❌ false |
+Feeder 9 carries **`base_worst_loading_pct` ≈ 62 %** before any transfer — its trunk cable runs about two-thirds loaded as it stands.
 
-**▶** Priya's read: **close TIE-79-A**. It restores 0.8 MW (46 nodes) and Feeder 9 still holds 0.958 pu — within the band, nothing overloaded. TIE-79-B would restore *more* (the whole 1.4 MW), but it drives the far end to 0.941 pu (below the 0.95 floor) and pushes a cable to 108 % — a straight close there just moves the problem onto Feeder 9. The purpose-built NOP tie, ranked first, is exactly the safe move; TIE-79-B needs a partial transfer or load shed. She restores 46 nodes in one switching action.
+| Tie | Restored load | Restored nodes | Worst voltage | Worst loading (limiting element) | Headroom | Feasible |
+|---|---|---|---|---|---|---|
+| **TIE-79-A** (NOP) | +0.8 MW | 46 | 0.958 pu | 84 % (Feeder 9 trunk cable, `ampacity`) | **+72 kVA** | ✅ **true** |
+| **TIE-79-B** | +1.4 MW | 71 | 0.941 pu ⚠️ | 108 % (same trunk cable) ⚠️ | **−58 kVA** | ❌ false |
+
+**▶** Priya's read: **close TIE-79-A**. It restores 0.8 MW (46 nodes) and Feeder 9 still holds 0.958 pu — within the band — and its tightest element, the trunk cable, rises from 62 % to **84 %**, leaving **72 kVA of headroom** before it would overload. TIE-79-B would restore *more* (the whole 1.4 MW), but the capacity figure says it all: the same trunk cable goes to **108 %** — **58 kVA over** its ampacity — and the far end sags to 0.941 pu. A straight close there just moves the problem onto Feeder 9. The purpose-built NOP tie, ranked first, is the safe move; TIE-79-B needs a partial transfer or load shed. The `limiting_element` naming the trunk cable tells her *exactly* which asset to reinforce if she wanted that bigger transfer available. She restores 46 nodes in one switching action.
 
 **▶ Hosting capacity.** Weeks later, a developer wants to connect **rooftop-scale PV at the Oakwood LV board** (the 415 V node off TX-Feeder7-014, base voltage 0.969 pu from Chapter 2). Tom runs `/analysis/hosting-capacity` naming that node, unity PF.
 

@@ -178,19 +178,26 @@ type CustomerInterruption struct {
 }
 
 // SwitchingOrder mirrors oms.switching_orders -- one open/close program a crew
-// executes for an incident (typically a planned outage). Steps holds its ordered
+// executes. IncidentID ties it to an incident (typically a planned outage); it is
+// NULL for a STANDALONE planned switching program authored for planned work
+// (migration 0186). PlannedStart/PlannedEnd (the booked window) and Purpose are
+// carried by a standalone program -- an incident-backed order inherits that
+// context from its incident, so they are null there. Steps holds its ordered
 // operations when loaded together (bun `rel:has-many`, not a stored column).
 type SwitchingOrder struct {
 	bun.BaseModel `bun:"table:oms.switching_orders,alias:so"`
 
-	ID         string          `bun:"id,pk" json:"id"`
-	IncidentID string          `bun:"incident_id" json:"incident_id"`
-	Reference  *string         `bun:"reference" json:"reference"`
-	Status     string          `bun:"status" json:"status"`
-	Notes      *string         `bun:"notes" json:"notes"`
-	CreatedAt  time.Time       `bun:"created_at" json:"created_at"`
-	UpdatedAt  time.Time       `bun:"updated_at" json:"updated_at"`
-	Steps      []SwitchingStep `bun:"rel:has-many,join:id=switching_order_id" json:"steps"`
+	ID           string          `bun:"id,pk" json:"id"`
+	IncidentID   *string         `bun:"incident_id" json:"incident_id"`
+	Reference    *string         `bun:"reference" json:"reference"`
+	Status       string          `bun:"status" json:"status"`
+	Purpose      *string         `bun:"purpose" json:"purpose"`
+	PlannedStart *time.Time      `bun:"planned_start" json:"planned_start"`
+	PlannedEnd   *time.Time      `bun:"planned_end" json:"planned_end"`
+	Notes        *string         `bun:"notes" json:"notes"`
+	CreatedAt    time.Time       `bun:"created_at" json:"created_at"`
+	UpdatedAt    time.Time       `bun:"updated_at" json:"updated_at"`
+	Steps        []SwitchingStep `bun:"rel:has-many,join:id=switching_order_id" json:"steps"`
 }
 
 // SwitchingStep mirrors oms.switching_steps -- one operation in a switching

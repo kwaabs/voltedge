@@ -1,18 +1,20 @@
-import { Activity, Radio } from "lucide-react"
+import { Activity, ListChecks, Radio } from "lucide-react"
 import { Link, useLocation } from "react-router"
 
 import { usePermission } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
 
-// The Operations log (what devices DID — the trip/switch history) and Live state
-// (what the field reports NOW vs the model) are two views of the same device
-// surface, so they share one page as tabs. This strip is rendered at the top of
-// both route pages; the active tab tracks the URL, and a tab the caller lacks
-// permission for is hidden. When only one tab is visible there's nothing to
+// The Operations log (what devices DID — the trip/switch history), Live state
+// (what the field reports NOW vs the model) and Switching (the planned open/close
+// programs an operator authors and executes) are all views of the same device-
+// operations surface, so they share one page as tabs. This strip is rendered at
+// the top of each route page; the active tab tracks the URL, and a tab the caller
+// lacks permission for is hidden. When only one tab is visible there's nothing to
 // switch between, so the strip omits itself entirely.
 const OPS_TABS = [
   { to: "/operations", label: "Operations", icon: Activity, perm: "operations:read" },
   { to: "/live-state", label: "Live state", icon: Radio, perm: "telemetry:read" },
+  { to: "/switching", label: "Switching", icon: ListChecks, perm: "oms:read" },
 ]
 
 export function OperationsTabs() {

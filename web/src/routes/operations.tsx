@@ -8,7 +8,7 @@ import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePermission } from "@/hooks/use-auth"
-import { useDeviceInventory, useOperationCounts, useOperations } from "@/hooks/use-operations"
+import { useAbnormalDevices, useDeviceInventory, useOperationCounts, useOperations } from "@/hooks/use-operations"
 import { cn } from "@/lib/utils"
 import { useDevicePanelStore } from "@/stores/device-panel-store"
 
@@ -61,12 +61,21 @@ function DeviceCell({ cls, id, onOpen }: { cls: string; id: string; onOpen: (cls
   )
 }
 
-type View = "timeline" | "by-device" | "devices"
+type View = "timeline" | "by-device" | "devices" | "abnormal"
 
 const VIEW_LABEL: Record<View, string> = {
   timeline: "Timeline",
   "by-device": "By device",
   devices: "Devices",
+  abnormal: "Abnormal",
+}
+
+/** The declared normal posture reads as a target position; show it against the
+ * contradicting live state. */
+function normalLabel(normalState: string): string {
+  if (normalState === "NORMALLY_OPEN") return "Open"
+  if (normalState === "NORMALLY_CLOSED") return "Closed"
+  return normalState
 }
 
 /**
@@ -91,6 +100,8 @@ export function OperationsPage() {
   const ops = useOperations({ op_type: opType, source, device_class: deviceClass, limit: 500 })
   const counts = useOperationCounts(opType || undefined)
   const inventory = useDeviceInventory(deviceClass || undefined, state || undefined)
+  const abnormal = useAbnormalDevices(deviceClass || undefined)
+  const abnormalRows = useMemo(() => abnormal.data?.devices ?? [], [abnormal.data])
   const devices = useMemo(() => inventory.data?.devices ?? [], [inventory.data])
 
   const rows = useMemo(() => ops.data?.operations ?? [], [ops.data])
@@ -127,12 +138,14 @@ export function OperationsPage() {
                     ? `${rows.length} operation${rows.length === 1 ? "" : "s"}${rows.length >= 500 ? " (showing latest 500)" : ""}`
                     : view === "by-device"
                       ? `${countRows.length} device/operation tallies — busiest first`
-                      : `${devices.length} operable device${devices.length === 1 ? "" : "s"} — current state + last operation`}
+                      : view === "devices"
+                        ? `${devices.length} operable device${devices.length === 1 ? "" : "s"} — current state + last operation`
+                        : `${abnormalRows.length} device${abnormalRows.length === 1 ? "" : "s"} off normal — live position contradicts the declared normal state`}
                 </CardDescription>
               </div>
               {/* View toggle */}
               <div className="flex overflow-hidden rounded-md border">
-                {(["timeline", "by-device", "devices"] as const).map((v) => (
+                {(["timeline", "by-device", "devices", "abnormal"] as const).map((v) => (
                   <button
                     key={v}
                     type="button"
@@ -156,7 +169,7 @@ export function OperationsPage() {
                 value={deviceClass}
                 onChange={(e) => setDeviceClass(e.target.value)}
               />
-              {view !== "devices" && (
+              {(view === "timeline" || view === "by-device") && (
                 <select className={`${inputClass} h-8 w-auto`} value={opType} onChange={(e) => setOpType(e.target.value)}>
                   <option value="">All operations</option>
                   {OP_TYPES.map((o) => (
@@ -259,7 +272,8 @@ export function OperationsPage() {
                   </tbody>
                 </table>
               )
-            ) : inventory.isPending ? (
+            ) : view === "devices" ? (
+              inventory.isPending ? (
               <div className="text-muted-foreground flex items-center gap-2 text-sm">
                 <Loader2 className="size-4 animate-spin" /> Loading devices…
               </div>
@@ -302,6 +316,54 @@ export function OperationsPage() {
                         )}
                       </td>
                       <td className="py-1.5 pr-3">{d.last_op_type ? <OpBadge type={d.last_op_type} /> : <span className="text-muted-foreground">never</span>}</td>
+                      <td className="text-muted-foreground py-1.5 whitespace-nowrap">
+                        {d.last_op_at ? formatWhen(d.last_op_at) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+            ) : abnormal.isPending ? (
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                <Loader2 className="size-4 animate-spin" /> Checking configuration…
+              </div>
+            ) : abnormal.isError ? (
+              <p className="text-destructive text-sm">Could not load the abnormal-configuration report.</p>
+            ) : abnormalRows.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                Every switching device is in its normal position — the network is in its normal configuration.
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="text-muted-foreground border-b text-left text-xs">
+                  <tr>
+                    <th className="py-2 pr-3 font-medium">Device</th>
+                    <th className="py-2 pr-3 font-medium">Normal</th>
+                    <th className="py-2 pr-3 font-medium">Current</th>
+                    <th className="py-2 pr-3 font-medium">Last operation</th>
+                    <th className="py-2 font-medium">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {abnormalRows.map((d) => (
+                    <tr key={`${d.device_class}:${d.device_id}`} className="border-b last:border-b-0">
+                      <td className="py-1.5 pr-3">
+                        <DeviceCell
+                          cls={d.device_class}
+                          id={d.device_id}
+                          onOpen={(cls, id) => useDevicePanelStore.getState().open(cls, id)}
+                        />
+                      </td>
+                      <td className="text-muted-foreground py-1.5 pr-3">{normalLabel(d.normal_state)}</td>
+                      <td className="py-1.5 pr-3">
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                          {d.device_state}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        {d.last_op_type ? <OpBadge type={d.last_op_type} /> : <span className="text-muted-foreground">—</span>}
+                      </td>
                       <td className="text-muted-foreground py-1.5 whitespace-nowrap">
                         {d.last_op_at ? formatWhen(d.last_op_at) : "—"}
                       </td>

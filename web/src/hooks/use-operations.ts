@@ -114,6 +114,33 @@ export function useOperationCounts(opType?: string, since?: string) {
   })
 }
 
+/** One switching device currently off its normal position (api/internal/deviceops
+ * AbnormalDevice): its declared normal_state and the contradicting device_state. */
+export interface AbnormalDevice {
+  device_class: string
+  device_id: string
+  device_state: string
+  normal_state: string
+  territory_id?: string
+  last_op_type?: OpType
+  last_op_at?: string
+}
+
+/** The abnormal-configuration report (GET /operations/abnormal): every switching
+ * device whose live device_state contradicts its declared normal_state — the
+ * "what's off normal right now" control-room view. */
+export function useAbnormalDevices(deviceClass?: string) {
+  const p = new URLSearchParams()
+  if (deviceClass) p.set("device_class", deviceClass)
+  const qs = p.toString()
+  return useQuery({
+    queryKey: ["operations", "abnormal", deviceClass ?? ""],
+    queryFn: () => apiFetch<{ devices: AbnormalDevice[] }>(`/operations/abnormal${qs ? `?${qs}` : ""}`),
+    staleTime: 30_000,
+    retry: 1,
+  })
+}
+
 /** The device inventory (GET /operations/inventory): every operable device with
  * its current device_state and last operation. Device-centric, the complement of
  * the operation-centric board/counts. */

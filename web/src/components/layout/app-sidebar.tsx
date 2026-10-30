@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Database, FileUp, type LucideIcon, Map, QrCode, Route, Siren, Wrench, Zap, ZapOff } from "lucide-react"
+import { Activity, BookOpen, Database, FileUp, type LucideIcon, Map, QrCode, Route, ShieldCheck, Siren, Wrench, Zap, ZapOff } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
@@ -40,19 +40,22 @@ const dataItems: NavItem[] = [
   { to: "/imports", label: "Import data", icon: FileUp, perm: "features:write" },
   { to: "/outages", label: "Outage Management", icon: Siren, perm: "oms:read" },
   { to: "/faults", label: "Faults", icon: ZapOff, perm: "faults:read" },
-  // Operations is the umbrella for the device surface: its page carries both the
-  // operation log and the Live state (telemetry) tab, so there's no separate Live
-  // State entry. Visible to anyone with either permission; a telemetry-only user
-  // (no operations:read) is routed to the Live state tab instead of the 403'd log.
+  // Operations is the umbrella for the device-operations surface: its page carries
+  // the operation log, the Live state (telemetry) tab AND the Switching (planned
+  // open/close programs) tab, so none of those get a separate entry. Visible to
+  // anyone with any of the three permissions; a caller without operations:read
+  // lands on whichever tab they can reach (Live state, else Switching) instead of
+  // the 403'd log.
   {
     to: "/operations",
     label: "Operations",
     icon: Activity,
     perm: "operations:read",
-    anyPerm: ["operations:read", "telemetry:read"],
-    match: ["/operations", "/live-state"],
+    anyPerm: ["operations:read", "telemetry:read", "oms:read"],
+    match: ["/operations", "/live-state", "/switching"],
   },
   { to: "/works", label: "Works", icon: Wrench, perm: "wam:read" },
+  { to: "/protection-settings", label: "Protection settings", icon: ShieldCheck, perm: "features:read" },
   { to: "/field-tracks", label: "Field trails", icon: Route, perm: "field:tracks:read" },
   { to: "/t", label: "Resolve tag", icon: QrCode, perm: "tags:read" },
 ]
@@ -67,12 +70,13 @@ export function AppSidebar() {
   // ends. The API remains the real gate; this just mirrors it.
   const visibleData = dataItems
     .filter((item) => (item.anyPerm ? item.anyPerm.some((p) => can(p)) : can(item.perm)))
-    // A telemetry-only user reaches the Operations umbrella via its Live state tab.
-    .map((item) =>
-      item.to === "/operations" && !can("operations:read") && can("telemetry:read")
-        ? { ...item, to: "/live-state" }
-        : item,
-    )
+    // A caller without operations:read reaches the Operations umbrella via whichever
+    // tab they can: Live state (telemetry), else Switching (oms).
+    .map((item) => {
+      if (item.to !== "/operations" || can("operations:read")) return item
+      const fallback = can("telemetry:read") ? "/live-state" : "/switching"
+      return { ...item, to: fallback }
+    })
   // The admin menu now lives on its own /admin landing page (it had grown to
   // fifteen entries -- too many for the sidebar). Show the single entry point
   // whenever the caller can reach at least one admin destination.

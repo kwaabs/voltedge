@@ -1,6 +1,6 @@
 # Device Operations — Logging & Reporting Device Trips
 
-_Last updated: 2026-10-28_
+_Last updated: 2026-10-30_
 
 The **Device Operations** log is the record of *what the network's protective and
 switching devices actually did* — every trip, lockout, reclose, manual open and
@@ -25,9 +25,15 @@ It answers two questions the rest of VoltEdge could not:
 ## Where to find it
 
 - **Operations menu** (left sidebar) — opens the device-operations surface. It
-  has two tabs: **Operations** (this log — the network-wide board and reports)
-  and **Live state** (device telemetry reconciled against the model — see
-  [Live state](#live-state--field-vs-model)).
+  now has **three tabs**: **Operations** (this log — the network-wide board and
+  reports, including the [Abnormal report](#4-abnormal)), **Live state** (device
+  telemetry reconciled against the model — see
+  [Live state](#live-state--field-vs-model)), and **Switching** (author and run
+  planned switching programs — see [Switching](#switching--planned-programs)).
+  The three are one umbrella: a single **Operations** sidebar entry covers all of
+  them, and whichever tab you can reach by permission is where you land
+  (`web/src/components/layout/operations-tabs.tsx`,
+  `web/src/components/layout/app-sidebar.tsx:50-55`).
 - **Click any device** in a board row to open its **detail panel** on the right:
   a summary of the feature (its `device_state`, lifecycle and attributes), its
   **operation history**, any **attachments**, and a **View on map** button. The
@@ -39,7 +45,9 @@ It answers two questions the rest of VoltEdge could not:
 
 Viewing the log requires **`operations:read`** and logging requires
 **`operations:write`**; the Live state tab requires **`telemetry:read`** and its
-Apply action **`oms:write`** (see [Permissions](#permissions-at-a-glance)).
+Apply action **`oms:write`**; the Switching tab requires **`oms:read`** to view
+and **`oms:write`** to build and run a program (see
+[Permissions](#permissions-at-a-glance)).
 
 ---
 
@@ -60,7 +68,7 @@ never edited or deleted — the record of a trip stands.
 
 ---
 
-## The three views
+## The four views
 
 Open the **Operations** page and use the view toggle (top-right of the card):
 
@@ -82,6 +90,42 @@ that's currently OPEN). The device list is discovered automatically — any clas
 that models a `device_state` is treated as an operable device, so a device class
 you add later appears here for free.
 
+### 4. Abnormal
+The **abnormal-configuration report**: every switching device whose **live
+position contradicts its declared normal position** — a `NORMALLY_OPEN` point
+that is currently `CLOSED`, or a `NORMALLY_CLOSED` device that is currently
+`OPEN`. It answers one control-room question — *"is the network in its normal
+configuration right now?"* — and is the switching complement of the Live state
+reconcile (which compares the model to the field; this compares the device's
+live state to its *declared normal state*). Columns: **Device · Normal · Current
+(amber badge) · Last operation · When**. Filter by device class.
+
+The report is **discovered automatically**: the engine finds every class that
+models **both** `device_state` **and** `normal_state` and reads the rows where
+the two disagree, so a fuse or a breaker with no declared normal posture is
+simply out of scope (`api/internal/deviceops/abnormal.go:38-88`,
+`GET /operations/abnormal`). A back-fed feeder (a normally-open tie left closed)
+and a sectionaliser left open after work both surface here.
+
+> **It is a report, not an alarm.** VoltEdge does not raise a notification, page
+> anyone, or auto-correct the position — it *lists* the off-normal devices so you
+> can see them at a glance and decide. An empty table reads: *"Every switching
+> device is in its normal position — the network is in its normal
+> configuration."*
+
+> **How to — find devices that are off their normal configuration** 🔒 `operations:read`
+> 1. **Operations** page → view toggle (top-right of the card) → **Abnormal**.
+> 2. Read the list: each row is a device whose **Current** state (amber) differs
+>    from its **Normal** column. Narrow to one class with the **device class**
+>    filter if you like.
+> 3. Click any device to open its [detail panel](#where-to-find-it) — its state,
+>    operation history and **View on map** — to decide whether it's deliberate
+>    (a planned transfer) or a step someone forgot to reverse.
+>
+> 💡 This only covers classes that carry a `normal_state` — the MV switching
+> family (switch, breaker, isolator, recloser, sectionaliser). A device with no
+> declared normal posture never appears, because there is nothing to be "off".
+
 ---
 
 ## Logging an operation
@@ -94,7 +138,7 @@ device's tab the device is pre-filled; from the board you enter it.
   for a historical entry.
 - **Source** defaults to **crew** (a field log).
 
-That's it — the operation is logged and appears immediately in all three views.
+That's it — the operation is logged and appears immediately across the views.
 
 ---
 
@@ -159,6 +203,68 @@ Viewing Live state needs **`telemetry:read`**; telemetry itself is pushed in by 
 SCADA / AMI gateway as batches to the telemetry ingest endpoint
 (**`telemetry:ingest`**) — a separate feed from the device-operation ingestion
 described next.
+
+---
+
+## Switching — planned programs
+
+The **Switching** tab is where an operator authors and runs a **planned
+switching program** — an ordered list of open / verify / earth / close steps — for
+planned work (a maintenance isolation, a construction cut-over) that is **not tied
+to any outage**. It is the standalone sibling of the switching order OMS generates
+for an incident: it writes to the same tables and uses the same execution, so
+ticking a step off here flips the device's live `device_state` and logs the
+operation (source `switching_order`) exactly as an incident order does
+(`web/src/routes/switching.tsx`, `api/internal/oms/planned_switching.go`).
+
+The page is a two-pane builder: the programs on the left, the selected program's
+steps on the right.
+
+- **Create** a program with a title and an optional booked window. You can start
+  **empty** and write every step yourself, or **seed it from a target device** —
+  pick a device and VoltEdge pre-fills the standard **open → verify → earth →
+  close** program to isolate and restore it.
+- **Edit the steps**: add, edit, delete, and reorder (move up / down). Each step
+  is a **phase** (isolate / restore), an **action** (open / close / earth / verify
+  / note), an **instruction**, and — for an open/close — the **device** it
+  operates.
+- **Issue** the program (draft → issued) when it's ready for the field.
+- **Run it**: tick each step off as the crew performs it. An **open** step sets
+  the device `OPEN`, a **close** step sets it `CLOSED`, and un-ticking restores the
+  opposite — each written through the validated, history-logged, safety-interlocked
+  path (a blocking danger/out-of-service tag refuses the operation), and each a
+  logged device operation. Status tracks the ticks: `draft` → `issued` →
+  `in_progress` → `completed`.
+
+> **How to — build and run a planned switching program** 🔒 `oms:read` to view, `oms:write` to build
+> 1. **Operations** page → **Switching** tab → **New**.
+> 2. Give it a **title** (e.g. *"Feeder 3 maintenance isolation"*) and, if you
+>    like, a **planned start / end**. To pre-fill the isolate+restore steps, search
+>    a **device** under *Seed from a device*; leave it blank for an empty program.
+>    **Create.**
+> 3. Build the step list: **Add step**, set phase / action / instruction / device;
+>    reorder with the up / down arrows; edit or delete a step that isn't done yet.
+> 4. **Issue** when ready. In the field, tick each step's **Done** box as it's
+>    performed — the open/close steps move the device and land in the operations
+>    log.
+>
+> ⚠️ **Editing is for the program, operating is for the device.** You can only
+> edit, delete or reorder a step that **hasn't been executed** — once a step has
+> flipped a device, it's part of the record. To undo an operation, un-tick the
+> step (it restores the opposite position); to abandon a program, **Cancel** it
+> (the steps are kept for the record).
+>
+> 💡 The deep model behind switching — what each device is, what opening one does
+> to the network, barriers, isolation boundaries, and how an *incident* switching
+> order is generated — lives in the **Switching & Protection** guide. This tab is
+> the operator's authoring-and-execution surface for it.
+
+Endpoints: `GET`/`POST /oms/planned-switching`, `PATCH /oms/switching-orders/{id}`
+(retitle / issue), `POST /oms/switching-orders/{id}/steps`,
+`POST /oms/switching-orders/{id}/reorder`,
+`PATCH`/`DELETE /oms/switching-steps/{id}`, reusing the shared
+`POST /oms/switching-steps/{id}/execute` and `.../cancel`
+(`api/internal/oms/http.go:115-126`).
 
 ---
 
@@ -249,4 +355,5 @@ gated by the same permissions:
 | `operations:read` | viewer, analyst, editor, field-technician, admin, break-glass |
 | `operations:write` | editor, field-technician, admin, break-glass |
 | `telemetry:read` (view Live state) | operational roles, per your configuration |
-| `oms:write` (Apply field) | operators who run the network, per your configuration |
+| `oms:read` (view the Switching tab) | operational roles, per your configuration |
+| `oms:write` (Apply field; build & run switching programs) | operators who run the network, per your configuration |

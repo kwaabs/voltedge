@@ -369,9 +369,11 @@ footer{margin-top:70px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <tr><td>Meshed load flow</td><td><code>/meshed-load-flow</code></td><td><span class="tier d">Derived</span></td><td><a href="#c3">3</a></td></tr>
   <tr><td>Nodal (Y-bus) load flow</td><td><code>/nodal-load-flow</code></td><td><span class="tier e">Experimental</span></td><td><a href="#c3">3</a></td></tr>
   <tr><td>Auto load flow (router)</td><td><code>/load-flow-auto</code></td><td><span class="tier d">Derived</span></td><td><a href="#c3">3</a></td></tr>
-  <tr><td rowspan="5"><b>Fault &amp; protection</b></td><td>Fault current (3-ph + SLG)</td><td><code>/fault-current</code></td><td><span class="tier v">Validated</span></td><td><a href="#c4">4</a></td></tr>
+  <tr><td rowspan="7"><b>Fault &amp; protection</b></td><td>Fault current (3-ph + SLG)</td><td><code>/fault-current</code></td><td><span class="tier v">Validated</span></td><td><a href="#c4">4</a></td></tr>
   <tr><td>Fault location (distance-to-fault)</td><td><code>/fault-location</code></td><td><span class="tier e">Experimental</span></td><td><a href="#c4">4</a></td></tr>
   <tr><td>Protection coordination</td><td><code>/coordination</code></td><td><span class="tier d">Derived</span></td><td><a href="#c5">5</a></td></tr>
+  <tr><td>Coordination — feeder sweep</td><td><code>/coordination-sweep</code></td><td><span class="tier d">Derived</span></td><td><a href="#c5">5</a></td></tr>
+  <tr><td>Fuse-saving scheme check</td><td><code>/fuse-saving</code></td><td><span class="tier d">Derived</span></td><td><a href="#c5">5</a></td></tr>
   <tr><td>Conductor ampacity (IEEE 738)</td><td><code>/ampacity</code></td><td><span class="tier d">Derived</span></td><td><a href="#c6">6</a></td></tr>
   <tr><td>Arc-flash (IEEE 1584)</td><td><code>/arc-flash</code></td><td><span class="tier e">Experimental</span></td><td><a href="#c7">7</a></td></tr>
   <tr><td rowspan="4"><b>Capacity &amp; planning</b></td><td>Contingency / backfeed (N-1)</td><td><code>/contingency</code></td><td><span class="tier d">Derived</span></td><td><a href="#c8">8</a></td></tr>
@@ -819,6 +821,40 @@ footer{margin-top:70px;padding-top:20px;border-top:2px solid var(--ink);color:va
   </div>
 
   <div class="tip">💡 To fix a failing pair, slow the backup (raise its time dial) rather than speeding the primary, which can break <i>its</i> coordination further down. Run the study for a fault at the end of each protected section. The default 0.3 s CTI is relay-to-relay; set your own for fuse-fuse or fuse-relay.</div>
+
+  <h3>Sweeping the whole feeder at once</h3>
+  <p>A single study grades <strong>one</strong> source→fault path. The <strong>feeder sweep</strong> (<code>POST /analysis/coordination-sweep</code>, <span class="tier d">Derived</span>) answers the maintenance question — <i>is <strong>every</strong> series pair below this source coordinated, and which are not?</i> — in one call, with no fault pick. Arm it on the feeder head and it returns the pairs <strong>worst-margin-first</strong>, so the problems are at the top.</p>
+  <p class="callout">The sweep is feeder-wide triage; a single coordination study is the drill-down.</p>
+  <div class="tbl"><table>
+    <tr><th>Step</th><th>What it does</th></tr>
+    <tr><td>Build the tree once</td><td>the start-dependent, expensive <code>resolveNode → buildTree</code> runs a single time</td></tr>
+    <tr><td>Find the fault points</td><td>every protective node on the tree — <code>isProtectiveClass</code> = <code>MV_BREAKER</code>, <code>MV_FUSE</code>, <code>MV_SWITCH</code>, <code>LV_SWITCH</code>, <code>MV_RECLOSER</code></td></tr>
+    <tr><td>Grade at each</td><td>the same <code>runCoordination</code> (§5.5) is re-run for a bolted fault at each point</td></tr>
+    <tr><td>Merge, keep the worst</td><td>a pair graded at several faults keeps its <strong>smallest</strong> margin (<code>pairWorse</code>); one row per pair = its tightest case</td></tr>
+    <tr><td>Order &amp; cap</td><td>miscoordinated-first, ascending margin, ungraded last (<code>pairLess</code>); bounded at <code>maxSweepDevices = 40</code>, which sets <code>truncated</code></td></tr>
+  </table></div>
+  <p>The response carries <code>devices_faulted</code>, <code>pair_count</code>, <code>miscoordinated_count</code>, <code>ungraded_count</code>, the ordered <code>pairs[]</code> (each a <code>downstream</code>/<code>upstream</code>/<code>margin_s</code>/<code>coordinated</code>, exactly as the single study), and <code>truncated</code>. Same <code>nominal_voltage_v</code> and <code>cti_seconds</code>; the engine picks the fault points itself.</p>
+  <div class="md-b md-only">
+    <span class="tag md">∑ One sweep of Feeder 7</span>
+    <p class="sm" style="margin:8px 0 0">Instead of running §5.7 for the lateral, again for the ring tail, again for the recloser, one sweep faults at CB-7, REC-7, FSW-12, the RMU fused way and the ring sectionaliser, grades each chain, and merges the pairs:</p>
+    <div class="tbl" style="margin-top:8px"><table>
+      <tr><th>Pair (downstream → upstream)</th><th>worst margin</th><th>coordinated?</th></tr>
+      <tr><td>FSW-12 → REC-7</td><td>0.44 s</td><td>✓</td></tr>
+      <tr><td>RMU fused way → REC-7</td><td>0.41 s</td><td>✓</td></tr>
+      <tr><td>REC-7 → CB-7</td><td>1.04 s</td><td>✓</td></tr>
+    </table></div>
+    <p class="sm"><code>miscoordinated_count: 0</code>. Had the relay's time dial been dropped to 0.1 (the §5.7 failure), the <code>REC-7 → CB-7</code> row would surface at the <b>top</b> with a negative margin — found without guessing which fault to study.</p>
+  </div>
+
+  <h3>Fuse-saving scheme check</h3>
+  <p>A recloser protecting a lateral fuse runs a <strong>two-curve</strong> scheme: on a <i>transient</i> fault its <strong>fast</strong> curve should trip before the fuse melts (the fuse is <i>saved</i>); on a <i>permanent</i> fault the fuse should totally clear before the <strong>slow</strong> curve locks the feeder out (the fuse <i>clears</i>). The check (<code>POST /analysis/fuse-saving</code>, <span class="tier d">Derived</span>) evaluates both for <strong>every</strong> recloser→fuse lateral below a source.</p>
+  <div class="eq">fuse_saved = t<sub>fast</sub>(I) &lt; t<sub>min_melt</sub>(I)&nbsp;&nbsp;&nbsp;&nbsp; fuse_clears = t<sub>total_clear</sub>(I) &lt; t<sub>slow</sub>(I)</div>
+  <p>For each fuse (<code>MV_FUSE</code>, or a fused <code>MV_SWITCH</code>/<code>LV_SWITCH</code>) it finds the nearest upstream <code>MV_RECLOSER</code> by walking the tree parent chain (<code>nearestUpstreamRecloser</code>), then evaluates both verdicts at the prospective fault current at the fuse — the recloser curve read at that current referred to the recloser's base, the fuse bands at the fuse's base. It also reports <code>max_save_current_amps</code>, the <strong>fuse-saving crossover</strong> where the fast curve overtakes the fuse minimum-melt — the upper bound of the range the fuse is actually saved over — found by log-spaced sampling and a geometric bisection (<code>fuseSaveCrossover</code>). Results list each pair <strong>issues-first</strong> (<code>pair_count</code>, <code>fuse_saved_count</code>, <code>fuse_clears_count</code>, <code>issue_count</code>), capped at <code>maxFuseSavingPairs = 60</code>.</p>
+  <div class="md-b md-only">
+    <span class="tag md">∑ The Oakwood lateral under REC-7</span>
+    <p class="sm" style="margin:8px 0 0">At the lateral's ~3.9 kA fault level the recloser's <b>fast</b> curve takes ≈ 0.05 s against a fuse minimum-melt of ≈ 0.012 s → <code>fuse_saved: false</code> (the fuse blows on the first fast shot), and the crossover <code>max_save_current_amps</code> lands near <b>1.1 kA</b> (below that current the fast shot would save it). The <b>slow</b> curve (≈ 0.46 s) sits well above the fuse total-clear (≈ 0.023 s) → <code>fuse_clears: true</code>. The read: run REC-7 <b>fuse-blowing</b> (slow-only) unless the fault current at the tee is below ~1.1 kA — the same conclusion the Switching &amp; Protection guide reaches by hand (§7.9), now computed over every lateral at once.</p>
+  </div>
+  <div class="warn">⚠️ The check evaluates the scheme <b>at one fault current per fuse</b> (the bolted fault at the fuse) plus the crossover — it is not a shot-by-shot sequence simulation and does not model the fuse's cumulative heating from earlier recloser shots. Read <code>fuse_saved: false</code> as "the fuse blows on the first fast shot at this fault level", and <code>max_save_current_amps</code> as the current below which the scheme holds.</div>
 </section>
 
 <!-- ================= CH6 ================= -->
@@ -971,15 +1007,21 @@ footer{margin-top:70px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <p>A cable fault takes out the source end of Feeder 7. Priya asks donor <strong>Feeder 9</strong> (11 kV, base load 3.2 MW) which tie to close. Ties are evaluated <code>NORMALLY_OPEN</code> first.</p>
   <div class="ties" id="ties">
     <button class="tie" data-t="a" aria-pressed="true"><h4>TIE-79-A <span class="verdict ok">feasible</span></h4><p class="sm muted" style="margin:4px 0 10px">declared NORMALLY_OPEN · purpose-built standby · ranked first</p>
-      <div class="rows"><div>restored_load_kw</div><div>+0.8 MW</div><div>restored_node_count</div><div>46</div><div>min_voltage_pu</div><div>0.958</div><div>overloaded</div><div>—</div></div></button>
+      <div class="rows"><div>restored_load_kw</div><div>+0.8 MW</div><div>restored_node_count</div><div>46</div><div>min_voltage_pu</div><div>0.958</div><div>overloaded</div><div>—</div><div>worst_loading_pct</div><div>84 %</div><div>limiting_element</div><div>trunk cable · ampacity</div><div>limiting_headroom_kva</div><div>+72 kVA</div></div></button>
     <button class="tie" data-t="b" aria-pressed="false"><h4>TIE-79-B <span class="verdict no">not feasible</span></h4><p class="sm muted" style="margin:4px 0 10px">normally-open sectionaliser of convenience</p>
-      <div class="rows"><div>restored_load_kw</div><div>+1.4 MW</div><div>restored_node_count</div><div>71</div><div>min_voltage_pu</div><div style="color:var(--red)">0.941 ⚠</div><div>overloaded</div><div style="color:var(--red)">1 cable @ 108 %</div></div></button>
+      <div class="rows"><div>restored_load_kw</div><div>+1.4 MW</div><div>restored_node_count</div><div>71</div><div>min_voltage_pu</div><div style="color:var(--red)">0.941 ⚠</div><div>overloaded</div><div style="color:var(--red)">1 cable @ 108 %</div><div>worst_loading_pct</div><div style="color:var(--red)">108 % ⚠</div><div>limiting_element</div><div>trunk cable · ampacity</div><div>limiting_headroom_kva</div><div style="color:var(--red)">−58 kVA</div></div></button>
   </div>
   <figure style="margin-top:12px">
     <div class="pu-line" id="ct-line"></div>
     <p class="sm" id="ct-t" style="margin:0"></p>
     <figcaption><b>feasible: true</b> only if the transfer restores load and introduces no violation and no overload. Restored load is just the change in the donor source’s accumulated demand; nothing new is computed. A tie that forms a loop is reported (“run LOOP_CHECK_TRACE”), as is one that restores nothing.</figcaption>
   </figure>
+
+  <h4>Back-feed capacity — the limiting element and its headroom</h4>
+  <p>The <code>overloaded</code> list answers a <strong>binary</strong> question. A dispatcher wants the <strong>margin</strong>: how close is the tightest element, which one, and how much more can it take? <code>backfeedLimit</code> scans the swept donor for the single most-loaded rated element — a conductor against its ampacity, a transformer against its kVA — from the same <code>loading_pct</code> load flow computes. That is <code>limiting_element</code> / <code>limiting_kind</code> (<code>ampacity</code> or <code>transformer</code>); its spare capacity to 100 % follows from one identity:</p>
+  <div class="eq">limiting_headroom_kva = S · <span class="frac"><span>100 − L</span><span>L</span></span>&nbsp;&nbsp;&nbsp;(S = √(kW² + kvar²) at that element, L = its loading %)</div>
+  <p>A <strong>negative</strong> figure means the transfer already pushes it past its rating. The response also carries <code>base_worst_loading_pct</code> — the donor's worst loading <i>before</i> any transfer — so each option reads against a "before" picture: Feeder 9 here sits at <strong>≈ 62 %</strong> to start, so TIE-79-A takes its trunk cable to <strong>84 % (+72 kVA headroom)</strong> while TIE-79-B drives the <i>same</i> cable to <strong>108 % (−58 kVA over)</strong>. The <code>limiting_element</code> naming that trunk cable is exactly the asset to reinforce if the bigger transfer must be made available.</p>
+  <div class="warn">⚠️ A planning-level margin at the <b>limiting element</b>, not a promise that a given extra load fits anywhere — a transfer loads the donor at specific points, and the headroom is the slack at the one element that binds first. Shares the contingency tier (<span class="tier d">Derived</span>).</div>
 
   <h3>Hosting capacity and EV headroom: one search, two directions</h3>
   <p>Same node, the Oakwood LV board at 0.969 pu. Generation pushes it up toward 1.05; charging load pulls it down toward 0.95. Replay the guide’s ramp-then-bisect search for each.</p>
@@ -1127,7 +1169,7 @@ footer{margin-top:70px;padding-top:20px;border-top:2px solid var(--ink);color:va
 
 <footer>
   <p>This completes Engineering Studies, the deep-dive reference across the <code>/analysis</code> endpoints. Companions: the user handbook (how-to voice) and the Substation Guide.</p>
-  <p class="note">Notes on this edition. The calculators use only the guide’s formulas and worked data. Where the guide names a standard curve without printing its constants (IEC standard-inverse, the IEEE 738 Reynolds forms, IEEE 1584-2002 eq 1), the published standard form is used, and each reproduces the guide’s own figures; the check line under each bench shows the match. The guide counts “thirteen routes” and “twelve endpoints” in different places; thirteen are listed.</p>
+  <p class="note">Notes on this edition. The calculators use only the guide’s formulas and worked data. Where the guide names a standard curve without printing its constants (IEC standard-inverse, the IEEE 738 Reynolds forms, IEEE 1584-2002 eq 1), the published standard form is used, and each reproduces the guide’s own figures; the check line under each bench shows the match. The guide counts “thirteen routes” and “twelve endpoints” in different places; fifteen are listed here, now including the two feeder-wide protection studies — the coordination sweep (<code>/coordination-sweep</code>) and the fuse-saving check (<code>/fuse-saving</code>).</p>
 </footer>
 </div>
 <script>
@@ -1448,7 +1490,7 @@ document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click'
 function CT(t){document.querySelectorAll('.tie').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===t)));
  const v=t==='a'?.958:.941,lo=.93,hi=1.06,pos=p=>(p-lo)/(hi-lo)*100;
  $('ct-line').innerHTML='<div class="band" style="height:70px"><div class="track"></div><div class="ok" style="left:'+pos(.95)+'%;width:'+(pos(1.05)-pos(.95))+'%"></div><div class="mk" style="left:'+pos(v)+'%;background:'+(t==='a'?'var(--teal)':'var(--red)')+'"><span>'+(t==='a'?'TIE-79-A':'TIE-79-B')+' · '+v+' pu</span></div>'+[.93,.95,1,1.05].map(x=>'<div class="tk" style="left:'+pos(x)+'%">'+x.toFixed(2)+'</div>').join('')+'</div>';
- $('ct-t').innerHTML=t==='a'?'<b>Close TIE-79-A.</b> It restores 0.8 MW across 46 nodes and Feeder 9 still holds 0.958 pu with nothing overloaded. One switching action.':'<b>Not as a straight close.</b> TIE-79-B restores more (1.4 MW, 71 nodes) but drives Feeder 9’s far end to 0.941 pu, below the 0.95 floor, and pushes a cable to 108 %. It just moves the problem onto Feeder 9; a partial transfer or load shed might still help.';}
+ $('ct-t').innerHTML=t==='a'?'<b>Close TIE-79-A.</b> It restores 0.8 MW across 46 nodes and Feeder 9 still holds 0.958 pu with nothing overloaded — its tightest element, the trunk cable, rises from 62 % to 84 %, leaving +72 kVA of headroom. One switching action.':'<b>Not as a straight close.</b> TIE-79-B restores more (1.4 MW, 71 nodes) but drives Feeder 9’s far end to 0.941 pu, below the 0.95 floor, and pushes the trunk cable to 108 % — 58 kVA over its ampacity. It just moves the problem onto Feeder 9; a partial transfer or load shed might still help.';}
 document.querySelectorAll('.tie').forEach(b=>b.addEventListener('click',()=>CT(b.dataset.t)));CT('a');
 
 // hosting replay

@@ -12,7 +12,14 @@ import type { TraceFeatureRef } from "@/stores/trace-store"
  * are the branches/transformers past 100 % loading once load transfers.
  * feasible is true when the transfer restores load with no violation or
  * overload. normal_state is the tie's declared posture (NORMALLY_OPEN ties
- * rank first). note carries why an option is infeasible or trivial. */
+ * rank first). note carries why an option is infeasible or trivial.
+ *
+ * The back-feed CAPACITY margin: worst_loading_pct is the highest post-transfer
+ * loading of any rated element on the donor path; limiting_element is that
+ * element and limiting_kind ("ampacity" | "transformer") the rating bound it hit;
+ * limiting_headroom_kva is the spare apparent power there before 100 % (negative
+ * when the transfer already pushes it over). These quantify whether the back-feed
+ * path has capacity, where overloaded only lists what is already past 100 %. */
 export interface RestorationOption {
   tie: TraceFeatureRef
   normal_state?: string
@@ -24,6 +31,10 @@ export interface RestorationOption {
   worst_node?: TraceFeatureRef
   violations: TraceFeatureRef[]
   overloaded: TraceFeatureRef[]
+  worst_loading_pct: number
+  limiting_element?: TraceFeatureRef
+  limiting_kind?: string
+  limiting_headroom_kva?: number
   feasible: boolean
   note?: string
 }
@@ -39,6 +50,7 @@ export interface ContingencyResult {
   base_load_kw: number
   base_load_kvar: number
   base_node_count: number
+  base_worst_loading_pct: number
   options: RestorationOption[]
 }
 

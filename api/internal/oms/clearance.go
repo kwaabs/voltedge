@@ -33,13 +33,14 @@ func IssueClearanceFromOrder(ctx context.Context, db *bun.DB, orderID string, wo
 		reference = "PTW — " + *order.Reference
 	}
 	reason := fmt.Sprintf("isolated under switching order %s", orderID)
-	incidentID := order.IncidentID
 
 	var out *safety.Clearance
 	err = db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		c, err := safety.CreateClearance(ctx, tx, safety.CreateClearanceInput{
 			Reference:        reference,
-			IncidentID:       &incidentID,
+			// nil for a standalone program (no incident); the clearance stands on its
+			// own then, backed only by the switching order.
+			IncidentID:       order.IncidentID,
 			SwitchingOrderID: &orderID,
 			WorkDescription:  workDescription,
 			IssuedTo:         issuedTo,

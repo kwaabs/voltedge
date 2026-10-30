@@ -39,6 +39,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/deviceops"
 	"github.com/kwaabs/voltedge/api/internal/events"
+	"github.com/kwaabs/voltedge/api/internal/protection"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 	"github.com/kwaabs/voltedge/api/internal/docs"
 	"github.com/kwaabs/voltedge/api/internal/drafts"
@@ -320,6 +321,11 @@ func main() {
 	// bars operation for everyone, so the right to protect (and release) a work area
 	// is granted deliberately, not folded into switching rights. Method-aware gate.
 	r.With(auth.RequirePermission(auth.PermSafetyRead, auth.PermSafetyWrite)).Mount("/safety", safety.Routes(db))
+	// Protection settings register (migration 0185): the as-built relay / overcurrent
+	// settings per protective device (pickups, time dials, instantaneous, CT ratio,
+	// reclose scheme) a TCC curve does not capture. Engineering data on a feature, so
+	// it rides the method-aware features gate (read to view, write to edit).
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/protection", protection.Routes(db))
 	// Live-state / telemetry ingestion (migration 0172, blocker #1): a latest-value
 	// device-telemetry store fed by a dedicated lightweight endpoint (NOT the
 	// durable webhook event engine -- telemetry is a high-rate, latest-value,

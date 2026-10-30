@@ -31,6 +31,8 @@ import { AdminAssetLifePage } from "@/routes/admin-asset-life"
 import { AdminValidationRulesPage } from "@/routes/admin-validation-rules"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
 import { AdminProtectionCurvesPage } from "@/routes/admin-protection-curves"
+import { AdminProtectionSettingsPage } from "@/routes/admin-protection-settings"
+import { SwitchingPage } from "@/routes/switching"
 import { AdminAssembliesPage } from "@/routes/admin-assemblies"
 import { AdminStencilsPage } from "@/routes/admin-stencils"
 import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
@@ -156,6 +158,22 @@ export function App() {
               element={
                 <RequirePermission perm="operations:read">
                   <OperationsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="protection-settings"
+              element={
+                <RequirePermission perm="features:read">
+                  <AdminProtectionSettingsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="switching"
+              element={
+                <RequirePermission perm="oms:read">
+                  <SwitchingPage />
                 </RequirePermission>
               }
             />

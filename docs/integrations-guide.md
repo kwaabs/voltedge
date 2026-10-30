@@ -1,6 +1,6 @@
 # VoltEdge Integrations & External Systems Guide
 
-_Last updated: 2026-10-28_
+_Last updated: 2026-10-30_
 
 A how-to manual for connecting VoltEdge to the **other systems that run your utility** — SCADA, AMI/metering, a CIS/billing platform, a work-order system, a document store — so a feature on the map knows what it is called everywhere else, can pull live data on demand, and stays in step when another system pushes a change.
 
@@ -125,7 +125,7 @@ The blocks so far are VoltEdge reaching out. A **webhook endpoint** is the rever
 | --- | --- |
 | **Name** | A label for the sender (e.g. *CIS account sync*). |
 | **Direction** | `push` (another system calls us — this chapter), `pull` (we fetch from it — Chapter 6), or `outbound` (we emit to it — Chapter 7). |
-| **Target** | What the delivery drives: `feature`, `reading`, `work`, `fault`, `operation`, `outage`, or a read-only **mirror** (`incident`, `workorder`) — hidden for outbound. See the table below, and Chapter 7½ for the mirror targets. |
+| **Target** | What the delivery drives: `feature`, `reading`, `work`, `fault`, `operation`, `outage`, `protection`, or a read-only **mirror** (`incident`, `workorder`) — hidden for outbound. See the table below, Chapter 7¾ for `protection`, and Chapter 7½ for the mirror targets. |
 | **Default feature class** | For `feature`/`reading`: the class used when a change doesn't name one (e.g. `SERVICE_POINT`). |
 | **Service user** | *Required.* Ingested writes run **as this user**, so they inherit that user's RBAC and territory write-scope, and history attributes the change to them. |
 | **Auth mode** | `hmac`, `bearer`, or `both` — how a delivery proves it's genuine (§5.3). |
@@ -144,6 +144,7 @@ Each endpoint has its own **receive URL**: `POST /webhooks/{id}` (the admin page
 | `fault` | the Faults engine | Same correlation table. |
 | `operation` | the device-operations log | Records a switching/operation event against a device. |
 | `outage` | the OMS | **Raises VoltEdge's own incident** from a device signal (SCADA trip / AMI last-gasp) — VoltEdge then runs its own OMS. |
+| `protection` | the protection-settings register | Upserts a device's **as-built relay / overcurrent settings** (pickups, time dials, CT ratio, reclose scheme) from an external relay-setting DB / SCADA. Correlated to the device like `operation`. *(Chapter 7¾.)* |
 | `incident` | the OMS (read-only **mirror**) | Reflects a **full external incident** into a display-only shadow VoltEdge never edits or re-emits. The external OMS owns its lifecycle. *(Chapter 7½.)* |
 | `workorder` | the WAM (read-only **mirror**) | The WAM sibling of `incident`: reflects a full external work order into a read-only shadow. The external WAM owns its lifecycle. *(Chapter 7½.)* |
 
@@ -306,6 +307,76 @@ As with any endpoint, a sender that doesn't speak this shape can be bridged with
 
 ---
 
+## Chapter 7¾ — Feeding the protection-settings register
+
+🔒 *Administrative — needs `metadata:write` to configure; the ingested writes run as the endpoint's service user under `features:write`. Target `protection`.*
+
+VoltEdge keeps an **as-built protection-settings register** — one row per protective device holding its relay / overcurrent settings (`relay_model`, `ct_ratio`, phase & ground `pickup`/`time_dial`/`curve`/`instantaneous`, and the `reclose` scheme) that a TCC curve alone doesn't capture. (See the **Switching & Protection** guide for the register itself and how coordination reads it.) Those settings usually *live* in a relay-setting database or a SCADA/DMS; the **`protection` target** lets that authoritative system **push** them in and keep them in step, rather than an engineer re-typing them.
+
+It is the protection sibling of the `operation` target: both resolve a **device** and write to an `ops` table under the feature-write gate (`api/internal/webhook/adapter_protection.go:59`). The difference is that a setting is an **upsertable entity keyed on the device** (not an immutable event) — a repeat for the same device **replaces** its settings (last-writer-wins), and `op: "delete"` removes them.
+
+### 7¾.1 What a protection delivery looks like
+
+A change names a **device** and the settings to write. The device is named *directly* (`device_class` + `device_id`, VoltEdge's own ids) **or** by its **external id** (`device_external_id`), resolved to a VoltEdge feature through the `external_ref` reverse index using the endpoint's **System code** — exactly the device correlation the `operation` target uses (`resolveFeatureRef`, `adapter_protection.go:74`). Every setting field is optional (a partially-known relay is normal). A batch:
+
+```json
+{
+  "changes": [
+    {
+      "op": "upsert",
+      "external_id": "R-7",
+      "device_external_id": "FDR7-CB7-RELAY",
+      "relay_model": "SEL-751",
+      "ct_ratio": "400/5",
+      "phase_pickup_a": 400,
+      "phase_time_dial": 0.5,
+      "phase_curve": "IEC_SI",
+      "phase_instantaneous_a": 15000,
+      "ground_pickup_a": 40,
+      "ground_time_dial": 0.3,
+      "ground_curve": "IEC_SI",
+      "reclose_operations": 4,
+      "reclose_intervals": "0, 2, 5 s",
+      "notes": "settings pack rev 12"
+    },
+    {
+      "op": "upsert",
+      "device_class": "MV_RECLOSER",
+      "device_id": "7b4e…",
+      "phase_pickup_a": 200,
+      "phase_curve": "REC_SLOW_B"
+    },
+    { "op": "delete", "device_external_id": "FDR7-OLD-FUSE" }
+  ]
+}
+```
+
+- **`op`** — `upsert` (default; create-or-replace the device's settings) or `delete` (remove them). Any other op is a `400`.
+- **`external_id`** — *optional* here, purely a label in the delivery result; the **device** is the upsert key, so there's no separate event-dedup id (unlike `operation`, whose `external_id` is the event's dedup key).
+- **device ref** — `device_class` + `device_id` win when given; otherwise `device_external_id` is resolved through `external_ref` and needs the endpoint's **System code** set. A `device_external_id` with no System code, or that no feature claims, is a clear per-item error (*"no VoltEdge feature claims external … id …"*).
+- **settings** — any of `relay_model`, `ct_ratio`, `phase_pickup_a`, `phase_time_dial`, `phase_curve`, `phase_instantaneous_a`, `ground_pickup_a`, `ground_time_dial`, `ground_curve`, `ground_instantaneous_a`, `reclose_operations`, `reclose_intervals`, `notes`. Omitted fields are written as null (an upsert is a full replace of the row).
+
+As with any endpoint, a sender that doesn't speak this shape is bridged with a **field mapping** (§5.6), applied before the adapter.
+
+> ∑ **The resolved device must be a protective / switching one.** The register refuses a setting attached to the wrong kind of feature: the resolved class must be one of `MV_BREAKER`, `MV_RECLOSER`, `MV_FUSE`, `MV_SWITCH`, `MV_ISOLATOR`, `MV_SECTIONALIZER`, `LV_SWITCH`, `PROTECTIVE_RELAY` (`api/internal/protection/store.go:64`). A `device_external_id` that resolves to a transformer or a line is rejected (`store.go:134`), so a mis-stamped `external_ref` can't quietly write settings onto a cable.
+
+### 7¾.2 Provenance — telling an ingested setting from a hand entry
+
+Every register row records the **source** of its last write (`migrations/0187_protection_settings_source.sql:13`):
+
+- an **ingested** write stamps `source =` the endpoint's **System code** (falling back to the endpoint id when none is set — so an ingested row is never un-sourced);
+- a **register-UI** edit stamps `source = "manual"`.
+
+Because an upsert is last-writer-wins, `source` always reflects *who touched it last*: an engineer who corrects an ingested setting by hand flips it back to `manual`. The register screen shows a small badge for any non-`manual` source, so a feed-driven row is visible at a glance.
+
+### 7¾.3 Configuring the endpoint
+
+On **Admin → Webhooks → New**, pick **Direction: push** (or `pull`) and **Target: Protection settings**. Set a **Service user** with `features:write`, the **auth** (§5.3), and — if changes name devices by `device_external_id` — the **External system code** (the optional input now shown for the device-resolving targets `operation`, `outage` and `protection` alike; `web/src/routes/admin-webhooks.tsx:69,320`). Leave the System code blank if every change names its device directly with `device_class` + `device_id`.
+
+💡 **Already know VoltEdge's ids?** A system that holds VoltEdge's own `feature_class` + `feature_id` can skip the webhook and write the register **directly**: `PUT /protection/settings/{class}/{id}` (`features:write` — `api/cmd/server/main.go:328`). The webhook target exists for the common case where the external system speaks its *own* device ids and you want provenance, correlation and the delivery log that come with an endpoint.
+
+---
+
 ## Chapter 8 — A round trip, end to end
 
 Putting the blocks together on Feeder 7:
@@ -364,6 +435,8 @@ Every one of these feature-level actions has an agent tool (the same functions t
 | `/feature-links/external-refs` | PUT | Replace a feature's `external_ref` map | `features:write` |
 | `/webhook-endpoints` | GET / POST / PATCH / DELETE `/{id}` + `/{id}/deliveries`, `/test`, `/pull`, `/replay`, `/ping` | Manage endpoints | `metadata:write` |
 | `/webhooks/{id}` | POST | **Public receiver** (per-endpoint credential) | per-endpoint auth |
+| `/protection/settings/{class}/{id}` | PUT / DELETE | Write / remove a device's protection settings directly (the `protection` target's non-webhook equivalent) | `features:write` |
+| `/protection/resolve` | GET `?feature_id=` | Resolve a bare device id to its protective class (rejects a non-protection feature) | `features:read` |
 
 **Inbound webhook headers.** `X-VoltEdge-Signature` = `hex(HMAC-SHA256(secret, timestamp + "." + body))`, `X-VoltEdge-Timestamp` (unix seconds, ±5 min), `Idempotency-Key` (optional, de-dup), or `Authorization: Bearer <token>` (must be the service user).
 

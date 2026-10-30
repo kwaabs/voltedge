@@ -149,6 +149,8 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/fault-current", enforceStudy(db, "fault_current", faultCurrentHandler(db)))
 	r.Post("/ampacity", enforceStudy(db, "ampacity", ampacityHandler(db)))
 	r.Post("/coordination", enforceStudy(db, "coordination", coordinationHandler(db)))
+	r.Post("/coordination-sweep", enforceStudy(db, "coordination", coordinationSweepHandler(db)))
+	r.Post("/fuse-saving", enforceStudy(db, "coordination", fuseSavingHandler(db)))
 	r.Post("/voltage-profile", enforceStudy(db, "voltage_profile", voltageProfileHandler(db)))
 	r.Post("/contingency", enforceStudy(db, "contingency", contingencyHandler(db)))
 	r.Post("/hosting-capacity", enforceStudy(db, "hosting", hostingHandler(db)))
@@ -284,6 +286,40 @@ func coordinationHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runCoordination(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func coordinationSweepHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req coordinationSweepRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runCoordinationSweep(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func fuseSavingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req fuseSavingRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runFuseSaving(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

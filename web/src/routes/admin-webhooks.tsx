@@ -62,6 +62,14 @@ function usesMirror(target: WebhookTarget): boolean {
   return target === "incident" || target === "workorder"
 }
 
+/** Targets that correlate a device/feature by its EXTERNAL id (through the
+ * external_ref index) and so take an optional config.system_code -- distinct from
+ * a mirror, which requires it as the shadow's namespace. These can also name the
+ * device directly, so the system code is optional here. */
+function usesSystemCode(target: WebhookTarget): boolean {
+  return target === "operation" || target === "outage" || target === "protection"
+}
+
 interface FormState {
   name: string
   active: boolean
@@ -236,6 +244,11 @@ function toBody(form: FormState, { isEdit }: { isEdit: boolean }): Record<string
     }
     if (Object.keys(statusMap).length > 0) config.status_map = statusMap
   }
+  // Non-mirror targets that resolve a device by external id take an optional
+  // system_code (no status map).
+  if (form.direction !== "outbound" && usesSystemCode(form.target) && form.systemCode.trim()) {
+    config.system_code = form.systemCode.trim()
+  }
 
   const body: Record<string, unknown> = {
     name: form.name.trim(),
@@ -304,6 +317,7 @@ function EndpointFormFields({
               <option value="outage">Outage signal (SCADA trip / AMI last-gasp)</option>
               <option value="incident">Incident (read-only mirror of an external OMS)</option>
               <option value="workorder">Work order (read-only mirror of an external WAM)</option>
+              <option value="protection">Protection settings (relay / overcurrent register)</option>
             </select>
           </div>
         )}
@@ -333,6 +347,24 @@ function EndpointFormFields({
 
       {value.direction !== "outbound" && usesMirror(value.target) && (
         <MirrorFields value={value} onChange={onChange} />
+      )}
+
+      {value.direction !== "outbound" && usesSystemCode(value.target) && (
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>External system code</label>
+          <input
+            className={inputClass}
+            value={value.systemCode}
+            onChange={(e) => onChange({ ...value, systemCode: e.target.value })}
+            placeholder="e.g. SCADA, RELAY_DB"
+          />
+          <p className="text-muted-foreground text-xs">
+            Optional. Set it to resolve a change&apos;s <span className="font-mono">device_external_id</span> to a
+            VoltEdge feature through its stamped <span className="font-mono">external_ref</span>. Leave blank if changes
+            name the device directly (<span className="font-mono">device_class</span> +{" "}
+            <span className="font-mono">device_id</span>).
+          </p>
+        </div>
       )}
 
       <div className="flex flex-col gap-1">

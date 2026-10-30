@@ -283,12 +283,18 @@ export interface SwitchingStep {
   created_at: string
 }
 
-/** The ordered open/verify/close program for an incident, with its steps. */
+/** The ordered open/verify/close program, with its steps. incident_id is null
+ * for a STANDALONE planned-switching program (authored for planned work, not tied
+ * to an incident); purpose / planned_start / planned_end are the booked context a
+ * standalone program carries (null on an incident-backed order). */
 export interface SwitchingOrder {
   id: string
-  incident_id: string
+  incident_id: string | null
   reference: string | null
   status: SwitchingOrderStatus
+  purpose: string | null
+  planned_start: string | null
+  planned_end: string | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -1016,6 +1022,83 @@ export function useExecuteStep() {
 export function useCancelSwitchingOrder() {
   return useOmsMutation<{ orderId: string }>(({ orderId }) =>
     apiFetch(`/oms/switching-orders/${orderId}/cancel`, { method: "POST" }),
+  )
+}
+
+// --- Standalone planned-switching builder (switching-gap #2) ---------------
+
+/** Every standalone planned-switching program (incident_id IS NULL), newest
+ * first, each with its ordered steps. */
+export function usePlannedSwitching() {
+  return useQuery({
+    queryKey: [...OMS_KEY, "planned-switching"],
+    queryFn: () => apiFetch<SwitchingOrdersResponse>("/oms/planned-switching"),
+    staleTime: 15_000,
+  })
+}
+
+/** A standalone program's step (for add/edit); device_* required for open/close. */
+export interface SwitchingStepBody {
+  phase: StepPhase
+  action: StepAction
+  instruction: string
+  device_class?: string | null
+  device_id?: string | null
+}
+
+export interface CreatePlannedSwitchingBody {
+  reference: string
+  purpose?: string | null
+  notes?: string | null
+  planned_start?: string | null
+  planned_end?: string | null
+  /** Optional: seed the program with the standard isolate+restore steps for this device. */
+  target_device?: { feature_class: string; feature_id: string }
+}
+
+/** Create a standalone program (empty, or seeded from a target device). */
+export function useCreatePlannedSwitching() {
+  return useOmsMutation<CreatePlannedSwitchingBody>((body) =>
+    apiFetch("/oms/planned-switching", { method: "POST", body: JSON.stringify(body) }),
+  )
+}
+
+/** Patch a program header (title / purpose / notes / window, or issue a draft). */
+export function useUpdatePlannedSwitching() {
+  return useOmsMutation<{ orderId: string; patch: Partial<Pick<SwitchingOrder, "reference" | "purpose" | "notes" | "planned_start" | "planned_end" | "status">> }>(
+    ({ orderId, patch }) =>
+      apiFetch(`/oms/switching-orders/${orderId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  )
+}
+
+/** Append a step to a standalone program. */
+export function useAddSwitchingStep() {
+  return useOmsMutation<{ orderId: string; step: SwitchingStepBody }>(({ orderId, step }) =>
+    apiFetch(`/oms/switching-orders/${orderId}/steps`, { method: "POST", body: JSON.stringify(step) }),
+  )
+}
+
+/** Edit a not-yet-executed step of a standalone program. */
+export function useUpdateSwitchingStep() {
+  return useOmsMutation<{ stepId: string; step: SwitchingStepBody }>(({ stepId, step }) =>
+    apiFetch(`/oms/switching-steps/${stepId}`, { method: "PATCH", body: JSON.stringify(step) }),
+  )
+}
+
+/** Delete a not-yet-executed step (remaining steps renumber). */
+export function useDeleteSwitchingStep() {
+  return useOmsMutation<{ stepId: string }>(({ stepId }) =>
+    apiFetch(`/oms/switching-steps/${stepId}`, { method: "DELETE" }),
+  )
+}
+
+/** Reorder a program's steps from a full list of its step ids. */
+export function useReorderSwitchingSteps() {
+  return useOmsMutation<{ orderId: string; stepIds: string[] }>(({ orderId, stepIds }) =>
+    apiFetch(`/oms/switching-orders/${orderId}/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ step_ids: stepIds }),
+    }),
   )
 }
 

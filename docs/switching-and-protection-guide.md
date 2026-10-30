@@ -15,14 +15,16 @@ This guide is the companion to the interactive **Switching & Protection** guide 
 |---|---|---|---|---|---|
 | Look at devices, states, relays | `features:read` | ✓ | ✓ | ✓ | ✓ |
 | Run a trace, isolate, section, supply path | `trace:run` | — | ✓ | ✓ | ✓ |
-| Run fault / coordination / arc-flash / contingency | `analysis:run` | — | ✓ | ✓ | ✓ |
+| Run fault / coordination / **sweep** / **fuse-saving** / arc-flash / contingency | `analysis:run` | — | ✓ | ✓ | ✓ |
 | Change `device_state`, edit a relay's settings | `features:write` | — | — | ✓ | ✓ |
+| Record a device's **protection settings** (the register, §6.4) | `features:write` | — | — | ✓ | ✓ |
 | Wire a device (connection) | `connectivity:commit` | — | — | ✓ | ✓ |
 | Link a relay to a breaker / CT / VT (relationship) | `relationships:commit` | — | — | ✓ | ✓ |
 | Place a tie, coupler | `features:write` + `connectivity:commit` | — | — | ✓ | ✓ |
 | Place an RMU | `features:write` + `connectivity:commit` + `relationships:commit` | — | — | ✓ | ✓ |
-| Read the outage board | `oms:read` | ✓ | ✓ | ✓ | ✓ |
-| Generate / execute a switching order | `oms:write` | — | — | ✓ | ✓ |
+| Read the outage board, a **planned switching** program | `oms:read` | ✓ | ✓ | ✓ | ✓ |
+| Read the operation log + the **Abnormal** report (§2) | `operations:read` | ✓ | ✓ | ✓ | ✓ |
+| Generate / **author** / execute a switching order (incident **or planned**) | `oms:write` | — | — | ✓ | ✓ |
 | Edit classes, domains, field rules | `metadata:write` | — | — | — | ✓ |
 | Load a new TCC curve | *none — SQL only* (see §6.3) | — | — | — | DB access |
 
@@ -56,8 +58,8 @@ This guide is the companion to the interactive **Switching & Protection** guide 
 
 **What's inside**
 
-- **Part A — Switching:** §1 the devices (+ *how to place a switch*, *split a line*, field and wiring reference, data-entry mistakes) · §2 the state axes (+ *how to open/close*, normal vs current state, OMS switching orders) · §3 what opening a device does — barriers, the de-energised cone, isolate (+ *how to isolate*), sections vs. zones, and what the Live view does *not* tell you · §4 ties, couplers, RMUs (+ *how-tos*, wiring directions, rejection reasons).
-- **Part B — Protection:** §5 the devices (+ *how to wire a relay to a breaker*, CT/VT sanity) · §6 TCC curves (+ constants, interpolation, *how to set a curve*, *how to load a curve*) · §7 coordination (+ *how to run a study*, a full grading study for Feeder 7, mis-coordination case studies, reclose sequences, sectionalizer counting, fuse-saving vs fuse-blowing) · §8 fault & arc-flash (cross-reference with numbers).
+- **Part A — Switching:** §1 the devices (+ *how to place a switch*, *split a line*, field and wiring reference, data-entry mistakes) · §2 the state axes (+ *how to open/close*, normal vs current state, OMS switching orders, *the Abnormal report*, *authoring a planned switching program*) · §3 what opening a device does — barriers, the de-energised cone, isolate (+ *how to isolate*), sections vs. zones, and what the Live view does *not* tell you · §4 ties, couplers, RMUs (+ *how-tos*, wiring directions, rejection reasons).
+- **Part B — Protection:** §5 the devices (+ *how to wire a relay to a breaker*, CT/VT sanity) · §6 TCC curves (+ constants, interpolation, *how to set a curve*, *how to load a curve*, **§6.4 the protection-settings register**) · §7 coordination (+ *how to run a study*, a full grading study for Feeder 7, mis-coordination case studies, reclose sequences, sectionalizer counting, fuse-saving vs fuse-blowing **with the automated check**, **§7.10 sweeping the whole feeder**) · §8 fault & arc-flash (cross-reference with numbers).
 - **Part C — Together:** §9 the trip → switch → reconfigure loop (+ *how to see what's de-energised*, a worked restoration with the three views of "dead") · §10 what the model does **not** do · §11 troubleshooting · Appendix — domains, formulas, quick reference, recipes, **Corrections**.
 
 ---
@@ -200,7 +202,9 @@ PLANNED ──▶ IN_SERVICE ──▶ ISOLATED ──▶ IN_SERVICE   (restore)
 | `NORMALLY_OPEN` | `CLOSED` | **abnormal** — a tie is closed: the feeders are paralleled or one is carrying the other's load |
 | unset | either | no declared design posture; nothing to compare |
 
-The model does not raise an alarm on the abnormal rows — it simply stores both columns. Put them side by side in a query or report to find them.
+The model does not *alarm* on the abnormal rows — nothing pages or notifies — but it now **reports** them. The **Abnormal** tab on the Operations page (**Operations → Abnormal**, `operations:read`) lists exactly the two abnormal rows above: every switching device whose live `device_state` contradicts its declared `normal_state` (a `NORMALLY_OPEN` point found `CLOSED`, or a `NORMALLY_CLOSED` one found `OPEN`), with its current state, its last operation and when. It is a **standing report, not a notification** — open it to see "what is off-normal right now" (after a storm, before handing back a feeder, during an audit); it won't tell you the moment a device goes off-normal. Behind it: `deviceops.Abnormal` discovers every class that carries **both** a `device_state` and a `normal_state` field and scans for the contradiction (`api/internal/deviceops/abnormal.go:31-64`), served at `GET /operations/abnormal` (`deviceops/http.go:35`); no new table — it reads the live rows. A `device_class` filter narrows it to one class.
+
+> **▶** Reading the pair by hand still works (a query over the two columns), but the Abnormal tab is the built-in version — and it is the fast answer to "did we leave anything open?" after restoration.
 
 **Who sets state.** Both state columns are ordinary attributes edited through the generic write path (REST `PATCH /features/...`, the map's attribute editor, or the `update_feature` MCP tool). The **OMS module** flips `device_state` programmatically as crew execute a switching order: executing an **open** step sets `OPEN`, executing a **close** step sets `CLOSED`, and un-ticking a step restores the opposite — each inside the same transaction that ticks the step, written through `crud.UpdateFeature` so it is validated and history-logged (`api/internal/oms/switching.go:317-378`).
 
@@ -214,6 +218,18 @@ A generated switching order (`POST /oms/incidents/{id}/switching-orders`, `oms:w
 > ⚠️ **There is no one-click "operate" toggle.** Changing a switch position is the normal Edit → Attributes → `device_state` → Save path (or, during a managed outage, an OMS switching-step tick). Don't look for a right-click "open switch" — it isn't there.
 >
 > 💡 To take an asset *out of service* (not just switch it open), edit **`operational_state`** to `ISOLATED` instead — it blocks traces the same way but records that the asset itself is unavailable, and it's governed by the state machine above.
+
+**Switching orders without an incident — planned switching (∑).** The order above is *generated from an incident*. For **planned** work — a maintenance isolation, a construction cut-over — Priya authors a **standalone switching program** that is tied to no incident. It reuses the very same `oms.switching_orders` / `oms.switching_steps` tables (migration `0186` made `incident_id` nullable and added a booked window + purpose), so a planned program executes, logs and interlocks *identically* to an incident order — the only difference is `incident_id IS NULL`. A program lives on **Operations → Switching** (route `/switching`): read it with `oms:read`, build it with `oms:write`. You can start it **empty** and write each step, or **seed** it with the standard open → verify → earth → close steps for a chosen device (the same `buildIsolateRestoreDrafts` the incident generator uses — `api/internal/oms/switching.go`), then add / edit / delete / reorder steps freely. Issuing it moves `draft → issued`; ticking a step off flips the device's `device_state` and writes the operation to the log, exactly as §2's incident order does.
+
+> **How to — author a planned switching program** 🔒 `oms:write`
+> 1. Left sidebar → **Operations** → the **Switching** tab (or go to `/switching`). Click **➕ New program**.
+> 2. Give it a **title** (e.g. *"Feeder 7 — replace FSW-12"*) and, optionally, a **planned window** and **purpose**. To pre-fill the isolate/restore steps, pick a **target device** (search by name) — leave it blank for an empty program. **Create.**
+> 3. The program opens in the right pane. **➕ Add step** for each operation (pick the **phase** *isolate*/*restore*, the **action** *open*/*close*/*earth*/*verify*/*note*, write the **instruction**, and name the **device** for an open/close step); use **↑ / ↓** to reorder and the pencil / trash to edit or remove a step. (`POST /oms/switching-orders/{id}/steps`, `…/reorder`, `PATCH`/`DELETE /oms/switching-steps/{id}`.)
+> 4. When the program is agreed, **Issue** it (`draft → issued` — `PATCH /oms/switching-orders/{id}`). In the field, **tick each step** as it's done: an open/close tick flips the device live (and logs the operation); un-tick to revert. **Cancel** keeps the steps for the record.
+>
+> ⚠️ **An open/close step must name the device it operates** — the server refuses one without (*"an open step must name the device it operates"*); a `verify`/`note` step carries none. And the builder edits **only** standalone programs — an incident-backed order is still generated and driven through its incident, not here (editing one in the builder is refused).
+>
+> 💡 A planned program is the place to **pre-stage a transfer**: author *open REC-7 · open Way A · open FSW-12 · close T-79* ahead of the work, issue it, and the crew ticks it off on the day — the same device flips, log entries and §3 cone updates you'd get piecemeal, now as one reviewable sheet.
 
 ---
 
@@ -489,6 +505,32 @@ WHERE c.code = 'REC_SLOW_B';
 
 Then type `REC_SLOW_B` into the recloser's `slow_curve_ref`. For a fuse add a `minimum_melt` band as well (it is drawn, not graded). A relay curve uses `quantity = 'multiple'` and band `operate`, and a matching `TCC_CURVE` domain value (`metadata:write`) so it can be chosen from the relay's dropdown.
 
+### 6.4 The protection-settings register
+
+A curve says *"at this multiple of pickup I operate in this many seconds"*, but the **as-built relay settings** — the model number, the CT ratio, the actual pickup in amps, the time dial, the instantaneous threshold, the earth-fault settings, the reclose scheme — are facts about *this* device that a curve alone doesn't hold. Some of them already live as fields on the `PROTECTIVE_RELAY` feature (§5); the **protection-settings register** is a dedicated, flat record of all of them, **one row per device**, on its own page.
+
+It is its **own** screen — **Protection settings** in the left sidebar (route `/protection-settings`), *not* folded into Operations — because it is a slowly-changing engineering register, read by a protection engineer, gated on `features:read` to view and `features:write` to edit (`api/cmd/server/main.go:328`). Behind it: the `api/internal/protection` package over table `ops.protection_settings` (migration `0185`), keyed **`UNIQUE (feature_class_code, feature_id)`** so each device has exactly one record, upserted in place.
+
+| Group | Fields |
+|---|---|
+| Identity | `relay_model`, `ct_ratio` |
+| Phase overcurrent (ANSI 51 / 50) | `phase_pickup_a`, `phase_time_dial`, `phase_curve`, `phase_instantaneous_a` |
+| Ground / earth fault (51N / 50N) | `ground_pickup_a`, `ground_time_dial`, `ground_curve`, `ground_instantaneous_a` |
+| Reclosing | `reclose_operations`, `reclose_intervals` |
+| Meta | `notes`, `source` (provenance — see below), `updated_by` |
+
+**Only a protective / switching device may carry a record.** The register refuses any other class — the server checks the class against `ProtectionDeviceClasses` = `MV_BREAKER`, `MV_RECLOSER`, `MV_FUSE`, `MV_SWITCH`, `MV_ISOLATOR`, `MV_SECTIONALIZER`, `LV_SWITCH`, `PROTECTIVE_RELAY` and rejects the rest (*"… is not a protective/switching device class — protection settings attach only to: …"* — `api/internal/protection/store.go:64-67,135`). That guard holds whichever way you reach it: the picker's name-search is **scoped** to those classes (a transformer never appears), and pasting a bare feature **id (GUID)** resolves it through `GET /protection/resolve?feature_id=…` (`protection/resolve.go:29`), which locates the id **only** among those classes and rejects an id belonging to a transformer, line or anything else.
+
+> **How to — record a device's protection settings** 🔒 `features:write`
+> 1. Left sidebar → **Protection settings** → **➕ New**.
+> 2. **Name the device** two ways: type its **name** in the search (only protective/switching devices are offered), *or* **paste its feature ID (GUID)** and press **Use** — a GUID that isn't a protective/switching device is rejected with a message.
+> 3. Fill the groups you know — relay model, CT ratio, phase pickup/TD/curve/instantaneous, the earth-fault set, the reclose scheme, notes. Every field is optional (a partially-known relay is normal). **Save.**
+> 4. Edit or delete a row from its line in the register; an externally-fed row (below) shows a small source badge.
+>
+> ⚠️ **The register is documentation — it does not yet drive the grader.** Coordination (§7) reads a **relay feature's own** `curve_type` / `pickup_current_a` / `time_dial` / `inst_pickup_a` fields (§5), **not** this register; the two are separate stores today. Record settings here for the as-built record, auditing and the external feed — but to change what a coordination study computes, edit the relay feature's fields (§6.2's *How to — set a relay's curve and settings*). Wiring the register into the grader is a planned follow-up.
+
+**Provenance (`source`).** Each row records who wrote it last: **`manual`** for a register-UI edit, or the external system's code when it was **fed from an external relay-settings database / SCADA** through the webhook engine's `protection` target (migration `0187`; last-writer-wins). The register shows a badge on any non-`manual` row, so a hand entry is distinguishable from an ingested one. The ingestion path — pushing settings from an authoritative external system, correlating the device by its external id — is a first-class webhook target; see the **Integrations** guide for how to wire it.
+
 ---
 
 ## 7. Coordination
@@ -607,7 +649,7 @@ Each device is one trace on a shared log-log chart (current on the common voltag
 
 ### 7.6 What coordination does *not* check
 
-The grading compares one operate time per device at **one** fault current. It does not model: pre-load or cold-load pickup; fuse pre-damage (cumulative heating) from earlier recloser shots; relay reset times and overshoot beyond the CTI; breaker opening time (it is part of what the CTI is for); ground-fault (`50_51N`) settings; directional or differential elements; CT saturation; the recloser's fast curve; sequence coordination; or the fault current's decay. §10 lists the rest.
+The grading compares one operate time per device at **one** fault current. It does not model: pre-load or cold-load pickup; fuse pre-damage (cumulative heating) from earlier recloser shots; relay reset times and overshoot beyond the CTI; breaker opening time (it is part of what the CTI is for); ground-fault (`50_51N`) settings; directional or differential elements; CT saturation; sequence coordination; or the fault current's decay. (The recloser's **fast** curve *is* now checked — but by the separate **fuse-saving** study, §7.9, not by the margin grader.) §10 lists the rest.
 
 ### 7.7 Reclose sequences and lockout
 
@@ -630,7 +672,34 @@ In the model: after the beyond-SEC-4 case record `SEC-4.device_state = OPEN`. Th
 - **Fuse-saving:** the recloser's *fast* curve operates **before** the fuse can melt, so a transient fault on the tee is cleared without a fuse blowing. Requirement: fast total-clear × K < fuse minimum-melt at that current (K ≈ 1.25 is a typical allowance for the fuse's earlier-shot heating — a rule of thumb, not a VoltEdge setting).
 - **Fuse-blowing:** for a persistent fault the *slow* curve must be slower than the fuse's **total-clear**, so the fuse blows and isolates the tee while the recloser (after its fast shots) stays in service.
 
-With the shipped `FUSE_100T_EXAMPLE` and the **illustrative** recloser curves (fast: 800 A/0.50 s, 1 kA/0.20 s, 2 kA/0.075 s, 4 kA/0.040 s, 8 kA/0.030 s), fuse-saving works only up to about **1.1 kA**: at 1 kA the fast shot takes 0.20 × 1.25 = 0.25 s against a minimum melt of 0.30 s (saved), but at 1.2 kA it is 0.19 s against 0.18 s (the fuse is damaged), at 2 kA it is 0.094 s against 0.045 s, and at the 3.9 kA fault level it is 0.051 s against **0.012 s** — there is no fuse-saving at all; the fuse will blow on the first fast shot. Fuse-blowing holds across the whole range (slow time above the fuse total-clear at every current from 500 A to 8 kA: 3.9 kA gives 0.46 s vs 0.023 s). The engine grades **only** the slow-vs-total-clear pair at one current; the fast curve and the fuse-saving window are checked by hand (the interactive edition's sequence simulator does it). The practical reading: on a 11 kV feeder with a 4 kA fault level and a 100 T tee fuse, run the recloser **fuse-blowing** (fast shots disabled, or a "slow only" program) unless the fuse is much bigger or the fault current at the tee is below ~1 kA.
+With the shipped `FUSE_100T_EXAMPLE` and the **illustrative** recloser curves (fast: 800 A/0.50 s, 1 kA/0.20 s, 2 kA/0.075 s, 4 kA/0.040 s, 8 kA/0.030 s), fuse-saving works only up to about **1.1 kA**: at 1 kA the fast shot takes 0.20 × 1.25 = 0.25 s against a minimum melt of 0.30 s (saved), but at 1.2 kA it is 0.19 s against 0.18 s (the fuse is damaged), at 2 kA it is 0.094 s against 0.045 s, and at the 3.9 kA fault level it is 0.051 s against **0.012 s** — there is no fuse-saving at all; the fuse will blow on the first fast shot. Fuse-blowing holds across the whole range (slow time above the fuse total-clear at every current from 500 A to 8 kA: 3.9 kA gives 0.46 s vs 0.023 s). The practical reading: on a 11 kV feeder with a 4 kA fault level and a 100 T tee fuse, run the recloser **fuse-blowing** (fast shots disabled, or a "slow only" program) unless the fuse is much bigger or the fault current at the tee is below ~1 kA.
+
+**The automated check — `POST /analysis/fuse-saving`.** The single coordination study (§7) grades only the slow-vs-total-clear pair at one current; the *fast* curve and the fuse-saving window used to be a hand calculation. A dedicated check now does both across the feeder (`api/internal/powerflow/fusesaving.go`, `analysis:run`). From a chosen source it walks the feeder, finds every lateral **fuse** (a `MV_FUSE`, or a fused `MV_SWITCH`/`LV_SWITCH`) and its **nearest upstream recloser**, and at the fuse's prospective fault current reports two verdicts (`fusesaving.go:58-84`):
+
+- **Fuse saved** — `t_fast(fault) < t_fuse_minimum_melt(fault)`: on a *transient* fault the recloser's **fast** curve trips before the fuse starts to melt, so the fuse isn't blown.
+- **Fuse clears** — `t_fuse_total_clear(fault) < t_slow(fault)`: on a *permanent* fault the fuse totally clears before the recloser's **slow** (delayed) trip, so the fuse isolates the lateral and the recloser does **not** lock out the whole feeder.
+
+…plus **`max_save_current_amps`** — the fuse-saving **crossover**, the fault current where the fast curve and the fuse minimum-melt cross: the upper bound of the current range the fuse is saved over (≈ 1.1 kA in the hand calc above; the check solves it exactly). Each pair carries both verdicts; the report is **issues-first**, with counts (`fuse_saved_count`, `fuse_clears_count`, `issue_count` = pairs failing *either* test).
+
+> **How to — check the fuse-saving scheme across a feeder** 🔒 `analysis:run`
+> 1. Arm a coordination study on the **source** (§7's *How to*, step 1–2) — the panel opens on the source.
+> 2. Click **Fuse-saving** (beside *Run* and *Sweep feeder*). **No fault pick is needed.**
+> 3. Read the per-pair list: each recloser → fuse row shows **Fuse saved** / *Fuse melts (transient)* and **Fuse clears** / *Lockout risk* chips, the fault current, and `saved ≤ I` (the crossover). Pairs with a failing verdict sort to the top.
+>
+> 💡 On Feeder 7, REC-7 → FSW-12 at the 3.9 kA tee fault comes back **Fuse melts** (fuse-saving is off at that level, exactly as the hand calc shows) and **Fuse clears** ✓ (0.46 s slow vs 0.023 s total-clear) — the check confirms the "run it fuse-blowing" conclusion.
+
+### 7.10 Sweep the whole feeder — every pair at once
+
+§7.1 grades **one** source→fault path. To answer *"is the **whole** feeder coordinated, and exactly which pairs are not?"* in one run, use the **sweep** — `POST /analysis/coordination-sweep` (`api/internal/powerflow/coordination_sweep.go`, `analysis:run`). It builds the feeder tree **once** from the source, then postulates a fault **at each protective device** below it (`MV_BREAKER`, `MV_FUSE`, `MV_SWITCH`, `LV_SWITCH`, `MV_RECLOSER`), re-grades the chain up to that device with the same engine §7 uses, and **merges** each series pair across all those faults, keeping its **worst (smallest) margin**. So one report lists every adjacent protective pair once, at the fault that stresses it most.
+
+It returns `pair_count`, `miscoordinated_count`, `ungraded_count`, and the `pairs` ordered **miscoordinated-first**. It is capped at **40** protective devices (`coordination_sweep.go:25`); a feeder with more sets a `Truncated` flag so the report is never read as exhaustive.
+
+> **How to — sweep the whole feeder** 🔒 `analysis:run`
+> 1. Arm a coordination study on the **source** (§7's *How to*, step 1–2).
+> 2. Click **Sweep feeder** — again **no fault pick**. (The three buttons are *Run* = one path, *Sweep feeder* = every pair, *Fuse-saving* = the reclose scheme.)
+> 3. Read the ranked list: each downstream → upstream pair with its worst margin and a coordinated / miscoordinated dot; the summary strip gives the counts and flags a truncated sweep. Click a pair to focus its downstream device on the map.
+>
+> 💡 The sweep is the **triage** view — run it after any protection change to see at a glance whether anything regressed; then open a single **Run** study (§7.1) on a flagged pair to read its full TCC chart and operate times.
 
 ---
 
@@ -705,6 +774,8 @@ The two parts meet in one cause-and-effect chain:
 
 **Reconfiguration checklist (the contingency study's rules).** Candidates are the open boundary switches the donor's base sweep halts at, normally-open ones ranked first; closing one that forms a loop is reported *"forms a loop/mesh … run LOOP_CHECK_TRACE"* (a parallel path, not a radial transfer); one that energises nothing says so; an option is **feasible** only if it restores load **and** causes no voltage violation (band 0.95–1.05 pu by default — `powerflow/profile.go:16-17`) and no overload (conductor/transformer loading above 100 %). The study is **read-only** — it overrides one barrier per candidate and mutates nothing. Validation tier: **Derived**.
 
+**Back-feed *capacity* — how much headroom, not just "does it hold".** The study now **quantifies** each candidate's capacity, not only a yes/no overload (`powerflow/contingency.go:65-77`). Per option it reports the **worst loading %** on the post-transfer donor path, names the **limiting element** and which rating bound it hit (`limiting_kind` = `ampacity` for a conductor against its thermal rating, or `transformer` for a rated node against its kVA), and the **spare apparent power** at that element before 100 % — `limiting_headroom_kva = S · (100 − loading%)/loading%`, *negative* when the transfer already pushes it over. The donor's loading **before** any transfer is reported too (`base_worst_loading_pct`), so you read the transfer's cost against the starting point. In the UI these surface as a **Capacity** column on the *Contingency & backfeed* panel ("87 % · +120 kVA · *limited by MV_CONDUCTOR*"), red past 100 %. So on the §9 restoration above, closing **T-79** restores the clinic tail *and* tells you the back-feed trunk C-9 then sits at, say, 78 % with ~140 kVA to spare — a transfer you can hold, not just one that "doesn't overload". See **Engineering Studies** for the loading/ampacity math behind the number.
+
 ---
 
 ## 10. What the model does **not** do
@@ -717,7 +788,8 @@ The two parts meet in one cause-and-effect chain:
 | "The upstream boundary of an isolate is always an upstream device" | Not guaranteed; the walk starts undirected and returns the first hit of an unordered set (§3.4). |
 | "A recloser counts its shots" | No. `reclose_attempts`, `reclose_interval_s` and `reset_time_s` are stored, never simulated; lockout is whatever you set `device_state` to. |
 | "A sectionalizer counts automatically" | No: it has `count_to_lockout` but **no counting engine** — you record the outcome in `device_state`. It *does* carry `boundary_role = switching`, `functional_role = controller` and tier 300, so it bounds sections and isolation like any switch. |
-| "Coordination checks the recloser's fast curve" | No — slow curve only, at one current. |
+| "Coordination checks the recloser's fast curve" | The margin grader uses the **slow** curve only, at one current. The **fast** curve is checked separately by the **fuse-saving** study (§7.9), which grades fast-vs-minimum-melt and slow-vs-total-clear per recloser/fuse pair. |
+| "The protection-settings register feeds the grader" | No — not yet. Coordination reads the **relay feature's own** fields; the register (§6.4) is a parallel as-built record. |
 | "The fuse is chosen/sized for me" | No. `fuse_rating_a` and `fuse_speed` are labels; only `curve_ref` matters, and only one example fuse curve ships. |
 | "CT ratio / saturation / burden is modelled" | No. `ct_ratio` and `vt_ratio` are recorded; pickup is in primary amps. |
 | "The relay's other functions run" | Only overcurrent (`curve_type`, pickup, TD, instantaneous, definite time) — and `device_number` is never consulted, so the ANSI code neither enables nor restricts anything. 27/59/81/87/67 … have no simulation; `protection_sensing` is never read. |
@@ -853,11 +925,16 @@ task seed-protection-network      # a gradeable chain: SUB-SOURCE → BRK-1 (+RL
 | What dies if I open it? | `POST /trace/isolate` (`trace:run`) |
 | Section / zone around a feature | `POST /trace/section` (`protection_zone: true` for the zone) |
 | Are the devices graded in order? | `POST /analysis/coordination` (`analysis:run`) |
+| Is the **whole feeder** coordinated (every pair)? | `POST /analysis/coordination-sweep` (`analysis:run`) |
+| Does the recloser **save / clear** its fuses? | `POST /analysis/fuse-saving` (`analysis:run`) |
 | Fault level / making duty | `POST /analysis/fault-current` |
 | Incident energy | `POST /analysis/arc-flash` (experimental) |
-| What can the other feeder pick up? | `POST /analysis/contingency` |
+| What can the other feeder pick up — and with how much headroom? | `POST /analysis/contingency` |
 | Place a tie / coupler / RMU | `POST /ties`, `/couplers`, `/rmus` |
-| Generate / tick a switching order | `POST /oms/incidents/{id}/switching-orders`, `POST /oms/switching-steps/{id}/execute` (`oms:write`) |
+| Generate / tick an **incident** switching order | `POST /oms/incidents/{id}/switching-orders`, `POST /oms/switching-steps/{id}/execute` (`oms:write`) |
+| Author / edit a **planned** switching program | `POST /oms/planned-switching`, `…/{id}/steps`, `…/reorder` (`oms:write`) |
+| Record a device's **protection settings** | `PUT /protection/settings/{class}/{id}` (`features:write`); resolve a GUID: `GET /protection/resolve?feature_id=…` |
+| What is **off-normal** right now? | `GET /operations/abnormal` (`operations:read`) |
 
 ### What is *not* a class (modelling notes)
 

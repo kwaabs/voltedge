@@ -24,7 +24,9 @@ template cases.
 5. **Traces & OMS** — standard, feeder, section, service, supply-path, isolate,
    energization.
 6. **Fault & protection** — fault current, SLG, arc flash, coordination,
-   ampacity, contingency.
+   ampacity, N-1 contingency (with the back-feed capacity margin), the
+   feeder-wide miscoordination sweep, the fuse-saving scheme check, and the
+   protection-settings register.
 7. **DER & optimization** — hosting capacity, EV hosting, storage dispatch,
    volt-var, tap optimization, VVO, load-growth forecast.
 8. **Beyond correctness — the production-readiness tests** — the four things
@@ -33,7 +35,8 @@ template cases.
    **access control** is enforced, and that it survives **concurrent editing**.
    These are what separate "impressive demo" from "a utility can trust it."
 9. **Operational subsystems** — safety (tags/grounds/clearances), FLISR
-   restoration, the device-operations log, and the land/spatial domain.
+   restoration, the device-operations log, the land/spatial domain, the
+   standalone planned-switching builder, and the abnormal-configuration report.
 10. **Asset management & data quality** — asset lifecycle & aging (+ its network
     gate), the asset register / BoQ, the fault-mode catalog, attribute QA, and
     fault location.
@@ -1468,9 +1471,96 @@ validation error (unlike most optionals, this one is not defaulted).
 ```
 
 **Expected:** per-contingency a `feasible` flag and the backfeed path; with a
-`tie` supplied, whether closing it restores the lost load within limits.
+`tie` supplied, whether closing it restores the lost load within limits. Each
+option now also carries the **back-feed capacity margin**: `worst_loading_pct`
+(the most-loaded element on the post-transfer donor), `limiting_element` +
+`limiting_kind` (`ampacity` | `transformer`), and `limiting_headroom_kva` (spare
+apparent power before 100 %, **negative** when the transfer pushes it over); the
+response carries `base_worst_loading_pct` (the donor's pre-transfer loading).
 **Failure modes:** passing `start` instead of `source` → validation error; no
-viable backfeed → `feasible=false` (not an error).
+viable backfeed → `feasible=false` (not an error); a tie whose transfer overloads
+the donor → `feasible=false` with `worst_loading_pct > 100` and the limiting
+element named (not an error).
+
+## Test 6.7 — Miscoordination sweep (feeder-wide)
+
+**Purpose:** Grade **every** series protective pair on the feeder below a source
+in one run — the feeder-wide version of 6.4.
+**Endpoint:** `POST /analysis/coordination-sweep`. **MCP:** none.
+
+**Run:** `{ start, nominal_voltage_v, cti_seconds? }` — **no `fault`** (the engine
+postulates one at each protective device itself). The map panel exposes it as the
+**Sweep feeder** button beside *Run* on the coordination panel.
+
+```
+  build the radial tree ONCE from `start`; fault at each protective device below it
+  (MV_BREAKER/MV_FUSE/MV_SWITCH/LV_SWITCH/MV_RECLOSER); re-grade each pair;
+  keep each pair's WORST (smallest) margin; list miscoordinated-first. Cap 40 devices.
+```
+
+**Expected:** `pair_count`, `miscoordinated_count`, `ungraded_count`, `pairs[]`
+(each a downstream→upstream pair with its worst `margin_s` and `coordinated`,
+ordered miscoordinated-first), and `truncated` (set when > 40 protective devices).
+**Failure modes:** a feeder with no gradeable pairs → empty `pairs` (not an
+error); `truncated=true` means the report is **not** exhaustive — read it as a
+sample, not a clean bill.
+
+## Test 6.8 — Fuse-saving scheme check
+
+**Purpose:** Check each lateral fuse against its upstream recloser's two-curve
+reclose scheme — what §7.9 of the Switching & Protection guide used to call a
+hand calc.
+**Endpoint:** `POST /analysis/fuse-saving`. **MCP:** none.
+
+**Run:** `{ start, nominal_voltage_v }` on a feeder with a recloser above one or
+more lateral fuses. The map panel exposes it as the **Fuse-saving** button on the
+coordination panel.
+
+```
+  for each lateral fuse, find its nearest upstream MV_RECLOSER:
+    fuse_saved  = t_recloser_fast(I) < t_fuse_minmelt(I)      (transient: fuse not blown)
+    fuse_clears = t_fuse_totalclear(I) < t_recloser_slow(I)   (permanent: fuse clears before lockout)
+    max_save_current_amps = crossover where fast == min-melt (upper fuse-saving bound)
+```
+
+**Expected:** `pairs[]` (recloser→fuse), each with `fuse_saved`, `fuse_clears`,
+the four operate times, and `max_save_current_amps`; `fuse_saved_count`,
+`fuse_clears_count`, `issue_count` (either verdict failed), `truncated` (cap 60
+pairs). Issues first.
+**Failure modes:** a fuse with no upstream recloser is skipped (not an issue); a
+recloser missing its `fast_curve_ref`/`slow_curve_ref` or a fuse missing its
+bands leaves that pair ungraded with a note (not fatal).
+
+## Test 6.9 — Protection settings register
+
+**Purpose:** Prove the per-device as-built relay/overcurrent settings register and
+its device-class guard.
+**Endpoint:** `GET/PUT/DELETE /protection/settings/{class}/{id}`,
+`GET /protection/resolve?feature_id=`. **MCP:** none.
+**Permission:** `features:read` to view, `features:write` to edit.
+
+**Run:** `PUT` a settings body (`relay_model`, `ct_ratio`,
+`phase_pickup_a`/`phase_time_dial`/`phase_curve`/`phase_instantaneous_a`,
+`ground_*`, `reclose_operations`/`reclose_intervals`, `notes`) for a protective
+device; it upserts one row per device. The register page `/protection-settings`
+finds the device by a name search **scoped to protective/switching classes**, or
+by pasting a feature id (GUID) resolved through `/protection/resolve`.
+
+```
+  ProtectionDeviceClasses = MV_BREAKER, MV_RECLOSER, MV_FUSE, MV_SWITCH,
+                            MV_ISOLATOR, MV_SECTIONALIZER, LV_SWITCH, PROTECTIVE_RELAY
+  Upsert REFUSES any class outside that set (even via the raw API)
+  resolve?feature_id=  →  the device's class + name, or REFUSED for a non-protection id
+```
+
+**Expected:** a settings row keyed on `(feature_class_code, feature_id)`, with a
+`source` of `manual` for a UI/API edit; the resolver returns the device's class
+for a protective id.
+**Failure modes:** a `PUT` to a non-protection class (e.g. a `DIST_XFMR`) →
+**refused** with the allowed-classes list; `resolve` on a transformer/line GUID →
+**refused** (*"no protective/switching device has id …"*). The register itself
+feeds nothing automatically yet — coordination still reads the relay feature's own
+`curve_type`/`pickup_current_a` (a documented gap, not a test failure).
 
 ---
 
@@ -1908,6 +1998,48 @@ easement workflows. Permission: `features:read` (+ `wam:write` to raise a trim).
 **Failure modes**
 - A breach computed with a flat (non-voltage) clearance, or spatial results not matching the polygons.
 
+## Test 9.5 — Standalone planned switching builder
+
+**Purpose:** Author and execute a switching **program** that is *not* tied to an
+incident — planned work. Permission: `oms:read` to view, `oms:write` to build.
+Reached via **Operations → Switching** (`/switching`); it reuses the
+`oms.switching_orders`/`_steps` tables (migration 0186 made `incident_id`
+nullable).
+
+**Steps**
+1. `POST /oms/planned-switching` with a `reference` only → an empty draft program; and again with a `target_device` → the standard **open → verify → earth → close** steps seeded for that device.
+2. `POST /oms/switching-orders/{id}/steps` to add a step; `PATCH /oms/switching-steps/{id}` to edit one; `DELETE` one (the rest renumber); `POST /oms/switching-orders/{id}/reorder` with the full id list to move steps.
+3. `PATCH /oms/switching-orders/{id}` `{status:"issued"}` to issue the draft.
+4. `POST /oms/switching-steps/{id}/execute` on an **open**/**close** step → the device's live `device_state` flips and an `ops.operations` row logs it (source `switching_order`); un-tick restores the opposite.
+5. `GET /oms/planned-switching` → the program lists (newest first) with its ordered steps.
+
+**Expected / pass criteria**
+- A standalone program has `incident_id = null`; its step edits are rejected once it is `completed`/`cancelled`, and an executed step can't be edited/deleted until reverted.
+- Executing an open/close step moves the network (traces, power flow, the outage map read the new position) and lands exactly one operation-log row — the same machinery an incident switching order uses.
+- A `reorder` list that isn't exactly the order's step set is rejected; an `open`/`close` step with no device is rejected.
+
+**Failure modes**
+- Editing an incident-backed order through the planned-switching routes is refused (it belongs to its incident).
+- A reorder that drops or duplicates a step, or a `UNIQUE(order, step_no)` collision, = a bug (the two-pass renumber must dodge it).
+
+## Test 9.6 — Abnormal-configuration report
+
+**Purpose:** Surface every device whose live position contradicts its declared
+normal state — "what's off normal". Permission: `operations:read` /
+`telemetry:read` (the Operations page). No migration.
+
+**Steps**
+1. Open **Operations → Abnormal** (a view toggle on the Operations page).
+2. Confirm it lists only devices where `device_state` contradicts `normal_state`: `NORMALLY_OPEN` + `CLOSED` (a tie carrying load), or `NORMALLY_CLOSED` + `OPEN` (a switch left open).
+3. Flip a tie closed (`device_state = CLOSED` on a `NORMALLY_OPEN` device) → it appears; return it to `OPEN` → it clears.
+
+**Expected / pass criteria**
+- The report selects exactly the contradictions, across every class carrying **both** `device_state` and `normal_state` (deviceops discovers them from metadata); each row shows the device, its normal vs current state, and its last operation.
+- It is a **report**, not an alarm or a notification — nothing is pushed; the operator reads the tab.
+
+**Failure modes**
+- A device in its normal position appearing in the list, or a class without a `normal_state` being judged, = a bug.
+
 # Chapter 10 — Asset management & data quality
 
 The record-keeping layer: where each asset is in its life, what it's worth, how a
@@ -2118,15 +2250,19 @@ mount (HMAC) / `metadata:read` (admin).
 
 **Steps**
 1. **Inbound:** POST a signed delivery to `/webhooks` → HMAC + replay check, SSRF-hardened, service-user-scoped **atomic apply**; confirm a poison delivery is reaped (attempts cap), not retried forever.
-2. **Outbound:** make a change on a wired write path (faults/wam/oms) → a transactional-outbox row emits on the same tx; confirm the delivery worker fans it out.
-3. Confirm no secret leaks in logs/errors.
+2. **Target coverage:** drive one delivery per adapter — `feature`, `reading`, `work`, `fault`, `operation`, `outage`, the read-only mirrors `incident`/`workorder`, and the new **`protection`** target.
+3. **Protection ingestion:** target `protection` with `config.system_code` set; push a change naming the device by `device_external_id` (resolved via `runtime.external_feature_refs`) or directly (`device_class`+`device_id`), carrying settings fields → the protection register upserts that device's row stamped `source = <system_code>`; `op:"delete"` removes it. A ref that resolves to a non-protection class is **refused**.
+4. **Outbound:** make a change on a wired write path (faults/wam/oms) → a transactional-outbox row emits on the same tx; confirm the delivery worker fans it out.
+5. Confirm no secret leaks in logs/errors.
 
 **Expected / pass criteria**
 - Inbound: valid signed deliveries apply atomically; malformed/replayed are rejected; a worker panic recovers (no poison-loop).
+- `protection` ingestion upserts/deletes the register keyed on the device, stamps `source` (so an ingested setting is distinguishable from a `manual` one), and refuses a non-protection device ref — the same guard the register UI enforces.
 - Outbound: an event is emitted exactly once per committed change.
 
 **Failure modes**
 - A delivery applied without a valid HMAC, or an outbound event emitted for a rolled-back change.
+- A `protection` change attaching settings to a transformer/line (the class guard failed), or an ingested row left with a `null`/`manual` source (provenance lost).
 
 # Appendix A — coverage matrix
 
@@ -2174,7 +2310,10 @@ mount (HMAC) / `metadata:read` (admin).
 | 6.3 | Arc flash | `/analysis/arc-flash` | — |
 | 6.4 | Coordination | `/analysis/coordination` | — |
 | 6.5 | Ampacity | `/analysis/ampacity` | — |
-| 6.6 | N-1 contingency | `/analysis/contingency` | — |
+| 6.6 | N-1 contingency (+ back-feed capacity margin) | `/analysis/contingency` | — |
+| 6.7 | Miscoordination sweep (feeder-wide) | `/analysis/coordination-sweep` | — |
+| 6.8 | Fuse-saving scheme check | `/analysis/fuse-saving` | — |
+| 6.9 | Protection-settings register | `/protection/settings/{class}/{id}` · `/protection/resolve` | — |
 | 7.1 | Hosting capacity | `/analysis/hosting-capacity` | — |
 | 7.2 | EV hosting | `/analysis/ev-hosting` | — |
 | 7.3 | Storage dispatch | `/analysis/storage-dispatch` | — |
@@ -2211,6 +2350,8 @@ energization have agent tools.
 | 9.2 | FLISR back-feed restoration | Operational | `POST /incidents/{id}/restoration-orders` · `oms_generate_restoration_order` |
 | 9.3 | Device-operations log | Operational | `/operations`, `operations:write` |
 | 9.4 | Land & spatial (vegetation, easements) | Spatial | `/spatial/*`, `raise_vegetation_trim_order` |
+| 9.5 | Standalone planned switching builder | Operational | `/oms/planned-switching` · `/oms/switching-orders/{id}` · `oms:write` |
+| 9.6 | Abnormal-configuration report | Operational | Operations → Abnormal · `operations:read` |
 | 10.1 | Asset lifecycle & aging + network gate | Asset mgmt | `PATCH .../lifecycle` · `/asset-life/*` · `set_feature_lifecycle` / `asset_life_report` |
 | 10.2 | Asset register & BoQ | Asset mgmt | `POST /boq/asset-register.xlsx` · `run_asset_register` |
 | 10.3 | Fault-mode catalog (FMEA picker) | Data quality | `/faults/modes`, `metadata:write` |

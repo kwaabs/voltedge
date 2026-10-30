@@ -22,6 +22,7 @@ export type WebhookTarget =
   | "outage"
   | "incident"
   | "workorder"
+  | "protection"
 export type WebhookAuthMode = "hmac" | "bearer" | "both"
 /** Outbound auth shape for a pull endpoint (mirrors the Go outbound.Auth). */
 export type WebhookPullAuthType = "none" | "api_key" | "basic" | "bearer"

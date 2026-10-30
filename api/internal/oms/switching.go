@@ -54,6 +54,61 @@ func deviceRefLabel(class, id string) string {
 	return fmt.Sprintf("%s %s", class, id)
 }
 
+// switchingStepDraft is one step before it is numbered and persisted -- the shape
+// both the incident generator and the standalone builder assemble a program from.
+type switchingStepDraft struct {
+	phase, action, instruction string
+	deviceClass, deviceID      *string
+}
+
+// buildIsolateRestoreDrafts assembles the standard isolate+restore program for
+// operating one device: open it + verify the de-energized cone + earth the
+// source-side boundary (isolate), then clear the earths + close it (restore). The
+// earth step targets the nearest upstream isolation point when one exists, else
+// the device itself. Shared by the incident switching order
+// (GenerateSwitchingOrder) and the standalone planned builder
+// (CreatePlannedSwitching), so both produce an identical, safety-ordered program.
+func buildIsolateRestoreDrafts(ctx context.Context, db bun.IDB, device trace.FeatureRef) ([]switchingStepDraft, error) {
+	deviceLabel := deviceRefLabel(device.FeatureClass, device.FeatureID)
+
+	// De-energized cone size (for the verify step) and the nearest upstream
+	// isolation point (for the source-side earth), both barrier-free.
+	supplies, err := DownstreamSupplies(ctx, db, device.FeatureClass, device.FeatureID)
+	if err != nil {
+		return nil, err
+	}
+	upstream, err := trace.UpstreamFeaturesOfClass(ctx, db, device, SwitchingDeviceClasses)
+	if err != nil {
+		return nil, err
+	}
+	var boundary *trace.FeatureRef
+	for i := range upstream {
+		if upstream[i].FeatureID != device.FeatureID { // skip the device itself if it matched
+			boundary = &upstream[i]
+			break
+		}
+	}
+
+	dc, di := device.FeatureClass, device.FeatureID
+	drafts := []switchingStepDraft{
+		{StepPhaseIsolate, StepActionOpen, fmt.Sprintf("Open %s to isolate the work area.", deviceLabel), &dc, &di},
+		{StepPhaseIsolate, StepActionVerify, fmt.Sprintf("Verify %d supply(ies) downstream are de-energized.", len(supplies)), nil, nil},
+	}
+	if boundary != nil {
+		bc, bi := boundary.FeatureClass, boundary.FeatureID
+		drafts = append(drafts, switchingStepDraft{StepPhaseIsolate, StepActionEarth,
+			fmt.Sprintf("Apply safety earths at the source-side boundary %s.", deviceRefLabel(bc, bi)), &bc, &bi})
+	} else {
+		drafts = append(drafts, switchingStepDraft{StepPhaseIsolate, StepActionEarth,
+			"Apply safety earths at the isolated section.", &dc, &di})
+	}
+	drafts = append(drafts, switchingStepDraft{StepPhaseRestore, StepActionNote,
+		"Remove all safety earths and confirm the section is clear to re-energize.", nil, nil})
+	drafts = append(drafts, switchingStepDraft{StepPhaseRestore, StepActionClose,
+		fmt.Sprintf("Close %s to restore supply.", deviceLabel), &dc, &di})
+	return drafts, nil
+}
+
 // GenerateSwitchingOrder builds a draft switching order for an incident from its
 // operated device: an isolate half (open the device, verify the de-energized
 // cone, earth the section) and a restore half (remove earths, close the device),
@@ -80,51 +135,11 @@ func GenerateSwitchingOrder(ctx context.Context, db *bun.DB, incidentID string) 
 	device := trace.FeatureRef{FeatureClass: deviceClass, FeatureID: deviceID}
 	deviceLabel := deviceRefLabel(deviceClass, deviceID)
 
-	// De-energized cone size (for the verify step) and the nearest upstream
-	// isolation point (for the source-side earth), both barrier-free.
-	supplies, err := DownstreamSupplies(ctx, db, deviceClass, deviceID)
+	// The standard isolate+restore program for operating this device.
+	drafts, err := buildIsolateRestoreDrafts(ctx, db, device)
 	if err != nil {
 		return nil, err
 	}
-	upstream, err := trace.UpstreamFeaturesOfClass(ctx, db, device, SwitchingDeviceClasses)
-	if err != nil {
-		return nil, err
-	}
-	var boundary *trace.FeatureRef
-	for i := range upstream {
-		if upstream[i].FeatureID != deviceID { // skip the device itself if it matched
-			boundary = &upstream[i]
-			break
-		}
-	}
-
-	// Build the step drafts in execution order.
-	type stepDraft struct {
-		phase, action, instruction string
-		deviceClass, deviceID      *string
-	}
-	dc, di := deviceClass, deviceID
-	var drafts []stepDraft
-
-	// Isolate.
-	drafts = append(drafts, stepDraft{StepPhaseIsolate, StepActionOpen,
-		fmt.Sprintf("Open %s to isolate the work area.", deviceLabel), &dc, &di})
-	drafts = append(drafts, stepDraft{StepPhaseIsolate, StepActionVerify,
-		fmt.Sprintf("Verify %d supply(ies) downstream are de-energized.", len(supplies)), nil, nil})
-	if boundary != nil {
-		bc, bi := boundary.FeatureClass, boundary.FeatureID
-		drafts = append(drafts, stepDraft{StepPhaseIsolate, StepActionEarth,
-			fmt.Sprintf("Apply safety earths at the source-side boundary %s.", deviceRefLabel(bc, bi)), &bc, &bi})
-	} else {
-		drafts = append(drafts, stepDraft{StepPhaseIsolate, StepActionEarth,
-			"Apply safety earths at the isolated section.", &dc, &di})
-	}
-
-	// Restore (reverse: earths off, then re-energize).
-	drafts = append(drafts, stepDraft{StepPhaseRestore, StepActionNote,
-		"Remove all safety earths and confirm the section is clear to re-energize.", nil, nil})
-	drafts = append(drafts, stepDraft{StepPhaseRestore, StepActionClose,
-		fmt.Sprintf("Close %s to restore supply.", deviceLabel), &dc, &di})
 
 	var out *SwitchingOrder
 	err = db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
