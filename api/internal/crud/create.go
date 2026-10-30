@@ -3,6 +3,7 @@ package crud
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/territory"
@@ -29,7 +30,13 @@ type CreateFeatureInput struct {
 	Name        *string         `json:"name,omitempty"`
 	Geometry    json.RawMessage `json:"geometry,omitempty"`
 	TerritoryID *string         `json:"territory_id,omitempty"`
-	Attributes  map[string]any  `json:"attributes"`
+	// LifecycleStatus creates the feature directly in a life state other than the
+	// default IN_SERVICE (e.g. PLANNED / UNDER_CONSTRUCTION for an asset still being
+	// designed or built). Nil leaves the column's IN_SERVICE default. Validated
+	// against the coded set; commission/retire dates are set later via the dedicated
+	// lifecycle transition, not on create.
+	LifecycleStatus *string        `json:"lifecycle_status,omitempty"`
+	Attributes      map[string]any `json:"attributes"`
 }
 
 // CreateFeature runs the full create path -- metadata validation, territory
@@ -92,5 +99,14 @@ func CreateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, in 
 		return nil, err
 	}
 
-	return insertFeature(ctx, db, loaded, in.ID, subtype, in.Geometry, in.Name, territoryID, values)
+	// Optional direct-to-non-default life state (e.g. create as PLANNED). Empty
+	// leaves the DB's IN_SERVICE default.
+	lifecycle := ""
+	if in.LifecycleStatus != nil {
+		if lifecycle = strings.TrimSpace(*in.LifecycleStatus); lifecycle != "" && !isLifecycleStatus(lifecycle) {
+			return nil, invalid("lifecycle_status must be one of %s", strings.Join(lifecycleStatuses, ", "))
+		}
+	}
+
+	return insertFeature(ctx, db, loaded, in.ID, subtype, in.Geometry, in.Name, territoryID, values, lifecycle)
 }

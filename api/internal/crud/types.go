@@ -27,7 +27,11 @@ type createRequest struct {
 	// present forces this territory (still validated as at least a
 	// district). Only meaningful for a geometric feature class.
 	TerritoryID *string        `json:"territory_id,omitempty"`
-	Attributes  map[string]any `json:"attributes"`
+	// LifecycleStatus optionally creates the feature directly in a non-default life
+	// state (e.g. PLANNED for an asset being designed). Absent leaves the IN_SERVICE
+	// default; commission/retire dates are set later via the lifecycle transition.
+	LifecycleStatus *string        `json:"lifecycle_status,omitempty"`
+	Attributes      map[string]any `json:"attributes"`
 }
 
 // updateRequest is the PATCH body for updating a feature. Every field is

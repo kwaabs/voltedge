@@ -43,6 +43,18 @@ function coerceDefault(dataType: string, raw: string): unknown {
   }
 }
 
+/** Create-time lifecycle choices. The empty value means "leave the IN_SERVICE
+ * default" (the server fills it), so a plain create stays a one-liner unless the
+ * user deliberately creates a planned / under-construction / etc. asset. */
+const LIFECYCLE_CREATE_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "In service (default)" },
+  { value: "PLANNED", label: "Planned" },
+  { value: "UNDER_CONSTRUCTION", label: "Under construction" },
+  { value: "DERATED", label: "Derated" },
+  { value: "RETIRED", label: "Retired" },
+  { value: "REMOVED", label: "Removed" },
+]
+
 /**
  * Renders in place of feature-panel.tsx's tabs while a draft exists
  * (see draw-store.ts) -- a not-yet-saved feature has no id, so
@@ -69,6 +81,9 @@ export function FeatureCreateForm() {
 
   const [name, setName] = useState("")
   const [subtypeCode, setSubtypeCode] = useState<number | "">("")
+  // Optional create-time life state (default "" = the server's IN_SERVICE). Only
+  // offered for a plain feature create — see isPlainCreate below.
+  const [lifecycleStatus, setLifecycleStatus] = useState("")
   const [attributes, setAttributes] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
   // The two buses a coupler draft bridges (Phase Bus-coupler Slice 2). Only ever
@@ -109,6 +124,7 @@ export function FeatureCreateForm() {
     // alongside the buses.
     setFeederA(null)
     setFeederB(null)
+    setLifecycleStatus("")
   }, [draftToken])
 
   // Pre-fill field-level defaults (metadata.fields.default_value, S3). The reset
@@ -147,6 +163,20 @@ export function FeatureCreateForm() {
   if (isError || !schema) return null
 
   const visibleFields = schema.fields.filter((f) => f.visible_on_create)
+  // The lifecycle picker only applies to the plain single-feature create (the
+  // /features POST). Composite drafts (split, panel, rmu, packaged sub, assembly,
+  // duct, coupler, tie, stencil-promote) go through their own endpoints and set no
+  // lifecycle, so the control is hidden for them.
+  const isPlainCreate =
+    !draft.split &&
+    !draft.panel &&
+    !draft.rmu &&
+    !draft.packagedSubstation &&
+    !draft.assembly &&
+    !draft.duct &&
+    !draft.coupler &&
+    !draft.tie &&
+    !draft.diagramPlacement?.promoteFromElementId
   const isFieldRequired = (field: FieldSchema) =>
     subtypeCode !== "" && (field.required_for_subtypes ?? []).includes(subtypeCode)
   const needsSubtype = schema.subtypes.length > 0
@@ -491,6 +521,7 @@ export function FeatureCreateForm() {
       if (draft.geometry) body.geometry = draft.geometry
       if (needsSubtype) body.subtype = subtypeCode
       if (name.trim()) body.name = name.trim()
+      if (lifecycleStatus) body.lifecycle_status = lifecycleStatus
       const created = await apiFetch<{ id: string }>(`/features/${draft.featureClassCode}`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -632,6 +663,23 @@ export function FeatureCreateForm() {
           />
         </div>
       ))}
+
+      {isPlainCreate && (
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium">Lifecycle status</label>
+          <select className={inputClass} value={lifecycleStatus} onChange={(e) => setLifecycleStatus(e.target.value)}>
+            {LIFECYCLE_CREATE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-muted-foreground text-[11px]">
+            Create it as something other than in-service — e.g. a planned or under-construction asset. Commission /
+            retire dates are set later from the feature's lifecycle control.
+          </p>
+        </div>
+      )}
 
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="outline" size="sm" onClick={clearDraft} disabled={saving}>

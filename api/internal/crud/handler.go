@@ -585,11 +585,12 @@ func createHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := CreateFeature(r.Context(), db, loaded, CreateFeatureInput{
-			Subtype:     req.Subtype,
-			Name:        req.Name,
-			Geometry:    req.Geometry,
-			TerritoryID: req.TerritoryID,
-			Attributes:  req.Attributes,
+			Subtype:         req.Subtype,
+			Name:            req.Name,
+			Geometry:        req.Geometry,
+			TerritoryID:     req.TerritoryID,
+			LifecycleStatus: req.LifecycleStatus,
+			Attributes:      req.Attributes,
 		})
 		if err != nil {
 			writeError(w, err)

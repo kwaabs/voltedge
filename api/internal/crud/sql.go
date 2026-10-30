@@ -219,7 +219,7 @@ func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, err
 // GET). Column/placeholder lists are built up in lockstep so a bug here
 // shows up as a Postgres arity error immediately rather than silently
 // writing the wrong value into the wrong column.
-func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id *string, subtype *metadata.Subtype, geometry []byte, name *string, territoryID *string, values map[string]any) (map[string]any, error) {
+func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id *string, subtype *metadata.Subtype, geometry []byte, name *string, territoryID *string, values map[string]any, lifecycle string) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -271,6 +271,14 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		cols = append(cols, "territory_id")
 		placeholders = append(placeholders, "?")
 		args = append(args, *territoryID)
+	}
+
+	// Create directly in a non-default life state (e.g. PLANNED); empty lets the
+	// lifecycle_status column's IN_SERVICE default fill it.
+	if lifecycle != "" {
+		cols = append(cols, "lifecycle_status")
+		placeholders = append(placeholders, "?")
+		args = append(args, lifecycle)
 	}
 
 	for _, f := range loaded.Fields {
