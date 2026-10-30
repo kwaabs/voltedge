@@ -147,6 +147,9 @@ export function AutoLoadFlowPanel() {
   const result = useAutoLoadFlowStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("11000")
+  // Solve the as-designed network (also traverse PLANNED / UNDER_CONSTRUCTION
+  // assets), not just the as-operated one. Default off.
+  const [asDesigned, setAsDesigned] = useState(false)
   // Each row's human-assigned name, resolved per feature the same way the nodal
   // panel does -- the router response carries only feature_class/feature_id.
   const [names, setNames] = useState<Record<string, string | null>>({})
@@ -229,7 +232,7 @@ export function AutoLoadFlowPanel() {
     try {
       const response = await apiFetch<AutoLoadFlowResult>("/analysis/load-flow-auto", {
         method: "POST",
-        body: JSON.stringify({ start, nominal_voltage_v: nominalVoltageV }),
+        body: JSON.stringify({ start, nominal_voltage_v: nominalVoltageV, as_designed: asDesigned }),
       })
       useAutoLoadFlowStore.getState().setResult(response)
     } catch (err) {
@@ -270,6 +273,15 @@ export function AutoLoadFlowPanel() {
               {loading ? "Running…" : "Run"}
             </Button>
           </div>
+          <label className="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs select-none">
+            <input
+              type="checkbox"
+              className="size-3.5"
+              checked={asDesigned}
+              onChange={(e) => setAsDesigned(e.target.checked)}
+            />
+            Include planned (as-designed) — solve the designed network, not just the operated one
+          </label>
         </div>
       ) : (
         <>

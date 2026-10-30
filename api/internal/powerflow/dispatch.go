@@ -94,6 +94,10 @@ type dispatchLoadFlowRequest struct {
 	Sources         []featureRef   `json:"sources,omitempty"`
 	Regulated       []regulatedGen `json:"regulated,omitempty"`
 	MaxIterations   *int           `json:"max_iterations,omitempty"`
+	// AsDesigned solves the AS-DESIGNED network (also traverse PLANNED /
+	// UNDER_CONSTRUCTION assets), not just the as-operated one. Default false. The
+	// handler marks the context; the engines' neighbour queries read it.
+	AsDesigned bool `json:"as_designed,omitempty"`
 }
 
 // dispatchLoadFlowResponse wraps whichever engine ran. Engine names it
@@ -109,6 +113,9 @@ type dispatchLoadFlowResponse struct {
 	Engine       string `json:"engine"`
 	EngineReason string `json:"engine_reason"`
 	LoopCount    int    `json:"loop_count"`
+	// AsDesigned echoes whether this solve included the PLANNED / UNDER_CONSTRUCTION
+	// network (the as-designed scenario), so the UI shows the toggle in the right state.
+	AsDesigned bool `json:"as_designed"`
 
 	Radial *loadFlowResponse       `json:"radial,omitempty"`
 	Meshed *meshedLoadFlowResponse `json:"meshed,omitempty"`
@@ -196,7 +203,7 @@ func runDispatchLoadFlow(ctx context.Context, db bun.IDB, req dispatchLoadFlowRe
 
 // dispatchRun invokes one engine (unchanged) and wraps its native response.
 func dispatchRun(ctx context.Context, db bun.IDB, req dispatchLoadFlowRequest, engine, reason string, loops int) (*dispatchLoadFlowResponse, error) {
-	out := &dispatchLoadFlowResponse{Engine: engine, EngineReason: reason, LoopCount: loops}
+	out := &dispatchLoadFlowResponse{Engine: engine, EngineReason: reason, LoopCount: loops, AsDesigned: req.AsDesigned}
 	switch engine {
 	case engineRadial:
 		res, err := runLoadFlow(ctx, db, loadFlowRequest{

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/studies"
 	"github.com/uptrace/bun"
@@ -452,7 +453,7 @@ func dispatchLoadFlowHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
-		result, err := runDispatchLoadFlow(r.Context(), db, req)
+		result, err := runDispatchLoadFlow(crud.WithAsDesigned(r.Context(), req.AsDesigned), db, req)
 		if err != nil {
 			writeError(w, err)
 			return
