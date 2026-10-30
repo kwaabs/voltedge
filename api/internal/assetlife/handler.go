@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
@@ -14,6 +15,7 @@ import (
 // the handlers themselves need no in-handler escalation.
 //
 //	GET    /report          the aging report (query: feature_class, due_within_years, max_items)
+//	GET    /events          the lifecycle-transition ledger (query: to_status, feature_class, since, until, limit)
 //	GET    /catalog         the expected-useful-life catalog (query: feature_class)
 //	POST   /catalog         add a catalog row
 //	PATCH  /catalog/{id}    edit a catalog row's years / notes
@@ -21,6 +23,7 @@ import (
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/report", reportHandler(db))
+	r.Get("/events", lifecycleEventsHandler(db))
 	r.Get("/catalog", catalogListHandler(db))
 	r.Post("/catalog", catalogCreateHandler(db))
 	r.Patch("/catalog/{id}", catalogUpdateHandler(db))
@@ -48,6 +51,37 @@ func reportHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, report)
+	}
+}
+
+func lifecycleEventsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		f := LedgerFilter{ToStatus: q.Get("to_status"), FeatureClass: q.Get("feature_class")}
+		if v := q.Get("since"); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				f.Since = &t
+			}
+		}
+		if v := q.Get("until"); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				f.Until = &t
+			}
+		}
+		if v := q.Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				f.Limit = n
+			}
+		}
+		events, err := ListLifecycleEvents(r.Context(), db, f)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if events == nil {
+			events = []LifecycleEvent{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"events": events})
 	}
 }
 

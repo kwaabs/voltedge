@@ -47,6 +47,31 @@ var lifecycleStatuses = []string{
 // LifecycleOperationalClause into its neighbour queries.
 var lifecycleOperationalStatuses = []string{LifecycleInService, LifecycleDerated}
 
+// lifecycleDesignedStatuses are the AS-DESIGNED network: the operational states
+// PLUS the not-yet-built PLANNED / UNDER_CONSTRUCTION. RETIRED / REMOVED stay
+// excluded -- they're gone, not planned. The as-designed trace/power-flow scenario
+// uses this set so an engineer can analyse the network as it WILL be, not only as
+// it is operated today.
+var lifecycleDesignedStatuses = []string{
+	LifecyclePlanned, LifecycleUnderConstruction, LifecycleInService, LifecycleDerated,
+}
+
+// scenarioKey carries the trace/power-flow scenario on a request context.
+type scenarioKey struct{}
+
+// WithAsDesigned marks ctx for the AS-DESIGNED scenario (include PLANNED /
+// UNDER_CONSTRUCTION in the conducting network). An unmarked ctx is AS-OPERATED --
+// only the currently energised network. The trace/power-flow handlers set this from
+// the request; LifecycleClauseCtx reads it.
+func WithAsDesigned(ctx context.Context, asDesigned bool) context.Context {
+	return context.WithValue(ctx, scenarioKey{}, asDesigned)
+}
+
+func asDesignedFrom(ctx context.Context) bool {
+	v, _ := ctx.Value(scenarioKey{}).(bool)
+	return v
+}
+
 // LifecycleStatuses returns the coded lifecycle value set (life order), for the
 // schema/catalog surfaces that need to offer the choices.
 func LifecycleStatuses() []string { return append([]string(nil), lifecycleStatuses...) }
@@ -60,22 +85,38 @@ func isLifecycleStatus(s string) bool {
 	return false
 }
 
-// LifecycleOperationalClause returns a SQL boolean predicate -- for an aliased
-// feature table (alias "" = unqualified) -- true only for features in an
-// operational lifecycle state. The value list is built from the fixed internal
-// constants (no injection surface), so it stays in lockstep with
-// lifecycleOperationalStatuses. S2's trace & power-flow neighbour queries AND
-// this in so a planned or retired asset never conducts.
-func LifecycleOperationalClause(alias string) string {
+// lifecycleClause builds a SQL boolean predicate for an aliased feature table
+// (alias "" = unqualified): lifecycle_status IN (<statuses>). The value list comes
+// from fixed internal constants, so there is no injection surface.
+func lifecycleClause(alias string, statuses []string) string {
 	col := "lifecycle_status"
 	if alias != "" {
 		col = alias + ".lifecycle_status"
 	}
-	quoted := make([]string, len(lifecycleOperationalStatuses))
-	for i, s := range lifecycleOperationalStatuses {
+	quoted := make([]string, len(statuses))
+	for i, s := range statuses {
 		quoted[i] = "'" + s + "'"
 	}
 	return fmt.Sprintf("%s IN (%s)", col, strings.Join(quoted, ", "))
+}
+
+// LifecycleOperationalClause is the AS-OPERATED network predicate (IN_SERVICE /
+// DERATED only), for callers that always mean the operated network regardless of
+// scenario.
+func LifecycleOperationalClause(alias string) string {
+	return lifecycleClause(alias, lifecycleOperationalStatuses)
+}
+
+// LifecycleClauseCtx is the scenario-aware network predicate the trace & power-flow
+// neighbour queries use: AS-OPERATED (IN_SERVICE/DERATED) by default, or AS-DESIGNED
+// (also PLANNED/UNDER_CONSTRUCTION) when ctx is marked WithAsDesigned. RETIRED /
+// REMOVED are excluded either way.
+func LifecycleClauseCtx(ctx context.Context, alias string) string {
+	statuses := lifecycleOperationalStatuses
+	if asDesignedFrom(ctx) {
+		statuses = lifecycleDesignedStatuses
+	}
+	return lifecycleClause(alias, statuses)
 }
 
 // LifecycleInput is the transition request: any field left nil is unchanged.
@@ -188,5 +229,34 @@ func SetLifecycle(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id s
 	if err := emitFeatureEvent(ctx, db, loaded, eventFeatureUpdated, out); err != nil {
 		return nil, err
 	}
+	// Append to the lifecycle-events ledger when the STATUS actually moved (a
+	// date-only edit isn't a transition). from = the pre-update value read above.
+	if in.Status != nil {
+		to := strings.ToUpper(strings.TrimSpace(*in.Status))
+		from, _ := current["lifecycle_status"].(string)
+		if to != from {
+			if err := recordLifecycleEvent(ctx, db, loaded.FeatureClass.Code, id, from, to); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return out, nil
+}
+
+// recordLifecycleEvent appends one transition to the ops.lifecycle_events ledger
+// (migration 0184), on the same bun.IDB as the feature write so it commits with it.
+// A blank from (the feature had no prior value read) is stored NULL.
+func recordLifecycleEvent(ctx context.Context, db bun.IDB, classCode, featureID, fromStatus, toStatus string) error {
+	var from any
+	if fromStatus != "" {
+		from = fromStatus
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO ops.lifecycle_events (feature_class_code, feature_id, from_status, to_status, actor_id)
+		 VALUES (?, ?, ?, ?, ?)`,
+		classCode, featureID, from, toStatus, actorArg(ctx),
+	); err != nil {
+		return fmt.Errorf("crud: recording lifecycle event: %w", err)
+	}
+	return nil
 }

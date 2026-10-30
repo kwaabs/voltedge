@@ -498,8 +498,8 @@ func undirectedNeighbors(ctx context.Context, db bun.IDB, n node) ([]neighborEdg
 		// solver never includes one (see trace.neighborsOf for the rationale and the
 		// shared feature_registry liveness + lifecycle gate: an edge conducts only
 		// when both endpoints are deleted_at IS NULL AND in an operational state).
-		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleOperationalClause("r")+")").
-		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleOperationalClause("r")+")").
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleClauseCtx(ctx, "r")+")").
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleClauseCtx(ctx, "r")+")").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("powerflow: loading nodal neighbors: %w", err)
 	}

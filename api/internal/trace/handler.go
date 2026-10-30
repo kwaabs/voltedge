@@ -6,6 +6,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/crud"
 )
 
 // Routes returns a router for the trace engine, meant to be mounted at
@@ -137,7 +139,7 @@ func runHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
-		result, err := runTrace(r.Context(), db, req)
+		result, err := runTrace(crud.WithAsDesigned(r.Context(), req.AsDesigned), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

@@ -128,6 +128,9 @@ type traceRequest struct {
 	Start              featureRef  `json:"start"`
 	Target             *featureRef `json:"target,omitempty"`
 	CrossTransformers  *bool       `json:"cross_transformers,omitempty"`
+	// AsDesigned traces the AS-DESIGNED network (also follow PLANNED /
+	// UNDER_CONSTRUCTION assets), not just the as-operated one. Default false.
+	AsDesigned bool `json:"as_designed,omitempty"`
 }
 
 // traceResponse is the full result of one trace run. Features includes
@@ -178,6 +181,10 @@ type traceResponse struct {
 	// "Continue past transformers" toggle in the correct checked state so a single
 	// click re-runs the same trace with the boundary crossed (or restored).
 	CrossTransformers bool `json:"cross_transformers"`
+	// AsDesigned echoes whether this run included the PLANNED / UNDER_CONSTRUCTION
+	// network (the as-designed scenario). The result UI reads it to show the
+	// "Include planned (as-designed)" toggle in the right state for a one-click re-run.
+	AsDesigned bool `json:"as_designed"`
 	// Truncated is true when the walk hit the maxTraceHops cap with more of the
 	// network still to visit -- the result is incomplete (the first maxTraceHops
 	// features), so the client must warn rather than present it as the full trace.

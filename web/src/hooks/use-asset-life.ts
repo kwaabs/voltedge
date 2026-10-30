@@ -106,3 +106,31 @@ export function useAgingReport(featureClass?: string, dueWithinYears?: number) {
     staleTime: 30_000,
   })
 }
+
+/** One lifecycle transition in the ledger (api/internal/assetlife LifecycleEvent),
+ * with the actor's display name resolved. from_status is null for the first row. */
+export interface LifecycleEvent {
+  id: string
+  feature_class_code: string
+  feature_id: string
+  from_status: string | null
+  to_status: string
+  actor_id: string | null
+  actor_name: string | null
+  occurred_at: string
+}
+
+/** The network-wide lifecycle-transition ledger ("what got retired / commissioned
+ * this quarter"), newest first. Filter by the resulting status and/or feature
+ * class; the server caps the result. */
+export function useLifecycleEvents(opts: { toStatus?: string; featureClass?: string } = {}) {
+  const params = new URLSearchParams()
+  if (opts.toStatus) params.set("to_status", opts.toStatus)
+  if (opts.featureClass) params.set("feature_class", opts.featureClass)
+  const qs = params.toString()
+  return useQuery({
+    queryKey: ["asset-life-events", opts.toStatus ?? "", opts.featureClass ?? ""],
+    queryFn: () => apiFetch<{ events: LifecycleEvent[] }>(`/asset-life/events${qs ? `?${qs}` : ""}`),
+    staleTime: 30_000,
+  })
+}

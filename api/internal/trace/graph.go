@@ -637,8 +637,8 @@ func neighborsOf(ctx context.Context, db bun.IDB, n node, direction string) ([]n
 	// live network, so the trace walks neither THROUGH nor INTO it -- the same
 	// mid-traversal gap the deleted-feature filter closes. lifecycle_status is
 	// mirrored into the registry (migration 0156) so this stays one index probe.
-	q = q.Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleOperationalClause("r")+")").
-		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleOperationalClause("r")+")")
+	q = q.Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleClauseCtx(ctx, "r")+")").
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleClauseCtx(ctx, "r")+")")
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("trace: loading neighbors: %w", err)
 	}
@@ -1296,6 +1296,7 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		Barriers:           toFeatureRefs(barrierHits, classCodes),
 		Service:            service,
 		CrossTransformers:  crossTransformers,
+		AsDesigned:         req.AsDesigned,
 		Truncated:          truncated,
 	}
 	if len(transformerHits) > 0 {

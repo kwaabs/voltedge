@@ -497,13 +497,12 @@ export function TraceResultTable() {
     window.addEventListener("pointerup", handleUp)
   }
 
-  // Re-run the SAME downstream trace with the transformer boundary crossed (or
-  // restored). The "Continue past transformers" toggle lives here, in the
-  // result, rather than in the pre-run trace menu: crossing only makes sense
-  // once you've seen the trace stop at a transformer. Reuses the echoed
-  // trace_configuration + start, and preserves the computed-voltage overlay
-  // (same start, so it still applies).
-  async function rerunCrossingTransformers(cross: boolean) {
+  // Re-run the SAME trace with one toggle flipped, preserving the other. Both the
+  // "Continue past transformers" and "Include planned (as-designed)" toggles live
+  // in the result (crossing / scenario only make sense once you've seen the run),
+  // reuse the echoed trace_configuration + start, and keep the computed-voltage
+  // overlay (same start, so it still applies) and the header Re-run thunk.
+  async function rerunWith(overrides: { cross_transformers?: boolean; as_designed?: boolean }) {
     const current = useTraceStore.getState().result
     const computed = useTraceStore.getState().computedVoltages
     if (!current) return
@@ -514,12 +513,11 @@ export function TraceResultTable() {
         body: JSON.stringify({
           trace_configuration: current.trace_configuration,
           start: current.start,
-          cross_transformers: cross,
+          cross_transformers: current.cross_transformers ?? false,
+          as_designed: current.as_designed ?? false,
+          ...overrides,
         }),
       })
-      // Preserve the store's re-run thunk (the header Re-run button) across a
-      // transformer-crossing re-run -- it re-runs the base trace and is still
-      // valid for the same start/config.
       useTraceStore.getState().setResult(next, computed, useTraceStore.getState().rerun ?? undefined)
     } catch (err) {
       useTraceStore.getState().setLoading(false)
@@ -1000,7 +998,7 @@ export function TraceResultTable() {
               className="size-3.5"
               checked={!!result.cross_transformers}
               disabled={loading}
-              onChange={(e) => rerunCrossingTransformers(e.target.checked)}
+              onChange={(e) => rerunWith({ cross_transformers: e.target.checked })}
             />
             <span>
               Continue past transformers
@@ -1012,6 +1010,31 @@ export function TraceResultTable() {
             </span>
           </label>
         )}
+
+      {/* "Include planned (as-designed)" toggle -- flips the whole trace between the
+          as-operated network (default) and the as-designed one (also follow PLANNED /
+          UNDER_CONSTRUCTION assets), re-running from the same start. Shown only for a
+          standard trace walk: the synthetic flavors (feeder/section/service/supply)
+          re-run through their own endpoints, not /trace, and don't carry the flag. */}
+      {["DOWNSTREAM", "UPSTREAM", "CONNECTED", "SHORTEST_PATH"].includes(result.direction) && (
+        <label className="border-border/60 bg-muted/30 flex cursor-pointer items-center gap-2 border-b px-3 py-1.5 text-xs select-none">
+          <input
+            type="checkbox"
+            className="size-3.5"
+            checked={!!result.as_designed}
+            disabled={loading}
+            onChange={(e) => rerunWith({ as_designed: e.target.checked })}
+          />
+          <span>
+            Include planned (as-designed)
+            <span className="text-muted-foreground">
+              {result.as_designed
+                ? " — following planned / under-construction assets"
+                : " — trace the designed network, not just the operated one"}
+            </span>
+          </span>
+        </label>
+      )}
 
       {/* Phase 62 consumption rollup -- renders nothing when the trace reached
           no SERVICE_POINTs, so purely-topological traces are unaffected. */}

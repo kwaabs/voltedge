@@ -13,6 +13,7 @@ import {
   useAgingReport,
   useCreateLifeExpectancy,
   useDeleteLifeExpectancy,
+  useLifecycleEvents,
   useLifeExpectancies,
   useUpdateLifeExpectancy,
 } from "@/hooks/use-asset-life"
@@ -277,6 +278,97 @@ function ExpectancyDialog({
  * metadata:write; the report reads the lifecycle_status / commissioned_at system
  * columns (set from the feature panel's Lifecycle control).
  */
+const LIFECYCLE_LABELS: Record<string, string> = {
+  PLANNED: "Planned",
+  UNDER_CONSTRUCTION: "Under construction",
+  IN_SERVICE: "In service",
+  DERATED: "Derated",
+  RETIRED: "Retired",
+  REMOVED: "Removed",
+}
+const LIFECYCLE_ORDER = ["PLANNED", "UNDER_CONSTRUCTION", "IN_SERVICE", "DERATED", "RETIRED", "REMOVED"]
+
+function lifecycleLabel(s: string | null): string {
+  if (!s) return "—"
+  return LIFECYCLE_LABELS[s] ?? s
+}
+
+/** The network-wide lifecycle-transition ledger: every status change, newest first,
+ * filterable by the resulting status — the "what got retired / commissioned this
+ * quarter" view. Backed by ops.lifecycle_events (migration 0184). */
+function LifecycleEventsCard({ classNameByCode }: { classNameByCode: Record<string, string> }) {
+  const [toStatus, setToStatus] = useState("")
+  const events = useLifecycleEvents({ toStatus: toStatus || undefined })
+  const rows = events.data?.events ?? []
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-end justify-between gap-2">
+        <div className="flex flex-col gap-1">
+          <CardTitle className="text-base">Lifecycle events</CardTitle>
+          <CardDescription>
+            Every lifecycle transition across the network, newest first — what got planned, commissioned, derated or
+            retired, and by whom.
+          </CardDescription>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>To status</label>
+          <select className={cn(inputClass, "w-44")} value={toStatus} onChange={(e) => setToStatus(e.target.value)}>
+            <option value="">Any status</option>
+            {LIFECYCLE_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {LIFECYCLE_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {events.isPending ? (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-4 animate-spin" /> Loading…
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No lifecycle transitions recorded{toStatus ? ` to ${LIFECYCLE_LABELS[toStatus]}` : ""} yet. Change a
+            feature's lifecycle from its panel to populate this.
+          </p>
+        ) : (
+          <div className="max-h-96 overflow-auto rounded-md border">
+            <table className="w-full border-collapse text-sm">
+              <thead className="bg-muted/50 text-muted-foreground sticky top-0 z-10 text-xs">
+                <tr>
+                  <th className="px-2 py-1.5 text-left font-medium">When</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Asset</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Transition</th>
+                  <th className="px-2 py-1.5 text-left font-medium">By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((e) => (
+                  <tr key={e.id} className="border-t">
+                    <td className="px-2 py-1.5 whitespace-nowrap">{new Date(e.occurred_at).toLocaleString()}</td>
+                    <td className="px-2 py-1.5">
+                      <span>{classNameByCode[e.feature_class_code] ?? e.feature_class_code}</span>{" "}
+                      <span className="text-muted-foreground font-mono text-xs">{e.feature_id.slice(0, 8)}</span>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span className="text-muted-foreground">{lifecycleLabel(e.from_status)}</span>
+                      {" → "}
+                      <span className="font-medium">{lifecycleLabel(e.to_status)}</span>
+                    </td>
+                    <td className="text-muted-foreground px-2 py-1.5">{e.actor_name ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AdminAssetLifePage() {
   const { data: classesData } = useFeatureClasses()
   const classes = useMemo(
@@ -385,6 +477,8 @@ export function AdminAssetLifePage() {
       </Card>
 
       <AgingReportCard classNameByCode={classNameByCode} />
+
+      <LifecycleEventsCard classNameByCode={classNameByCode} />
 
       {dialog && featureClass && (
         <ExpectancyDialog

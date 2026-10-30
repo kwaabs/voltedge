@@ -141,6 +141,11 @@ export interface TraceResult {
    * toggle in the right checked state, so one click re-runs the same trace with
    * the transformer boundary crossed (or restored). */
   cross_transformers?: boolean
+  /** Echoes whether this run included the PLANNED / UNDER_CONSTRUCTION network (the
+   * as-designed scenario) — mirrors api/internal/trace's traceResponse.as_designed.
+   * trace-result-table.tsx reads it to render the "Include planned (as-designed)"
+   * toggle in the right state so one click re-runs the same trace as-designed. */
+  as_designed?: boolean
   /** True when the walk hit the maxTraceHops cap and returned a partial result
    * (mirrors api/internal/trace's traceResponse.truncated). trace-result-table.tsx
    * shows an "incomplete" warning so a truncated trace is never read as the full
