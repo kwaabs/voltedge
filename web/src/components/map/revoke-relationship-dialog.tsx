@@ -43,6 +43,8 @@ export function RevokeRelationshipDialog({ relationship, onOpenChange }: RevokeR
       // counterpart's own Relationships tab may already be cached from an
       // earlier selection, not just the currently-selected feature's.
       queryClient.invalidateQueries({ queryKey: ["relationships"] })
+      // Detaching a pole attachment changes the map's "loaded pole" badge count.
+      queryClient.invalidateQueries({ queryKey: ["pole-attachment-counts"] })
       onOpenChange(false)
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not revoke this relationship.")

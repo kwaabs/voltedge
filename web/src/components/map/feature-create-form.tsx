@@ -11,7 +11,6 @@ import type { CreateAssemblyResult } from "@/hooks/use-assemblies"
 import type { CreateCouplerResult } from "@/hooks/use-couplers"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import type { CreateDuctResult } from "@/hooks/use-ducts"
-import type { CreatePackagedSubstationResult } from "@/hooks/use-packaged-substations"
 import type { CreatePanelResult } from "@/hooks/use-panels"
 import type { CreateTieResult } from "@/hooks/use-ties"
 import { ApiError, apiFetch } from "@/lib/api"
@@ -164,14 +163,12 @@ export function FeatureCreateForm() {
 
   const visibleFields = schema.fields.filter((f) => f.visible_on_create)
   // The lifecycle picker only applies to the plain single-feature create (the
-  // /features POST). Composite drafts (split, panel, rmu, packaged sub, assembly,
-  // duct, coupler, tie, stencil-promote) go through their own endpoints and set no
-  // lifecycle, so the control is hidden for them.
+  // /features POST). Composite drafts (split, panel, assembly, duct, coupler, tie,
+  // stencil-promote) go through their own endpoints and set no lifecycle, so the
+  // control is hidden for them.
   const isPlainCreate =
     !draft.split &&
     !draft.panel &&
-    !draft.rmu &&
-    !draft.packagedSubstation &&
     !draft.assembly &&
     !draft.duct &&
     !draft.coupler &&
@@ -295,73 +292,6 @@ export function FeatureCreateForm() {
         return
       }
 
-      // An RMU draft doesn't create one feature -- it fans out the whole Ring
-      // Main Unit (the placed RMU plus its config's ways and the internal bus,
-      // all containment- and connectivity-wired) in one transaction via /rmus
-      // (api/internal/rmu). Unlike a panel it DOES carry map geometry -- the RMU
-      // is a placed unit -- so geometry rides along; the attribute/subtype/name
-      // collection is exactly the create form's. rmu_config selects the way
-      // template: it rode in via the seed, so it's already in createAttributes if
-      // the class shows it on create; fall back to the menu's choice otherwise so
-      // the backend always gets it.
-      if (draft.rmu) {
-        const rmuAttributes: Record<string, unknown> = { ...createAttributes }
-        if (!("rmu_config" in rmuAttributes)) rmuAttributes.rmu_config = draft.rmu.config
-        const rmuBody: Record<string, unknown> = {
-          rmu_feature_class: draft.featureClassCode,
-          geometry: draft.geometry,
-          attributes: rmuAttributes,
-        }
-        if (needsSubtype) rmuBody.subtype = subtypeCode
-        if (name.trim()) rmuBody.name = name.trim()
-        const result = await apiFetch<{ rmu: { id: string } }>("/rmus", {
-          method: "POST",
-          body: JSON.stringify(rmuBody),
-        })
-        bumpMapRefresh()
-        // Select the placed RMU. No requestSuggestions: the RMU is a container
-        // carrying no topology of its own -- the network nodes are its ways and
-        // bus, already wired to each other by the fan-out; the external ring
-        // cables connect through the normal post-placement connect action.
-        select(draft.featureClassCode, result.rmu.id)
-        clearDraft()
-        return
-      }
-
-      // A packaged-substation draft doesn't create one feature -- it fans out the
-      // whole unit (the placed substation plus its config's components and the
-      // internal wiring, all connectivity-wired) in one transaction via
-      // /packaged-substations (api/internal/packagedsub). Like an RMU it carries map
-      // geometry -- the unit is a placed point -- and reuses the shared create form.
-      // package_config selects the component template: it rode in via the seed, so
-      // it's already in createAttributes if the class shows it on create; fall back
-      // to the menu's choice otherwise so the backend always gets it. The tenure
-      // subtype rode in via seed.subtype (so the picker opened on it) and is always
-      // sent top-level, falling back to the menu's choice if the form ever cleared it.
-      if (draft.packagedSubstation) {
-        const packagedAttributes: Record<string, unknown> = { ...createAttributes }
-        if (!("package_config" in packagedAttributes))
-          packagedAttributes.package_config = draft.packagedSubstation.config
-        const packagedBody: Record<string, unknown> = {
-          packaged_feature_class: draft.featureClassCode,
-          subtype: subtypeCode === "" ? draft.packagedSubstation.subtype : subtypeCode,
-          geometry: draft.geometry,
-          attributes: packagedAttributes,
-        }
-        if (name.trim()) packagedBody.name = name.trim()
-        const result = await apiFetch<CreatePackagedSubstationResult>("/packaged-substations", {
-          method: "POST",
-          body: JSON.stringify(packagedBody),
-        })
-        bumpMapRefresh()
-        // Select the placed unit. No requestSuggestions: the packaged substation is
-        // a container carrying no topology of its own -- its components are already
-        // wired to each other by the fan-out; external cables connect through the
-        // normal post-placement connect action.
-        select(draft.featureClassCode, result.packaged_substation.id)
-        clearDraft()
-        return
-      }
 
       // An assembly draft doesn't create one feature -- it fans out a whole kit
       // (the placed anchor plus its config's components and the wiring/support

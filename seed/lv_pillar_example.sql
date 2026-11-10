@@ -212,6 +212,18 @@ UPDATE metadata.feature_classes
 SET diagram_geometry_type = 'line'
 WHERE code = 'LV_BUSBAR' AND diagram_geometry_type IS DISTINCT FROM 'line';
 
+-- Relax LV_PILLAR to geometry-optional so it can RIDE in a kit as a component, not
+-- only anchor its own (a feeder pillar inside a larger packaged assembly). Same reason
+-- as LV_BUSBAR above: the generic assembly engine (fanout.go) creates every kit
+-- component WITHOUT map geometry, which crud.CreateFeature rejects for a non-optional
+-- geometric class ("geometry is required for feature class \"LV_PILLAR\""). Idempotent
+-- and BACKWARD-COMPATIBLE -- geometry_optional only RELAXES, so an LV_PILLAR placed as
+-- its own map unit (with a point) is unaffected. Needs a RECOMPILE
+-- (task compile CODE=LV_PILLAR) to make the geom column nullable + relax the validator.
+UPDATE metadata.feature_classes
+SET geometry_optional = true
+WHERE code = 'LV_PILLAR' AND geometry_optional IS DISTINCT FROM true;
+
 -- ---------------------------------------------------------------------------
 -- Containment relationship classes -- the pillar owns its bus and its ways, the
 -- same one_to_many containment the RMU uses for its bus and switches.

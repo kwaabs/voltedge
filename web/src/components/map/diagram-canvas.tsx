@@ -1,6 +1,6 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
+import { forwardRef, type ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
-import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, MapPin, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Printer, RefreshCw, Replace, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, Zap, ZoomIn, ZoomOut } from "lucide-react"
+import { Bold, Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, Italic, LayoutTemplate, Link2, List, Loader2, Magnet, MapPin, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Printer, RefreshCw, Replace, RotateCcw, RotateCw, Shapes, Spline, Square, Table, Trash2, Type, Underline, Waypoints, X, Zap, ZoomIn, ZoomOut } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
@@ -477,6 +477,7 @@ function DiagramViewToolbar({
   onToggleGrid,
   orthoEnabled,
   onToggleOrtho,
+  textFormat,
 }: {
   mode: "select" | "pan"
   onModeChange: (mode: "select" | "pan") => void
@@ -489,11 +490,20 @@ function DiagramViewToolbar({
   onToggleGrid: () => void
   orthoEnabled: boolean
   onToggleOrtho: () => void
+  /** Text-annotation formatting controls (B/I/U + size), appended after a divider
+   * only while a text element is being edited. */
+  textFormat?: ReactNode
 }) {
   // Starts collapsed on every diagram open (the parent keys this component by
   // diagram id, so a fresh diagram remounts back to collapsed); the user
   // uncollapses it when they want the view controls.
   const [collapsed, setCollapsed] = useState(true)
+  // Pop the toolbar open when text editing starts, so the formatting controls that
+  // ride on the end of it are actually visible without a manual uncollapse.
+  const hasTextFormat = !!textFormat
+  useEffect(() => {
+    if (hasTextFormat) setCollapsed(false)
+  }, [hasTextFormat])
   const activeClass = "bg-accent text-accent-foreground"
 
   // Collapsed: a single button parked in the corner, so the toolbar stops
@@ -575,6 +585,14 @@ function DiagramViewToolbar({
         <CornerDownRight className="size-4" />
         <span className="sr-only">{orthoEnabled ? "Ortho on" : "Ortho off"}</span>
       </Button>
+      {/* Text formatting controls, appended (divider-separated) only while editing a
+          text annotation — merged into this panel rather than floating separately. */}
+      {textFormat && (
+        <>
+          <div className="bg-border mx-0.5 h-5 w-px" />
+          {textFormat}
+        </>
+      )}
       <div className="bg-border mx-0.5 h-5 w-px" />
       <Button variant="ghost" size="icon" className="size-7" title="Hide toolbar" onClick={() => setCollapsed(true)}>
         <ChevronsLeft className="size-4" />
@@ -609,12 +627,25 @@ export interface DiagramStatusBarHandle {
  * update) -- scoped per canvas instead of through a global store. */
 const DiagramStatusBar = forwardRef<DiagramStatusBarHandle>(function DiagramStatusBar(_props, ref) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  // Edit-mode cue in the diagram's OWN status bar, so it's visible even when the
+  // diagram is maximized full-page (the map's status bar is hidden then). Same
+  // pulsing orange dot + "Edit" as the map status bar's EditModeIndicator.
+  const editing = useEditing()
   useImperativeHandle(ref, () => ({ set: setPos }), [])
   return (
     <div className="bg-background text-muted-foreground flex h-7 shrink-0 items-center gap-4 border-t px-3 text-xs">
       <span className="tabular-nums">
         X: {pos ? Math.round(pos.x) : "—"} Y: {pos ? Math.round(pos.y) : "—"}
       </span>
+      {editing && (
+        <span className="flex items-center gap-1.5">
+          <span className="relative flex size-2" aria-hidden>
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-500 opacity-75" />
+            <span className="relative inline-flex size-2 rounded-full bg-amber-500" />
+          </span>
+          Edit
+        </span>
+      )}
     </div>
   )
 })
@@ -2528,6 +2559,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // drag that starts on top of a placement still pan the canvas rather
   // than move the feature.
   function handlePlacementPointerDown(e: React.PointerEvent<SVGElement>, placement: DiagramPlacement) {
+    if (e.button !== 0) return // only the primary button drags; right-click opens the operate menu
     if (canvasMode === "pan") return
     if (!editMode) return // view mode: no dragging (selection still bubbles)
     const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
@@ -3180,6 +3212,41 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
       old ? { elements: old.elements.map((el) => (el.id === id ? { ...el, style: nextStyle } : el)) } : old,
     )
     await patchElement(id, { style: nextStyle })
+  }
+
+  // Toggle / set a text element's inline style (bold, italic, underline, font
+  // size). style is a single jsonb column, so rewrite it wholesale and
+  // optimistically, same shape as commitFieldEdit; the keys map straight to CSS on
+  // the rendered <text> and the edit input. No migration — migration 0046's `style`
+  // already holds these kind-specific hints.
+  async function patchTextStyle(id: string, patch: Record<string, unknown>) {
+    if (!openDiagramId) return
+    const element = elements.find((el) => el.id === id)
+    if (!element) return
+    const nextStyle = { ...element.style, ...patch }
+    queryClient.setQueryData<{ elements: DiagramElement[] }>(["diagram-elements", openDiagramId], (old) =>
+      old ? { elements: old.elements.map((el) => (el.id === id ? { ...el, style: nextStyle } : el)) } : old,
+    )
+    await patchElement(id, { style: nextStyle })
+  }
+
+  function stepTextSize(id: string, factor: number) {
+    const element = elements.find((el) => el.id === id)
+    const cur = typeof element?.style?.fontSize === "number" ? element.style.fontSize : 16
+    void patchTextStyle(id, { fontSize: Math.max(4, Math.round(cur * factor * 10) / 10) })
+  }
+
+  // Rotate a text element by a step (degrees). rotation is a top-level element
+  // field (not style), rendered as an SVG transform about the text's anchor.
+  function rotateText(id: string, delta: number) {
+    if (!openDiagramId) return
+    const element = elements.find((el) => el.id === id)
+    if (!element) return
+    const rotation = ((((element.rotation ?? 0) + delta) % 360) + 360) % 360
+    queryClient.setQueryData<{ elements: DiagramElement[] }>(["diagram-elements", openDiagramId], (old) =>
+      old ? { elements: old.elements.map((el) => (el.id === id ? { ...el, rotation } : el)) } : old,
+    )
+    void patchElement(id, { rotation })
   }
 
   // Binds a template slot (Phase 24 Slice 4) to a real feature the user picked
@@ -3944,6 +4011,42 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               onToggleGrid={() => setGridEnabled((g) => !g)}
               orthoEnabled={orthoEnabled}
               onToggleOrtho={() => setOrthoEnabled((o) => !o)}
+              textFormat={
+                editingText
+                  ? (() => {
+                      const el = elements.find((e) => e.id === editingText.id)
+                      const st = (el?.style ?? {}) as Record<string, unknown>
+                      const isBold = st.fontWeight === "bold"
+                      const isItalic = st.fontStyle === "italic"
+                      const isUnderline = st.textDecoration === "underline"
+                      const fmtBtn = (active: boolean, onClick: () => void, title: string, icon: ReactNode) => (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn("size-7", active && "bg-accent text-accent-foreground")}
+                          title={title}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={onClick}
+                        >
+                          {icon}
+                        </Button>
+                      )
+                      return (
+                        <>
+                          {fmtBtn(isBold, () => patchTextStyle(editingText.id, { fontWeight: isBold ? "normal" : "bold" }), "Bold", <Bold className="size-4" />)}
+                          {fmtBtn(isItalic, () => patchTextStyle(editingText.id, { fontStyle: isItalic ? "normal" : "italic" }), "Italic", <Italic className="size-4" />)}
+                          {fmtBtn(isUnderline, () => patchTextStyle(editingText.id, { textDecoration: isUnderline ? "none" : "underline" }), "Underline", <Underline className="size-4" />)}
+                          <div className="bg-border mx-0.5 h-5 w-px" />
+                          {fmtBtn(false, () => stepTextSize(editingText.id, 1 / 1.15), "Smaller", <Minus className="size-4" />)}
+                          {fmtBtn(false, () => stepTextSize(editingText.id, 1.15), "Larger", <Plus className="size-4" />)}
+                          <div className="bg-border mx-0.5 h-5 w-px" />
+                          {fmtBtn(false, () => rotateText(editingText.id, -15), "Rotate left 15°", <RotateCcw className="size-4" />)}
+                          {fmtBtn(false, () => rotateText(editingText.id, 15), "Rotate right 15°", <RotateCw className="size-4" />)}
+                        </>
+                      )
+                    })()
+                  : undefined
+              }
             />
             {/* Label controls for the selected placement -- a contextual bar
                 pinned to the bottom-centre of the canvas (out of the way), not
@@ -4792,9 +4895,21 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               // text (and, for now, any other kind falls through to a label)
               const color = (style.color as string) ?? "var(--foreground)"
               const size = typeof style.fontSize === "number" ? style.fontSize : fontSize * 1.2
+              // Inline formatting from style (B/I/U), set by the header toolbar while
+              // editing; the keys are CSS values, applied to both the input and <text>.
+              const fontWeight = style.fontWeight === "bold" ? "bold" : "normal"
+              const fontStyle = style.fontStyle === "italic" ? "italic" : "normal"
+              const textDecoration = style.textDecoration === "underline" ? "underline" : "none"
               if (editingText?.id === element.id) {
                 return (
-                  <foreignObject key={element.id} x={element.x} y={element.y - size} width={Math.max(size * 12, 120)} height={size * 2}>
+                  <foreignObject
+                    key={element.id}
+                    x={element.x}
+                    y={element.y - size}
+                    width={Math.max(size * 12, 120)}
+                    height={size * 2}
+                    transform={element.rotation ? `rotate(${element.rotation} ${element.x} ${element.y})` : undefined}
+                  >
                     <input
                       autoFocus
                       value={editingText.value}
@@ -4807,6 +4922,9 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                       style={{
                         width: "100%",
                         fontSize: size,
+                        fontWeight,
+                        fontStyle,
+                        textDecoration,
                         color: "var(--foreground)",
                         background: "var(--background)",
                         border: "1px solid var(--ring)",
@@ -4819,11 +4937,15 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                 )
               }
               return (
-                <g key={element.id} className={cn("group touch-none", dragCursor)}>
+                <g
+                  key={element.id}
+                  className={cn("group touch-none", dragCursor)}
+                  transform={element.rotation ? `rotate(${element.rotation} ${element.x} ${element.y})` : undefined}
+                >
                   <text
                     x={element.x}
                     y={element.y}
-                    style={{ fill: color, fontSize: size }}
+                    style={{ fill: color, fontSize: size, fontWeight, fontStyle, textDecoration }}
                     onPointerDown={(e) => handleElementPointerDown(e, element)}
                     onPointerMove={handleElementPointerMove}
                     onPointerUp={handleElementPointerUp}

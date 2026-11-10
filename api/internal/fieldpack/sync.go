@@ -129,6 +129,41 @@ type syncOpStatus struct {
 type syncResponse struct {
 	Results  []syncOpResult `json:"results,omitempty"`
 	Statuses []syncOpStatus `json:"statuses,omitempty"`
+	// Policy rides every sync/status response so an already-provisioned device
+	// refreshes the org-wide tracking policy WITHOUT re-logging in. The field token
+	// is non-expiring (login is effectively one-time), so a policy change an admin
+	// makes later can't wait for the next login -- it has to reach the device on its
+	// regular heartbeat, and sync is that heartbeat.
+	Policy *fieldTrackingPolicyWire `json:"policy,omitempty"`
+}
+
+// fieldTrackingPolicyWire mirrors the login response + GET /field-tracking/policy
+// keys so the device parses it the same way wherever it arrives.
+type fieldTrackingPolicyWire struct {
+	Enabled           bool `json:"enabled"`
+	DisclosureEnabled bool `json:"disclosure_enabled"`
+}
+
+// currentFieldTrackingPolicy reads both org-wide flags (default on, fail open) for a
+// sync response. A read error is non-fatal -- the capture/status pull already
+// succeeded -- so it degrades to the fail-open defaults rather than failing the call.
+func currentFieldTrackingPolicy(ctx context.Context, db *bun.DB) *fieldTrackingPolicyWire {
+	enabled, _ := fieldtrack.TrackingEnabled(ctx, db)
+	disclosure, _ := fieldtrack.DisclosureEnabled(ctx, db)
+	return &fieldTrackingPolicyWire{Enabled: enabled, DisclosureEnabled: disclosure}
+}
+
+// trackingPolicyHandler serves GET /tracking-policy: the org-wide field-tracking
+// policy for the device to pull on demand (on pack open, before it decides whether to
+// record and whether to disclose). The field token is non-expiring, so login is a
+// one-time event -- without this the device could only learn a policy change at the
+// next login. A read of the policy governing the caller's own device, so it's mounted
+// behind the ordinary features:read field gate, not the supervisor field:tracks:read.
+func trackingPolicyHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(currentFieldTrackingPolicy(r.Context(), db))
+	}
 }
 
 // syncCacheTTL bounds how long the drain worker's resolveCache serves a cached
@@ -299,6 +334,8 @@ func syncHandler(db *bun.DB) http.HandlerFunc {
 				resp.Statuses = statuses
 			}
 		}
+		// Refresh the device's org-wide tracking policy on the way out (see Policy).
+		resp.Policy = currentFieldTrackingPolicy(r.Context(), db)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
@@ -336,7 +373,12 @@ func statusHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(syncResponse{Statuses: statuses})
+		json.NewEncoder(w).Encode(syncResponse{
+			Statuses: statuses,
+			// A status-only pull (nothing to push) still refreshes the policy, so a
+			// device that only reconciles in-flight ops picks up a change too.
+			Policy: currentFieldTrackingPolicy(r.Context(), db),
+		})
 	}
 }
 
@@ -688,6 +730,11 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *resolveCache, op syncOp
 // describes. Keyed by op_id, so a replayed op re-records the same waypoint harmlessly.
 func recordActionWaypointBestEffort(ctx context.Context, db *bun.DB, op syncOp, submittedBy, status string) {
 	if status != "applied" || len(op.Payload) == 0 || strings.TrimSpace(submittedBy) == "" {
+		return
+	}
+	// Org-wide tracking off: don't stamp a located waypoint (server backstop; the
+	// edit itself still applies). Fails open on a read error.
+	if enabled, _ := fieldtrack.TrackingEnabled(ctx, db); !enabled {
 		return
 	}
 	var env struct {

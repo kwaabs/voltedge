@@ -40,9 +40,14 @@ type relationshipResponse struct {
 	RelationshipClassName string     `json:"relationship_class_name"`
 	Kind                  string     `json:"kind"`
 	Cardinality           string     `json:"cardinality"`
-	Origin                featureRef `json:"origin"`
-	Destination           featureRef `json:"destination"`
-	EstablishedAt         time.Time  `json:"established_at"`
+	Origin                featureRef     `json:"origin"`
+	Destination           featureRef     `json:"destination"`
+	EstablishedAt         time.Time      `json:"established_at"`
+	// Attributes is optional free-form metadata about this specific link
+	// (NULL for most). A spatial_support link carries the carried circuit's
+	// arrangement on the structure, {"side":...,"level":...}, read by the
+	// tower/pole elevation view. See migration 0190.
+	Attributes map[string]any `json:"attributes,omitempty"`
 	// PlausibilityWarning is set only on the response to a fresh
 	// establish, and only when checkPlausibility (plausibility.go)
 	// found both features' real geometries further apart than

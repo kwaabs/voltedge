@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useKnownIconRefs, useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { useToastStore } from "@/stores/toast-store"
 import {
   type Kit,
@@ -33,6 +34,8 @@ interface Draft {
   name: string
   anchor_subtype_code: string // kept as string for the input; parsed on save
   diagram_template_name: string
+  map_icon_ref: string // the assembly's geographic-map glyph (icon ref); "" = none
+  map_color: string // hex color paired with map_icon_ref
   components: DraftComponent[]
 }
 
@@ -58,6 +61,8 @@ function draftFromKit(kit: Kit): Draft {
     name: kit.name,
     anchor_subtype_code: kit.anchor_subtype_code != null ? String(kit.anchor_subtype_code) : "",
     diagram_template_name: kit.diagram_template_name ?? "",
+    map_icon_ref: kit.map_icon_ref ?? "",
+    map_color: kit.map_color ?? "",
     components: kit.components
       .slice()
       .sort((a, b) => a.position - b.position)
@@ -72,6 +77,8 @@ function blankDraft(): Draft {
     name: "",
     anchor_subtype_code: "",
     diagram_template_name: "",
+    map_icon_ref: "",
+    map_color: "",
     components: [{ ...emptyComponent }],
   }
 }
@@ -86,6 +93,8 @@ function toInput(d: Draft): KitInput {
     name: d.name.trim(),
     anchor_subtype_code: d.anchor_subtype_code.trim() === "" ? null : Number(d.anchor_subtype_code),
     diagram_template_name: d.diagram_template_name.trim() === "" ? null : d.diagram_template_name.trim(),
+    map_icon_ref: d.map_icon_ref.trim() === "" ? null : d.map_icon_ref.trim(),
+    map_color: d.map_color.trim() === "" ? null : d.map_color.trim(),
     components: d.components.map((c, i) => ({
       ...c,
       component_feature_class: c.component_feature_class.trim(),
@@ -187,7 +196,11 @@ export function AdminAssembliesPage() {
   }
 
   return (
-    <div className="flex h-[calc(100svh-3.5rem)] flex-col">
+    // Fill exactly the area below the global header (h-14 = 3.5rem) AND the
+    // AdminLayout "Back to Admin" bar (h-10 = 2.5rem) = 6rem total, so the two
+    // columns scroll internally and the page itself never overflows (no second,
+    // outer scrollbar). Subtracting only the header left it 2.5rem too tall.
+    <div className="flex h-[calc(100svh-6rem)] flex-col">
       <div className="flex min-h-0 flex-1">
         {/* Left: kit catalog */}
         <nav className="w-72 shrink-0 overflow-y-auto border-r p-3">
@@ -374,8 +387,8 @@ function AssemblyPreview({ draft }: { draft: Draft }) {
       if (target == null || target < 0 || target >= nodes.length || target === from) return
       edges.push({ x1: sx(nodes[from].x), y1: sy(nodes[from].y), x2: sx(nodes[target].x), y2: sy(nodes[target].y), kind })
     }
-    add(c.wire_to_position, "wire")
-    add(c.support_parent_position, "support")
+    add(c.wire_to_position ?? null, "wire")
+    add(c.support_parent_position ?? null, "support")
   })
 
   // Zoom keeps the anchor point fixed; the buttons anchor on the centre, so the
@@ -651,6 +664,12 @@ function KitEditor({
   onRemoveComponent: (i: number) => void
   onMoveComponent: (i: number, dir: -1 | 1) => void
 }) {
+  const iconRefs = useKnownIconRefs()
+  const iconRegistry = useSymbologyIcons()
+  const mapSwatch =
+    draft.map_icon_ref && iconRegistry[draft.map_icon_ref]
+      ? `data:image/svg+xml;utf8,${encodeURIComponent(iconRegistry[draft.map_icon_ref].replaceAll("{{COLOR}}", draft.map_color || "#2563eb"))}`
+      : null
   return (
     <>
       <h1 className="text-lg font-semibold">{draft.id ? "Edit kit" : "New kit"}</h1>
@@ -692,6 +711,40 @@ function KitEditor({
             placeholder="blank = auto-generate a stacked single-line"
             className={inputClass}
           />
+        </Field>
+        <Field label="Map symbol (optional — the assembly's glyph on the geographic map)" wide>
+          <div className="flex items-center gap-2">
+            {mapSwatch ? (
+              <img src={mapSwatch} alt="map symbol preview" className="size-8 shrink-0" />
+            ) : (
+              <div className="bg-muted/40 size-8 shrink-0 rounded border" aria-hidden />
+            )}
+            <select
+              value={draft.map_icon_ref}
+              onChange={(e) => onPatch({ map_icon_ref: e.target.value })}
+              className={inputClass}
+            >
+              <option value="">(none — anchor keeps its class symbol)</option>
+              {iconRefs.map((ref) => (
+                <option key={ref} value={ref}>
+                  {ref}
+                </option>
+              ))}
+            </select>
+            <input
+              type="color"
+              value={draft.map_color || "#2563eb"}
+              onChange={(e) => onPatch({ map_color: e.target.value })}
+              disabled={draft.map_icon_ref === ""}
+              aria-label="Map symbol color"
+              className="h-9 w-12 shrink-0 cursor-pointer rounded border disabled:opacity-40"
+            />
+          </div>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Drawn on the geographic map for every feature placed via this assembly (a managed map-only
+            symbology rule on the anchor class, keyed on <code>assembly_ref</code>). The diagram and the
+            components' own symbology are untouched.
+          </p>
         </Field>
       </div>
 

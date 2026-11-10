@@ -3,6 +3,8 @@
 *What a CIM/XML export is, how to produce one, and how VoltEdge turns your
 network into a standards-compliant model file.*
 
+_Last updated: 2026-11-06_
+
 ---
 
 ## How to read this guide
@@ -106,6 +108,9 @@ The same symbols used across the VoltEdge manuals:
 10. **Cookbook, troubleshooting and reference** — mapping recipes, a symptom
     table, and appendices (element reference, API/env reference, glossary, change
     log, tools, and the complete sample file).
+11. **Incremental exchange** — named sync targets, difference models
+    (`forwardDifferences`/`reverseDifferences`) diffed against a stored baseline,
+    scheduling, and the `export.ready` webhook push.
 
 ---
 
@@ -1187,8 +1192,14 @@ file begins with:
 ```
 
 `FullModel` means "this file is a complete model, not a delta" (the other kind,
-`DifferenceModel`, carries changes). The model id and creation time change on every
-export; **everything else is stable**.
+`DifferenceModel`, carries changes — **Chapter 11**). The model id is a **content
+hash**: re-export an unchanged network and the `rdf:about` mRID is byte-for-byte the
+same, so a consumer can tell "same model version" without diffing; it changes only
+when the exported content does. `Model.created` is the job's timestamp (so two
+separate runs differ there, honestly), but it no longer feeds the id. Combined with
+the deterministic element order, two exports of an unchanged model differ **only** in
+that one `created` line — which is what makes the difference models of Chapter 11
+possible.
 
 **2. The scaffold.** `GeographicalRegion` → `SubGeographicalRegion` (both named
 "VoltEdge"), a `CoordinateSystem` whose `crsUrn` states the CRS, and the catch-all
@@ -2241,6 +2252,146 @@ match what the export now targets.
 | `E-452` from the validator | both ends of a conductor on one node | find it by name; fix connectivity/geometry |
 | `W-VOLT` from the validator | a node joins different voltages | fix the voltage class on the wrong feature, or the connection |
 
+## Chapter 11 — Incremental exchange: difference models & sync targets
+
+Everything so far produces a **full model** — the whole network in one file. That is
+right for an *initial* load into another system. But once that system holds your
+model, re-sending the whole thing every time is wasteful and makes "what actually
+changed?" the consumer's problem. CIM's answer is the **difference model**
+(`dm:DifferenceModel`): a file that carries only the changes — statements to add
+(`forwardDifferences`) and statements to remove (`reverseDifferences`). This chapter
+is how VoltEdge produces those, on a schedule, and pushes a "ready" signal to the
+consumer. Tom (integration engineer) owns the far end; Ada (admin) sets it up here.
+
+### ∑ The approach — diff two full models, don't track changes
+
+VoltEdge computes a difference by **encoding the current full model and diffing it,
+at the RDF-statement level, against a stored baseline** (the last full model this
+consumer received). It does *not* watch edits and accumulate a running delta.
+
+That choice is deliberate, and it is why Chapters 5's determinism work matters:
+
+- The encoder is **reused unchanged** — the current model is produced exactly as a
+  normal export, then parsed back to statements and compared.
+- It is **self-healing**: because every run compares two *complete* models, nothing
+  can silently drift. A hard-deleted connection, a missed edit — all are caught on
+  the next run by construction. A change-tracking (CDC) engine would re-implement the
+  mapping in delta form and has to get every cross-feature effect right (a rewired
+  switch moves `ConnectivityNode`s); one bug there and the consumer's model diverges
+  with no signal. For a system-of-record feed, correctness-by-construction wins.
+- It only works because **object mRIDs are stable** (Chapter 2) and **output is
+  deterministic** (the content-hashed model id + ordered elements from Chapter 5). A
+  changed transformer rating becomes "remove the old `ratedS` statement, add the new
+  one" on the *same* subject — not delete-and-recreate.
+
+### ▶ Sync targets — the named consumers (Admin → CIM sync targets)
+
+A **sync target** is one external consumer with its own baseline. 🔒 `metadata:write`.
+
+1. **Admin → CIM sync targets → New target.** Give it a name (the consumer),
+   pick its **feature classes**, optionally a **bounding box** and **territories**
+   (none = whole scope), a **CIM profile** (Chapter 3; blank = default) and a
+   **target SRID** (Chapter 5's reprojection, optional).
+2. ⚠️ A sync target always exports **published-only** — private, never-published
+   drafts are excluded, so the consumer gets a stable, authoritative model rather
+   than anyone's in-progress edits. This is independent of your personal draft
+   visibility.
+3. **Run** it. The run is an ordinary export job (same queue, same jobs panel,
+   same download) — only the artifact differs.
+
+### ∑ The baseline — full on the first run, a difference after
+
+Each target remembers the **baseline**: the object key + identity of the full model
+it last received, stored in a *separate* object-store bucket so the export retention
+sweep (Chapter 5) never deletes it.
+
+- **First run (no baseline):** the artifact is a **full model** — the initial load.
+  The baseline is then recorded.
+- **Every run after:** VoltEdge builds the current full model, fetches the baseline,
+  diffs them, and the artifact is a **difference model**. On success — *only after
+  the artifact is confirmed delivered* — the baseline advances to the new model. If
+  delivery fails, the old baseline stays, so the next run re-emits the same delta
+  (safe to re-apply) rather than skipping it.
+- Editing a target's **scope** clears its baseline: a diff against a model built over
+  a different scope would be nonsense, so the next run is a fresh full load.
+
+### ∑ Reading a difference model
+
+A difference model is small — it quotes only what moved. Say Dana re-rates
+TX-Feeder7-014 from 315 kVA to 500 kVA and Ada runs the target. The artifact:
+
+```xml
+<rdf:RDF xmlns:rdf="…" xmlns:cim="…" xmlns:md="…"
+         xmlns:dm="http://iec.ch/TC57/61970-552/DifferenceModel/1#">
+  <dm:DifferenceModel rdf:about="urn:uuid:…">        <!-- id = hash of the delta -->
+    <md:Model.created>2026-11-06T…Z</md:Model.created>
+    <dm:reverseDifferences rdf:parseType="Statements">
+      <rdf:Description rdf:about="#_<ptend-mRID>">
+        <cim:PowerTransformerEnd.ratedS>315000</cim:PowerTransformerEnd.ratedS>
+      </rdf:Description>
+    </dm:reverseDifferences>
+    <dm:forwardDifferences rdf:parseType="Statements">
+      <rdf:Description rdf:about="#_<ptend-mRID>">
+        <cim:PowerTransformerEnd.ratedS>500000</cim:PowerTransformerEnd.ratedS>
+      </rdf:Description>
+    </dm:forwardDifferences>
+  </dm:DifferenceModel>
+</rdf:RDF>
+```
+
+- Statements are grouped by subject under `rdf:Description rdf:about="#_<mRID>"`.
+- The **same mRID** carries the old and new value — that is the stable-identity payoff.
+- A **new** object appears only under `forwardDifferences` (all its statements), a
+  **deleted** one only under `reverseDifferences`. An **unchanged** object — and the
+  whole scaffold, which has content-derived ids — appears in neither.
+- The `DifferenceModel`'s own `rdf:about` is a hash of the delta, so the same change
+  produces the same difference identity.
+
+**▶ To consume it:** apply `reverseDifferences` (remove those statements), then
+`forwardDifferences` (add these), matching objects by mRID. Run two unchanged exports
+and both difference sets are **empty** — nothing to apply, and proof the pipeline is
+sound.
+
+### ▶ Scheduling — run it without clicking
+
+A target's **Auto-run** can be `Hourly` / `Daily` / `Weekly` (or `Manual`). The
+export worker's maintenance loop enqueues a run when a scheduled target's last
+*successful* run is older than its cadence and nothing is already in flight (so a
+slow run never stacks). A scheduled run is attributed to the target's creator.
+Tune the check interval with `EXPORT_SYNC_SCHEDULE_INTERVAL` (default 5 min; `0`
+disables scheduling).
+
+💡 Pick the cadence the consumer actually needs. There is deliberately **no
+"skip when nothing changed" optimisation**: a safe skip would need a complete
+"did anything in scope change?" signal, and one does not exist — a *revoked*
+connection is a hard delete with no timestamp, yet it changes the topology, so a
+naive watermark would silently drift the consumer. The self-healing full diff is
+cheap for the bounded scopes a target covers, so **cadence is the cost lever**, not a
+gate.
+
+### ▶ Push delivery — the `export.ready` webhook
+
+Rather than have the consumer poll, VoltEdge can **push a notification** when a sync
+export finishes, over the outbound-webhooks pipeline (see the Integrations Guide).
+Subscribe an endpoint to the `export.ready` event type (**Admin → Webhooks**), and
+each completed sync export POSTs a signed envelope whose `data` carries the job id,
+the target, the kind (`full`/`difference`), the add/remove counts, the byte size, and
+a **time-limited presigned `download_url`** the consumer fetches with no VoltEdge
+session. ⚠️ That URL expires (`EXPORT_URL_TTL`); the `job_id` is the stable reference,
+so a consumer should pull promptly.
+
+### ∑ What this does and doesn't change
+
+| | |
+| --- | --- |
+| Engine | the *same* encoder + mapping (Chapters 3–4); a difference is a post-pass |
+| Profile / scope | a target's own (published-only); same `cim_profile`/`target_srid` |
+| Identity | object mRIDs and the model-id hash from Chapter 5 are the whole basis |
+| Delivery | file (download) + optional webhook push; same jobs/queue/retention |
+| Not built | a CDC/running-delta engine; a change-skip gate (see above) |
+
+*Next: the reference appendices.*
+
 ### Appendix A — Element reference: what the encoder writes
 
 Every element the encoder emits, with its predicates. "Literal" = text child;
@@ -2281,6 +2432,8 @@ Not written anywhere: `Terminal.phases`, `Switch.open`, `Switch.retained`,
 | Admin routes (`metadata:read`/`write`) | `/admin/cim-profiles`, `/cim-class-mappings`, `/cim-attribute-mappings`, `/cim-coverage`, `/cim-preview/{class}`, `/cim-dictionary/classes[/{name}/attributes]` |
 | Per-class cap | 50 000 features |
 | Worker | `cmd/exportworker`; `EXPORT_WORKER_CONCURRENCY` (2), `EXPORT_JOB_LEASE` (60 s) |
+| Sync targets (Ch 11) | `GET/POST /export/sync-targets`, `GET/PATCH/DELETE /export/sync-targets/{id}`, `POST /export/sync-targets/{id}/run` (`metadata:read`/`write`) |
+| Sync scheduler | `EXPORT_SYNC_SCHEDULE_INTERVAL` (5 min; `0` disables); baselines in bucket `voltedge-cim-baselines` |
 | Download | `EXPORT_URL_TTL` (15 min); file `voltedge-export.xml`; owner-only |
 | Retention | `EXPORT_RETENTION` (7 days; `0` = keep forever), `EXPORT_SWEEP_INTERVAL` (1 h) |
 | Content type / extension | `application/rdf+xml` / `.xml` |
@@ -2326,6 +2479,8 @@ they differ from this guide, **this guide is current**. The principal difference
 | `PowerTransformerEnd.ratedS` as a literal on the transformer too | **fixed** — written on the windings only |
 | unmapped classes drop silently | logged as a warning and listed in the admin coverage card |
 | `DIST_SWITCH` | split into `MV_SWITCH`/`LV_SWITCH`/`MV_RECLOSER` on migrated installs |
+| the model id + creation time change on every export | the `FullModel` id is a **content hash** (stable when the network is unchanged); `created` is the job timestamp and no longer feeds the id; element order is deterministic, so two unchanged exports differ only in `created` |
+| full models only; `DifferenceModel` not produced | **incremental difference models** via named **sync targets** (Chapter 11), diffed against a stored baseline, with `Hourly`/`Daily`/`Weekly` scheduling and an `export.ready` webhook push |
 
 ### Appendix E — The shipped tools
 

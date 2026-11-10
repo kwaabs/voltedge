@@ -34,6 +34,13 @@ type RecordInput struct {
 // carries a source_event_id (an external feed), the write is IDEMPOTENT: a
 // re-delivered event with the same (source_system, source_event_id) returns the
 // already-stored row instead of double-logging -- SCADA re-sends are common.
+//
+// Every GENUINELY NEW operation also feeds the alarm annunciator (SyncFromOperation)
+// in the SAME call/transaction, so an alarm-worthy op (a lockout/trip/earth/device
+// alarm) raises an operator alarm regardless of the source -- crew entry, the SCADA/
+// external "operation" webhook target, the telemetry apply, an executed switching
+// step, a fault's emitted op. A re-delivered external event (deduped above) does not
+// re-alarm.
 func Record(ctx context.Context, db bun.IDB, in RecordInput) (*Operation, error) {
 	in.DeviceClass = strings.TrimSpace(in.DeviceClass)
 	in.DeviceID = strings.TrimSpace(in.DeviceID)
@@ -86,11 +93,18 @@ func Record(ctx context.Context, db bun.IDB, in RecordInput) (*Operation, error)
 			}
 			return existing, nil
 		}
+		// A genuinely new op (not a re-delivered external event) feeds the annunciator.
+		if err := SyncFromOperation(ctx, db, op); err != nil {
+			return nil, err
+		}
 		return op, nil
 	}
 
 	if _, err := db.NewInsert().Model(op).ExcludeColumn("id").
 		Returning("*").Exec(ctx); err != nil {
+		return nil, err
+	}
+	if err := SyncFromOperation(ctx, db, op); err != nil {
 		return nil, err
 	}
 	return op, nil

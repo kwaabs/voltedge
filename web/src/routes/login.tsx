@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react"
 import { Activity, Loader2, LogIn, Map, Radio, Zap } from "lucide-react"
-import { Navigate, useLocation, useSearchParams } from "react-router"
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router"
 
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
@@ -53,6 +53,7 @@ const SSO_ERRORS: Record<string, string> = {
 
 export function LoginPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { data: session } = useSession()
   const { data: providers, isPending: providersPending } = useProviders()
@@ -114,7 +115,14 @@ export function LoginPage() {
     if (!canSubmit) return
     // When a reveal code gated this form, it must also ride the login (the
     // server re-verifies it -- the password alone isn't enough).
-    login.mutate({ email: email.trim(), password, break_glass_code: codeRequired ? code.trim() : undefined })
+    login.mutate(
+      { email: email.trim(), password, break_glass_code: codeRequired ? code.trim() : undefined },
+      // Navigate explicitly on success rather than waiting for the session-cache
+      // update to re-render this page into the `if (session)` redirect below --
+      // that reactive path can fail to fire (the query's prior 401-error state /
+      // render timing), leaving the user stranded on /login after a good login.
+      { onSuccess: () => navigate(from, { replace: true }) },
+    )
   }
 
   // Re-hide the code box and reset the gesture -- on idle, or after too many

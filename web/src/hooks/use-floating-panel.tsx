@@ -3,6 +3,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, Re
 import { GripHorizontal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useFloatingPanelStore } from "@/stores/floating-panel-store"
 
 /**
  * Shared drag + resize mechanics for the map's floating analysis result
@@ -56,11 +57,31 @@ export function useFloatingPanel(
   // "bottom-6 left-6 right-6"). options.stretch pairs with a left+right anchor:
   // the panel takes its width from those anchors (no explicit width) until it's
   // moved or resized, so it fills the span instead of a fixed 600px.
-  options?: { positionClass?: string; stretch?: boolean },
+  // options.storageKey persists this panel's dragged position + resized size to
+  // localStorage (floating-panel-store), so it survives closing/reopening the panel
+  // and a full reload. Omit it to keep geometry in local state (the default).
+  options?: { positionClass?: string; stretch?: boolean; storageKey?: string },
 ): FloatingPanel {
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  const storageKey = options?.storageKey
+  const seed = storageKey ? useFloatingPanelStore.getState().panels[storageKey] : undefined
+  const [position, setPositionState] = useState<{ x: number; y: number } | null>(seed?.position ?? null)
+  const [size, setSizeState] = useState<{ width: number; height: number } | null>(seed?.size ?? null)
   const panelRef = useRef<HTMLDivElement>(null)
+  // Mirror the live geometry in refs so a drag/resize end can persist BOTH dimensions
+  // (the move handler only knows its own) without re-reading stale closure state.
+  const posRef = useRef(position)
+  const sizeRef = useRef(size)
+  const setPosition = (p: { x: number; y: number } | null) => {
+    posRef.current = p
+    setPositionState(p)
+  }
+  const setSize = (s: { width: number; height: number } | null) => {
+    sizeRef.current = s
+    setSizeState(s)
+  }
+  const persist = () => {
+    if (storageKey) useFloatingPanelStore.getState().save(storageKey, { position: posRef.current, size: sizeRef.current })
+  }
   const positionClass = options?.positionClass ?? DEFAULT_POSITION_CLASS
   const stretch = options?.stretch ?? false
 
@@ -91,6 +112,7 @@ export function useFloatingPanel(
     function onUp() {
       window.removeEventListener("pointermove", onMove)
       window.removeEventListener("pointerup", onUp)
+      persist()
     }
     window.addEventListener("pointermove", onMove)
     window.addEventListener("pointerup", onUp)
@@ -121,6 +143,7 @@ export function useFloatingPanel(
     function onUp() {
       window.removeEventListener("pointermove", onMove)
       window.removeEventListener("pointerup", onUp)
+      persist()
     }
     window.addEventListener("pointermove", onMove)
     window.addEventListener("pointerup", onUp)

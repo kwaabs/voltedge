@@ -36,6 +36,7 @@ Find your task on the left; open the document on the right.
 | Sign in, find assets, edit the network, run a trace (the office web app) | **[User Handbook](user-handbook.md)** |
 | Work offline in the field — download a work-area pack, view and edit the network, capture GPS/photos, run inspections, sync back | **[Field Tool Guide](field-tool-guide.md)** |
 | Run the field tool: manage packs, review and resolve field edits, tune build/sync for a fleet | **[Field Tool Admin Guide](field-tool-admin-guide.md)** |
+| Sign field crews in with Microsoft/Azure SSO — the flow, token model, Azure setup, dev testing, troubleshooting | **[Field App Authentication & SSO](field-sso-guide.md)** |
 | Get the *step-by-step recipe* for one map task — create, edit, measure, snap, connect, annotate | **[Everyday Operations](everyday-operations.md)** |
 | Understand what a load-flow / fault / arc-flash study actually computes | **[Engineering Studies](engineering-studies.md)** |
 | Model an EV charging site and size what a feeder can absorb (managed charging, headroom) | **[EV Charging & Feeder Headroom](ev-charging-guide.md)** |
@@ -59,6 +60,7 @@ Find your task on the left; open the document on the right.
 | Understand SAIDI/SAIFI/CAIDI/ENS exactly — formulas, customer base, and honest limits | **[Reliability & Indices](reliability-indices-guide.md)** |
 | Know how far to trust the analysis numbers — what's validated vs what, and the gaps | **[Analysis Validation Report](analysis-validation-report.md)** |
 | Draw an SVG icon, attach it to a class, and style features by their field values | **[Symbology & Map Styling Guide](symbology-guide.md)** |
+| Give a placed assembly (packaged substation, RMU, pole-mount) its own map glyph | **[Assembly Map Symbols Guide](assembly-map-symbols-guide.md)** |
 | Price a slice of the network as a Bill of Quantities, or maintain the cost catalog | **[Bill of Quantities & Cost Catalog](bill-of-quantities-guide.md)** |
 | Bring data in from another system — files (CSV/GeoJSON/shapefile/KML/DXF/GeoPackage/SpatiaLite) or a live PostGIS/MSSQL database | **[Data Import Guide](data-import-guide.md)** |
 | Overlay a third-party map service — ArcGIS FeatureServer/MapServer, WMS, WMTS, WFS, XYZ or vector tiles | **[External Service Layers](external-service-layers-guide.md)** |
@@ -187,6 +189,7 @@ sequence. **Who's in it:** Dana (editor), Priya (viewer), Tom (field), Ada (admi
 Added to the library as the product grew, in the same house voice:
 
 - **[Symbology & Map Styling Guide](symbology-guide.md)** *(Administration — needs `metadata:read`)* — drawing SVG icons, attaching them to classes, and styling features by subtype and field value.
+- **[Assembly Map Symbols Guide](assembly-map-symbols-guide.md)** *(How-to / Administration)* — giving a placed assembly (packaged substation, RMU, pole-mount kit) its own geographic-map glyph, either per-kit via the kit "Map symbol" field (the `assembly_ref` marker) or by a real attribute like `package_config`, with a troubleshooting checklist.
 - **[Bill of Quantities & Cost Catalog](bill-of-quantities-guide.md)** *(How-to)* — pricing any scope of the network as a costed schedule (needs only `features:read`), and administering the price book behind it: currencies, unit rates and per-feature overrides (`metadata:write`).
 - **[Data Import Guide](data-import-guide.md)** *(How-to)* — bringing data in from other systems: the admin half authors reusable **import profiles** (`metadata:write`) mapping source columns onto a feature class; the operator half runs them (`features:write`). Covers all nine source formats (CSV, GeoJSON, shapefile, KML, DXF, GeoPackage, SpatiaLite, and live PostGIS/MSSQL), field-mapping transforms, the validate-everything **dry-run**, per-row-transaction loading through the normal CRUD engine (so territory, write-scope and history all apply), upsert matching, geometry reprojection, and the SSRF-hardened live-DB path.
 - **[External Service Layers](external-service-layers-guide.md)** *(How-to)* — the *other* "data from elsewhere": overlaying a **live** third-party map service rather than copying it in. The admin half registers the **Service-layers** catalogue (`metadata:write`) — the seven supported types (WMS, WMTS, XYZ, vector tiles, Esri MapServer, Esri FeatureServer, WFS), the Discover auto-fill, and the sealed (AES-GCM) credential; the user half toggles layers in the map's Layers panel (`features:read`), sets opacity, and clicks to **identify**. Covers the same-origin SSRF-hardened proxy (credentials never leave the server), per-type identify behaviour, CRS handling, and the honest limits. Contrast with the Data Import guide: import takes **ownership**, a service layer is a reference you never own.

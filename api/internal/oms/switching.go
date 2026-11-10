@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/deviceops"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -251,7 +252,7 @@ func ListSwitchingOrders(ctx context.Context, db bun.IDB, incidentID string) ([]
 // moves the network -- traces, power flow and the outage map all read the new
 // position. The whole thing runs in one transaction, so the step tick and the
 // device flip commit together or not at all.
-func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed bool) (*SwitchingOrder, error) {
+func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed, force bool) (*SwitchingOrder, error) {
 	var out *SwitchingOrder
 	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		step := new(SwitchingStep)
@@ -264,6 +265,59 @@ func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed bo
 			return fmt.Errorf("oms: loading switching step %s: %w", stepID, err)
 		}
 		orderID := step.SwitchingOrderID
+
+		// Execution interlocks (ADMS): a step can only be executed once the order is
+		// ISSUED, in sequence, and with the device in the state the order assumes -- on
+		// top of the safety-tag gate OperateDevice already enforces. force bypasses the
+		// SEQUENCE + PRE-STATE checks (never the safety tag), recording the override on
+		// the operation. Reverting a step (executed=false) is not interlocked.
+		var overrideNote *string
+		if executed {
+			order := new(SwitchingOrder)
+			if err := tx.NewSelect().Model(order).Where("id = ?", orderID).Scan(ctx); err != nil {
+				return fmt.Errorf("oms: loading switching order %s: %w", orderID, err)
+			}
+			if order.Status != SwitchingStatusIssued && order.Status != SwitchingStatusInProgress {
+				return invalidf("the switching order must be issued before its steps can be executed (it is %s)", order.Status)
+			}
+			var bypassed []string
+			pending, err := tx.NewSelect().Model((*SwitchingStep)(nil)).
+				Where("switching_order_id = ?", orderID).
+				Where("step_no < ?", step.StepNo).
+				Where("executed_at IS NULL").
+				Count(ctx)
+			if err != nil {
+				return fmt.Errorf("oms: checking step sequence for order %s: %w", orderID, err)
+			}
+			if pending > 0 {
+				if !force {
+					return invalidf("execute the earlier steps first -- step %d has %d step(s) before it still outstanding (or force to override)", step.StepNo, pending)
+				}
+				bypassed = append(bypassed, fmt.Sprintf("out of sequence (%d earlier step(s) outstanding)", pending))
+			}
+			if (step.Action == StepActionOpen || step.Action == StepActionClose) && step.DeviceClass != nil && step.DeviceID != nil {
+				cur, modelsState, exists, derr := deviceCurrentState(ctx, tx, *step.DeviceClass, *step.DeviceID)
+				if derr != nil {
+					return derr
+				}
+				if exists && modelsState {
+					expected := deviceStateClosed
+					if step.Action == StepActionClose {
+						expected = deviceStateOpen
+					}
+					if cur != expected {
+						if !force {
+							return invalidf("step %d expects %s to be %s but it is %s -- the network is not where the order assumes (or force to override)", step.StepNo, deviceRefLabel(*step.DeviceClass, *step.DeviceID), expected, cur)
+						}
+						bypassed = append(bypassed, fmt.Sprintf("device was %s, expected %s", cur, expected))
+					}
+				}
+			}
+			if len(bypassed) > 0 {
+				note := "forced past interlock: " + strings.Join(bypassed, "; ")
+				overrideNote = &note
+			}
+		}
 
 		upd := tx.NewUpdate().Model((*SwitchingStep)(nil)).Where("id = ?", stepID)
 		if executed {
@@ -287,7 +341,7 @@ func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed bo
 		// holds its pre-update ExecutedAt, so `== nil` means this call is the
 		// transition into executed.
 		if executed && step.ExecutedAt == nil {
-			if err := emitStepOperation(ctx, tx, step); err != nil {
+			if err := emitStepOperation(ctx, tx, step, overrideNote); err != nil {
 				return err
 			}
 		}
@@ -432,7 +486,7 @@ func OperateDevice(ctx context.Context, db bun.IDB, class, id, target string) er
 // 'switching_order' and switching_step_id links back to the step. Only open/close
 // steps name an operation (verify/earth/note don't move a device). A step with no
 // device is a no-op. Runs in the step's tx -- an error rolls the whole thing back.
-func emitStepOperation(ctx context.Context, db bun.IDB, step *SwitchingStep) error {
+func emitStepOperation(ctx context.Context, db bun.IDB, step *SwitchingStep, note *string) error {
 	if step.DeviceClass == nil || step.DeviceID == nil {
 		return nil
 	}
@@ -452,6 +506,7 @@ func emitStepOperation(ctx context.Context, db bun.IDB, step *SwitchingStep) err
 		OpType:          opType,
 		Source:          "switching_order",
 		OccurredAt:      time.Now(),
+		Notes:           note, // set only when an interlock was force-overridden
 		SwitchingStepID: &stepID,
 	})
 	return err
@@ -476,4 +531,88 @@ func CancelSwitchingOrder(ctx context.Context, db *bun.DB, id string) (*Switchin
 		return nil, fmt.Errorf("oms: cancelling switching order %s: %w", id, err)
 	}
 	return GetSwitchingOrder(ctx, db, id)
+}
+
+// ApproveSwitchingOrder is the ADMS authorisation gate: a DRAFT order must pass the
+// validation study (no blocking errors) and is then stamped with who approved it and
+// when, moving to `approved`. Only an approved order can be issued and executed.
+func ApproveSwitchingOrder(ctx context.Context, db *bun.DB, id string) (*SwitchingOrder, error) {
+	var out *SwitchingOrder
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		order, err := getSwitchingOrder(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if order.Status != SwitchingStatusDraft {
+			return invalidf("only a draft switching order can be approved (this one is %s)", order.Status)
+		}
+		v, err := ValidateSwitchingOrder(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if !v.Ready {
+			return invalidf("the switching order has blocking validation errors -- resolve them before approving (run validate for the list)")
+		}
+		upd := tx.NewUpdate().Model((*SwitchingOrder)(nil)).
+			Set("status = ?", SwitchingStatusApproved).
+			Set("approved_at = now()").
+			Set("updated_at = now()").
+			Where("id = ?", id)
+		if actor := auth.ActorID(ctx); actor != "" {
+			upd = upd.Set("approved_by = ?", actor)
+		}
+		if _, err := upd.Exec(ctx); err != nil {
+			return fmt.Errorf("oms: approving switching order %s: %w", id, err)
+		}
+		out, err = getSwitchingOrder(ctx, tx, id)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// IssueSwitchingOrder releases an APPROVED order for execution (approved -> issued).
+func IssueSwitchingOrder(ctx context.Context, db *bun.DB, id string) (*SwitchingOrder, error) {
+	var out *SwitchingOrder
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		order, err := getSwitchingOrder(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if order.Status != SwitchingStatusApproved {
+			return invalidf("only an approved switching order can be issued (this one is %s) -- approve it first", order.Status)
+		}
+		if _, err := tx.NewUpdate().Model((*SwitchingOrder)(nil)).
+			Set("status = ?", SwitchingStatusIssued).
+			Set("updated_at = now()").
+			Where("id = ?", id).Exec(ctx); err != nil {
+			return fmt.Errorf("oms: issuing switching order %s: %w", id, err)
+		}
+		out, err = getSwitchingOrder(ctx, tx, id)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// revertApprovalOnEdit clears the approval and returns an approved order to draft when
+// its steps are edited, so an executed plan is always the exact one that was approved.
+// A no-op for an order that is not currently approved (a draft stays draft; an issued/
+// in-progress order's steps should not be edited and the step handlers guard that).
+func revertApprovalOnEdit(ctx context.Context, tx bun.IDB, orderID string) error {
+	if _, err := tx.NewUpdate().Model((*SwitchingOrder)(nil)).
+		Set("status = ?", SwitchingStatusDraft).
+		Set("approved_at = NULL").
+		Set("approved_by = NULL").
+		Set("updated_at = now()").
+		Where("id = ?", orderID).
+		Where("status = ?", SwitchingStatusApproved).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("oms: reverting approval on edit of order %s: %w", orderID, err)
+	}
+	return nil
 }

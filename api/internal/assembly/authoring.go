@@ -36,6 +36,15 @@ type kitRow struct {
 	Name                 string  `bun:"name"`
 	AnchorSubtypeCode    *int    `bun:"anchor_subtype_code"`
 	DiagramTemplateName  *string `bun:"diagram_template_name"`
+	// The assembly's own geographic-MAP glyph (migration 0192): a managed map-context
+	// symbology rule keyed on the anchor's assembly_ref renders it. NULL = no assembly
+	// map symbol (the anchor keeps its plain class symbology).
+	MapIconRef *string `bun:"map_icon_ref"`
+	MapColor   *string `bun:"map_color"`
+	// Template defaults applied to the ANCHOR feature at placement (migration 0194),
+	// merged UNDER the placing caller's attributes. Lets a kit pin its anchor's
+	// required config field (e.g. package_config=COMPACT) so the recipe supplies it.
+	AnchorAttributes map[string]any `bun:"anchor_attributes,type:jsonb"`
 }
 
 type kitItemRow struct {
@@ -82,7 +91,13 @@ type KitInput struct {
 	Name                string              `json:"name"`
 	AnchorSubtypeCode   *int                `json:"anchor_subtype_code,omitempty"`
 	DiagramTemplateName *string             `json:"diagram_template_name,omitempty"`
-	Components          []KitComponentInput `json:"components"`
+	// The assembly's geographic-map symbol. map_icon_ref references a symbology icon;
+	// map_color is a hex string. Empty/omitted clears the assembly's map glyph.
+	MapIconRef *string             `json:"map_icon_ref,omitempty"`
+	MapColor   *string             `json:"map_color,omitempty"`
+	// Defaults applied to the anchor at placement (migration 0194), caller wins.
+	AnchorAttributes map[string]any      `json:"anchor_attributes,omitempty"`
+	Components       []KitComponentInput `json:"components"`
 }
 
 // Kit is one kit returned to the client (header + ordered components).
@@ -94,6 +109,9 @@ type Kit struct {
 	Name                   string              `json:"name"`
 	AnchorSubtypeCode      *int                `json:"anchor_subtype_code,omitempty"`
 	DiagramTemplateName    *string             `json:"diagram_template_name,omitempty"`
+	MapIconRef             *string             `json:"map_icon_ref,omitempty"`
+	MapColor               *string             `json:"map_color,omitempty"`
+	AnchorAttributes       map[string]any      `json:"anchor_attributes,omitempty"`
 	Components             []KitComponentInput `json:"components"`
 }
 
@@ -151,17 +169,25 @@ ORDER BY afc.name, at.name`
 func GetKit(ctx context.Context, db bun.IDB, id string) (*Kit, error) {
 	var k Kit
 	const headerQuery = `
-SELECT afc.code, afc.name, at.code, at.name, at.anchor_subtype_code, at.diagram_template_name
+SELECT afc.code, afc.name, at.code, at.name, at.anchor_subtype_code, at.diagram_template_name,
+       at.map_icon_ref, at.map_color, at.anchor_attributes
 FROM metadata.assembly_templates at
 JOIN metadata.feature_classes afc ON afc.id = at.anchor_feature_class_id
 WHERE at.id = ?`
+	var rawAnchorAttrs []byte
 	switch err := db.QueryRowContext(ctx, headerQuery, id).Scan(
 		&k.AnchorFeatureClass, &k.AnchorFeatureClassName, &k.Code, &k.Name, &k.AnchorSubtypeCode, &k.DiagramTemplateName,
+		&k.MapIconRef, &k.MapColor, &rawAnchorAttrs,
 	); {
 	case errors.Is(err, sql.ErrNoRows):
 		return nil, notFoundf("assembly kit %q not found", id)
 	case err != nil:
 		return nil, fmt.Errorf("assembly: loading kit: %w", err)
+	}
+	if len(rawAnchorAttrs) > 0 {
+		if err := json.Unmarshal(rawAnchorAttrs, &k.AnchorAttributes); err != nil {
+			return nil, fmt.Errorf("assembly: decoding anchor_attributes: %w", err)
+		}
 	}
 	k.ID = id
 
@@ -215,6 +241,9 @@ func CreateKit(ctx context.Context, db *bun.DB, in KitInput) (*Kit, error) {
 			Name:                 in.Name,
 			AnchorSubtypeCode:    in.AnchorSubtypeCode,
 			DiagramTemplateName:  in.DiagramTemplateName,
+			MapIconRef:           nilIfEmpty(in.MapIconRef),
+			MapColor:             nilIfEmpty(in.MapColor),
+			AnchorAttributes:     emptyIfNil(in.AnchorAttributes),
 		}
 		if _, err := tx.NewInsert().Model(header).Returning("id").Exec(ctx); err != nil {
 			return fmt.Errorf("assembly: inserting kit: %w", err)
@@ -223,7 +252,10 @@ func CreateKit(ctx context.Context, db *bun.DB, in KitInput) (*Kit, error) {
 		if err := insertItems(ctx, tx, newID, in, loaded); err != nil {
 			return err
 		}
-		return linkOrGenerateDiagram(ctx, tx, newID, in, loaded)
+		if err := linkOrGenerateDiagram(ctx, tx, newID, in, loaded); err != nil {
+			return err
+		}
+		return manageAssemblyMapRule(ctx, tx, newID, anchorID, loaded.anchor.FeatureClass.PhysicalTable, in.AnchorSubtypeCode, in.Code, in.MapIconRef, in.MapColor)
 	}); err != nil {
 		return nil, err
 	}
@@ -236,6 +268,10 @@ func UpdateKit(ctx context.Context, db *bun.DB, id string, in KitInput) (*Kit, e
 	if err != nil {
 		return nil, err
 	}
+	anchorAttrsJSON, err := json.Marshal(emptyIfNil(in.AnchorAttributes))
+	if err != nil {
+		return nil, fmt.Errorf("assembly: encoding anchor_attributes: %w", err)
+	}
 	if err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewUpdate().Model((*kitRow)(nil)).
 			Set("anchor_feature_class_id = ?", loaded.anchor.FeatureClass.ID).
@@ -243,6 +279,9 @@ func UpdateKit(ctx context.Context, db *bun.DB, id string, in KitInput) (*Kit, e
 			Set("name = ?", in.Name).
 			Set("anchor_subtype_code = ?", in.AnchorSubtypeCode).
 			Set("diagram_template_name = ?", in.DiagramTemplateName).
+			Set("map_icon_ref = ?", nilIfEmpty(in.MapIconRef)).
+			Set("map_color = ?", nilIfEmpty(in.MapColor)).
+			Set("anchor_attributes = ?::jsonb", string(anchorAttrsJSON)).
 			Where("id = ?", id).Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("assembly: updating kit: %w", err)
@@ -256,7 +295,10 @@ func UpdateKit(ctx context.Context, db *bun.DB, id string, in KitInput) (*Kit, e
 		if err := insertItems(ctx, tx, id, in, loaded); err != nil {
 			return err
 		}
-		return linkOrGenerateDiagram(ctx, tx, id, in, loaded)
+		if err := linkOrGenerateDiagram(ctx, tx, id, in, loaded); err != nil {
+			return err
+		}
+		return manageAssemblyMapRule(ctx, tx, id, loaded.anchor.FeatureClass.ID, loaded.anchor.FeatureClass.PhysicalTable, in.AnchorSubtypeCode, in.Code, in.MapIconRef, in.MapColor)
 	}); err != nil {
 		return nil, err
 	}
@@ -271,6 +313,123 @@ func DeleteKit(ctx context.Context, db *bun.DB, id string) error {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return notFoundf("assembly kit %q not found", id)
+	}
+	return nil
+}
+
+// emptyIfNil returns a non-nil map so the jsonb NOT NULL anchor_attributes column
+// stores '{}' rather than a SQL NULL when a kit declares no anchor defaults.
+func emptyIfNil(m map[string]any) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
+}
+
+// nilIfEmpty trims a *string and returns nil when it's empty, so an empty map symbol
+// stores as NULL rather than "".
+func nilIfEmpty(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	t := strings.TrimSpace(*s)
+	if t == "" {
+		return nil
+	}
+	return &t
+}
+
+// manageAssemblyMapRule upserts (or clears) the MANAGED map-context symbology rule that
+// gives this assembly its own geographic-map glyph. The rule is owned by the template
+// (symbology_rules.template_id, unique) and keys on the anchor's assembly_ref = the
+// recipe code (migrations 0192/0193). It's render_context 'map' only, so the DIAGRAM /
+// internal symbology of the anchor and its components is never touched. A nil/empty
+// iconRef clears the symbol (the delete alone). Called inside the create/update tx.
+//
+// When a symbol is set it also BACKFILLS the marker onto units already placed as this
+// kit (backfillAssemblyMarker), so setting a map symbol styles existing placements, not
+// just future ones -- the rule itself is inert for a unit whose assembly_ref is null.
+func manageAssemblyMapRule(ctx context.Context, tx bun.Tx, templateID, anchorClassID string, anchorTable *string, subtype *int, code string, iconRef, color *string) error {
+	// Clear any prior managed rule for this template first -- handles a changed code or
+	// anchor class, and clearing the symbol. template_id is unique among managed rules.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM metadata.symbology_rules WHERE template_id = ?`, templateID); err != nil {
+		return fmt.Errorf("assembly: clearing managed map rule: %w", err)
+	}
+	icon := ""
+	if iconRef != nil {
+		icon = strings.TrimSpace(*iconRef)
+	}
+	if icon == "" {
+		return nil // no assembly map symbol
+	}
+	style := map[string]any{"icon_ref": icon}
+	if color != nil {
+		if c := strings.TrimSpace(*color); c != "" {
+			style["color"] = c
+		}
+	}
+	styleJSON, err := json.Marshal(style)
+	if err != nil {
+		return fmt.Errorf("assembly: encoding map style: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO metadata.symbology_rules
+			(feature_class_id, render_context, match_field, match_value, style_def, template_id)
+		VALUES (?, 'map', 'assembly_ref', ?, ?::jsonb, ?)`,
+		anchorClassID, code, string(styleJSON), templateID); err != nil {
+		return fmt.Errorf("assembly: writing managed map rule: %w", err)
+	}
+	return backfillAssemblyMarker(ctx, tx, anchorClassID, templateID, anchorTable, subtype, code)
+}
+
+// backfillAssemblyMarker stamps assembly_ref = code onto anchors already placed as this
+// kit that don't yet carry the marker, so setting a kit's map symbol styles EXISTING
+// units, not only ones placed afterwards (the marker is otherwise stamped only at
+// placement, fanout.go / migration 0192). Scoped and guarded so it can never bleed onto
+// unrelated features:
+//   - geometry-less anchor (no physical table) -> nothing draws on the map, no-op;
+//   - the assembly_ref column must exist (migration 0192 applied); if not, a silent
+//     no-op, so kit authoring never errors on a DB where 0192 hasn't landed yet;
+//   - UNAMBIGUOUS-owner guard: if any OTHER kit on the same anchor class has an
+//     overlapping subtype scope (same subtype, or either side pins none), an un-marked
+//     anchor of that subtype could belong to either kit -- we skip rather than guess;
+//   - only un-marked anchors (assembly_ref IS NULL) within the kit's subtype scope (all
+//     subtypes when the kit pins none); a unit already marked at its own placement is
+//     left untouched.
+//
+// Note: within a (class, subtype) owned by exactly one kit, this also marks units that
+// were created directly (not via the kit) -- deliberate, since they are the same asset
+// type and the author asked for every such unit to carry the kit's map glyph.
+func backfillAssemblyMarker(ctx context.Context, tx bun.Tx, anchorClassID, templateID string, anchorTable *string, subtype *int, code string) error {
+	if anchorTable == nil {
+		return nil // geometry-less anchor: nothing on the map to style
+	}
+	var hasColumn bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema || '.' || table_name = ? AND column_name = 'assembly_ref'
+		)`, *anchorTable).Scan(&hasColumn); err != nil {
+		return fmt.Errorf("assembly: checking assembly_ref column: %w", err)
+	}
+	if !hasColumn {
+		return nil // migration 0192 not applied here yet -- marker/tile column absent
+	}
+	var overlappingKits int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT count(*) FROM metadata.assembly_templates
+		WHERE anchor_feature_class_id = ?
+		  AND id <> ?
+		  AND (?::int IS NULL OR anchor_subtype_code IS NULL OR anchor_subtype_code = ?)`,
+		anchorClassID, templateID, subtype, subtype).Scan(&overlappingKits); err != nil {
+		return fmt.Errorf("assembly: checking kit ownership ambiguity: %w", err)
+	}
+	if overlappingKits > 0 {
+		return nil // another kit shares this (class, subtype) -- can't tell old units apart
+	}
+	q := fmt.Sprintf(`UPDATE %s SET assembly_ref = ? WHERE assembly_ref IS NULL AND (?::int IS NULL OR subtype = ?)`, *anchorTable)
+	if _, err := tx.ExecContext(ctx, q, code, subtype, subtype); err != nil {
+		return fmt.Errorf("assembly: backfilling assembly_ref: %w", err)
 	}
 	return nil
 }

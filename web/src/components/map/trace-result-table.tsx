@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ChevronRight, GripHorizontal, List, ListTree, RefreshCw, Scissors, X } from "lucide-react"
 
 import { AnalysisExplanation } from "@/components/map/analysis-explanation"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { LoopFixContent } from "@/components/map/loop-fix-panel"
 import { Button } from "@/components/ui/button"
 import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
@@ -705,11 +706,12 @@ export function TraceResultTable() {
     return (
       <tr
         key={key}
-        onClick={() => useSelectionStore.getState().select(row.feature_class, row.feature_id, { focus: true })}
+        onClick={() => useSelectionStore.getState().locate(row.feature_class, row.feature_id, { focus: true })}
+        onDoubleClick={() => useSelectionStore.getState().select(row.feature_class, row.feature_id, { focus: true })}
         onMouseEnter={tree ? () => setHoveredKey(key) : undefined}
         onMouseLeave={tree ? () => setHoveredKey(null) : undefined}
         className={cn(
-          "hover:bg-accent cursor-pointer border-b last:border-b-0",
+          "hover:bg-accent cursor-pointer border-b last:border-b-0 select-none",
           onPath && !row.isBarrier && !row.isTarget && "bg-primary/5",
           row.isBarrier && "bg-destructive/10 text-destructive hover:bg-destructive/15",
           !row.isBarrier &&
@@ -779,6 +781,7 @@ export function TraceResultTable() {
                 ) : (
                   <span className="inline-block size-4 shrink-0" />
                 )}
+                <FeatureInfoButton featureClass={row.feature_class} featureId={row.feature_id} />
                 <span className={cn("truncate", onPath && "font-medium")}>{classNameFor(row.feature_class)}</span>
                 {tree.isRoot && (
                   <span className="rounded bg-primary/15 text-primary shrink-0 px-1.5 py-0.5 text-[11px] font-medium">
@@ -800,6 +803,7 @@ export function TraceResultTable() {
             </div>
           ) : (
             <span className="inline-flex items-center gap-1.5">
+              <FeatureInfoButton featureClass={row.feature_class} featureId={row.feature_id} />
               {classNameFor(row.feature_class)}
               <DeviceStateBadge state={row.deviceState} />
               <OwnershipBadge ownership={row.ownership} />

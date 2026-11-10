@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/fieldsync_client.dart';
+import '../api/models.dart';
 import '../config/settings_repository.dart';
 import '../providers.dart';
 
@@ -24,6 +25,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _obscure = true;
   bool _busy = false;
 
+  /// Reveal the email/password form on the branded (SSO-first) login. Starts hidden
+  /// behind a "Sign in with email" link when SSO is available; the form is shown
+  /// outright when no SSO provider is configured (there's nothing else to use).
+  bool _showEmailForm = false;
+
+  /// Reveal the "Advanced" section (the fieldsync base URL) on the login view.
+  bool _showAdvanced = false;
+
+  /// The SSO providers to offer, fetched once. Empty / failed = local-only login
+  /// (no SSO configured, or the server unreachable) -> no SSO buttons shown.
+  Future<List<SsoProvider>>? _ssoProvidersFuture;
+
   @override
   void initState() {
     super.initState();
@@ -31,6 +44,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _baseUrl = TextEditingController(text: settings.baseUrl);
     _email = TextEditingController(text: settings.signedInEmail ?? '');
     _password = TextEditingController();
+    _ssoProvidersFuture = ref.read(fieldsyncClientProvider).ssoProviders();
   }
 
   @override
@@ -61,12 +75,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // login to the right host.
       await settings.setBaseUrl(_baseUrl.text);
       final res = await ref.read(fieldsyncClientProvider).login(email, password);
-      await settings.signIn(
-        token: res.token,
-        email: res.email.isNotEmpty ? res.email : email,
-        displayName: res.displayName,
-        permissions: res.permissions,
-      );
+      await _storeSession(settings, res, fallbackEmail: email);
+      ref.invalidate(remotePacksProvider);
+      if (!mounted) return;
+      _snack('Signed in.');
+      Navigator.of(context).pop();
+    } on FieldsyncException catch (e) {
+      _snack(e.message);
+    } catch (e) {
+      _snack('Could not sign in: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Persist a successful session (password OR SSO). Both yield a FieldLoginResult
+  /// carrying the access + refresh tokens and the access expiry.
+  Future<void> _storeSession(SettingsRepository settings, FieldLoginResult res,
+      {String? fallbackEmail}) async {
+    await settings.signIn(
+      token: res.token,
+      refreshToken: res.refreshToken,
+      accessExpiresAt: res.accessExpiresAt,
+      email: res.email.isNotEmpty ? res.email : (fallbackEmail ?? ''),
+      displayName: res.displayName,
+      permissions: res.permissions,
+      fieldTrackingEnabled: res.fieldTrackingEnabled,
+      fieldTrackingDisclosureEnabled: res.fieldTrackingDisclosureEnabled,
+    );
+  }
+
+  /// Sign in with SSO: run the system-browser OIDC flow and store the session.
+  Future<void> _signInWithSSO(SsoProvider provider) async {
+    setState(() => _busy = true);
+    final settings = ref.read(settingsRepositoryProvider);
+    try {
+      await settings.setBaseUrl(_baseUrl.text);
+      final res =
+          await ref.read(fieldsyncClientProvider).signInWithSSO(provider.key);
+      await _storeSession(settings, res);
       ref.invalidate(remotePacksProvider);
       if (!mounted) return;
       _snack('Signed in.');
@@ -83,6 +130,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _signOut() async {
     setState(() => _busy = true);
     final settings = ref.read(settingsRepositoryProvider);
+    // Revoke the refresh token server-side first (best-effort) so a lost device's
+    // token can't be refreshed; the short-lived access token lapses on its own.
+    final refresh = settings.refreshToken;
+    if (refresh != null && refresh.isNotEmpty) {
+      await ref.read(fieldsyncClientProvider).revokeRefreshToken(refresh);
+    }
     await settings.signOut();
     ref.invalidate(remotePacksProvider);
     if (!mounted) return;
@@ -109,26 +162,186 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(
-            controller: _baseUrl,
-            enabled: !_busy,
-            keyboardType: TextInputType.url,
-            autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'fieldsync base URL',
-              helperText:
-                  'Android emulator: http://10.0.2.2:3706 · real device: http://<LAN-ip>:3706',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 24),
-          if (signedIn) _signedInCard(settings) else _signInForm(),
+          // Signed in: keep the plain settings view (base URL + "signed in as").
+          // Signed out: the branded, SSO-first login.
+          if (signedIn) ...[
+            _baseUrlField(),
+            const SizedBox(height: 24),
+            _signedInCard(settings),
+          ] else
+            _loginView(),
         ],
       ),
     );
   }
 
-  Widget _signInForm() {
+  /// The branded, SSO-first login: bolt + app name, SSO buttons as the primary
+  /// action, email/password behind a "Sign in with email" link, and the fieldsync
+  /// base URL tucked under "Advanced". When the org has no SSO provider configured
+  /// (or the server is unreachable), the email form is shown outright -- there's
+  /// nothing else to sign in with.
+  Widget _loginView() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 28),
+        _brandHeader(),
+        const SizedBox(height: 32),
+        FutureBuilder<List<SsoProvider>>(
+          future: _ssoProvidersFuture,
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final providers = snap.data ?? const <SsoProvider>[];
+            final hasSso = providers.isNotEmpty;
+            // Discovery FAILED (sso-config / providers unreachable) is different from
+            // "no providers configured": the former is a server/deploy problem worth
+            // surfacing with a retry, the latter is just a local-only org. On failure
+            // we still fall through to the email form so sign-in isn't blocked.
+            final ssoFailed = snap.hasError;
+            final showEmail = !hasSso || _showEmailForm;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final p in providers) ...[
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                    onPressed: _busy ? null : () => _signInWithSSO(p),
+                    icon: const Icon(Icons.shield_outlined),
+                    label: Text('Sign in with ${p.displayName}'),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (hasSso && !showEmail)
+                  TextButton(
+                    onPressed:
+                        _busy ? null : () => setState(() => _showEmailForm = true),
+                    child: const Text('Sign in with email'),
+                  ),
+                if (ssoFailed) _ssoUnavailableHint(snap.error),
+                if (showEmail) ...[
+                  if (hasSso) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: const [
+                        Expanded(child: Divider()),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('or with email'),
+                        ),
+                        Expanded(child: Divider()),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  _emailPasswordFields(),
+                ],
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 24),
+        _advancedSection(),
+      ],
+    );
+  }
+
+  /// Re-run SSO provider discovery (after a failed fetch — e.g. the backend wasn't
+  /// deployed yet, or the server was briefly unreachable).
+  void _retrySso() {
+    setState(() {
+      _ssoProvidersFuture = ref.read(fieldsyncClientProvider).ssoProviders();
+    });
+  }
+
+  /// Shown when SSO provider discovery FAILED (not merely "no SSO configured"): a
+  /// muted notice + Retry, so the screen isn't silently SSO-less while an admin is
+  /// bringing the server up. The email form still shows below, so sign-in isn't
+  /// blocked. The raw reason is included small, to help debug a deploy.
+  Widget _ssoUnavailableHint(Object? error) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.shield_outlined, size: 18, color: scheme.outline),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Single sign-on is unavailable right now. Sign in with email '
+                  'below, or retry.',
+                  style: TextStyle(color: scheme.outline),
+                ),
+              ),
+            ],
+          ),
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 26),
+              child: Text(
+                '$error',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: scheme.outline),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _busy ? null : _retrySso,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Retry'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Bolt mark + app name — the same brand as the launcher icon / splash.
+  Widget _brandHeader() {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            color: const Color(0xFF00A878),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Icon(Icons.bolt, color: Colors.white, size: 44),
+        ),
+        const SizedBox(height: 16),
+        Text('Voltedge field',
+            style: theme.textTheme.headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        Text(
+          'Sign in to download and sync your field packs',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: theme.colorScheme.outline),
+        ),
+      ],
+    );
+  }
+
+  /// The email + password fields and their Sign in button.
+  Widget _emailPasswordFields() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -161,8 +374,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
           onPressed: _busy ? null : _signIn,
           icon: _busy
               ? const SizedBox(
@@ -172,6 +386,44 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               : const Icon(Icons.login),
           label: Text(_busy ? 'Signing in…' : 'Sign in'),
         ),
+      ],
+    );
+  }
+
+  /// The fieldsync base URL field. At the top of the signed-in view, and under the
+  /// "Advanced" disclosure on the login view (most crews never touch it).
+  Widget _baseUrlField() {
+    return TextField(
+      controller: _baseUrl,
+      enabled: !_busy,
+      keyboardType: TextInputType.url,
+      autocorrect: false,
+      decoration: const InputDecoration(
+        labelText: 'fieldsync base URL',
+        helperText:
+            'Android emulator: http://10.0.2.2:3706 · real device: http://<LAN-ip>:3706',
+        border: OutlineInputBorder(),
+      ),
+    );
+  }
+
+  /// A collapsed "Advanced" disclosure holding the base URL on the login view.
+  Widget _advancedSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.center,
+          child: TextButton.icon(
+            onPressed: () => setState(() => _showAdvanced = !_showAdvanced),
+            icon: Icon(_showAdvanced ? Icons.expand_less : Icons.expand_more),
+            label: const Text('Advanced'),
+          ),
+        ),
+        if (_showAdvanced) ...[
+          const SizedBox(height: 8),
+          _baseUrlField(),
+        ],
       ],
     );
   }

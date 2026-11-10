@@ -49,6 +49,10 @@ var adapters = map[string]adapter{
 	// register (0185) from an external relay-setting DB / SCADA, stamping source so
 	// an ingested setting is distinguishable from a hand entry.
 	"protection": protectionSettingsAdapter{},
+	// alarm ingests ALARM POINTS directly into the operator annunciator (0198) from a
+	// SCADA/EMS alarm feed -- limit violations, comms failures, status alarms that are
+	// not device operations (those come through "operation"). raise/clear by external id.
+	"alarm": alarmAdapter{},
 }
 
 // featureAdapter ingests feature changes through crud.CreateFeature /

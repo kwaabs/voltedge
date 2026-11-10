@@ -87,7 +87,9 @@ func (m *CIMMapping) ClassFor(classCode string, subtype *int) (CimClassMapping, 
 }
 
 // AttributesFor returns the field -> CIM-attribute mappings for a feature class,
-// in no particular order (the encoder emits them deterministically itself).
+// in a stable order (LoadCIMMapping orders by fc.code, f.name, cim_attribute); the
+// encoder re-sorts the emitted literals by CIM attribute name, so this order only
+// breaks ties deterministically.
 func (m *CIMMapping) AttributesFor(classCode string) []CimAttributeMapping {
 	return m.attrsByClass[classCode]
 }
@@ -139,6 +141,10 @@ func LoadCIMMapping(ctx context.Context, db bun.IDB, profileCode string) (*CIMMa
 		ColumnExpr("cm.cim_kind AS cim_kind").
 		Join("JOIN metadata.feature_classes AS fc ON fc.id = cm.feature_class_id").
 		Join("LEFT JOIN metadata.subtypes AS st ON st.id = cm.subtype_id").
+		// Stable order so the encoder's output is deterministic across exports (M4):
+		// these rows go into lookup maps, but ordering them keeps any debugging dump
+		// and the attribute load below consistent.
+		OrderExpr("fc.code, st.code").
 		Scan(ctx, &classRows); err != nil {
 		return nil, err
 	}
@@ -180,6 +186,10 @@ func LoadCIMMapping(ctx context.Context, db bun.IDB, profileCode string) (*CIMMa
 		ColumnExpr("am.value_map AS value_map").
 		Join("JOIN metadata.fields AS f ON f.id = am.field_id").
 		Join("JOIN metadata.feature_classes AS fc ON fc.id = f.feature_class_id").
+		// Stable base order (M4): attrsByClass slices keep this order, so the
+		// encoder's per-object literal emission (literalAttributes sorts by CIM
+		// attribute name) has deterministic tie-breaking across exports.
+		OrderExpr("fc.code, f.name, am.cim_attribute").
 		Scan(ctx, &attrRows); err != nil {
 		return nil, err
 	}

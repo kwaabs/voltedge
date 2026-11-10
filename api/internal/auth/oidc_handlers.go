@@ -1,12 +1,15 @@
 package auth
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -38,12 +41,49 @@ const (
 // then it is simply a stable, credential-free landing.
 func loginErrorRedirect(reason string) string { return "/login?error=" + reason }
 
+// oidcCallbackURL reconstructs this server's own OIDC callback URL for a provider,
+// from the origin the request arrived on (honouring a reverse proxy's X-Forwarded-*).
+// Used by the field flow to point redirect_uri back at the exact origin the device
+// reached us on, so the flow cookie survives the round-trip. Safe against a spoofed
+// Host: the IdP only redirects to a PRE-REGISTERED redirect_uri, so an unregistered
+// origin is rejected there regardless.
+func oidcCallbackURL(r *http.Request, providerKey string) string {
+	scheme := "https"
+	if xf := r.Header.Get("X-Forwarded-Proto"); xf != "" {
+		scheme = strings.TrimSpace(strings.Split(xf, ",")[0])
+	} else if r.TLS == nil {
+		scheme = "http"
+	}
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	return scheme + "://" + host + "/auth/oidc/" + providerKey + "/callback"
+}
+
 type oidcFlowState struct {
 	Provider string `json:"p"`
 	State    string `json:"s"`
 	Nonce    string `json:"n"`
 	Verifier string `json:"v"`
+	// Field marks a flow started by the field app (?field=1). The callback then hands
+	// the device a one-time code via the voltedge:// scheme instead of setting a web
+	// session cookie. DeviceName is the per-device token label the app passes along.
+	Field      bool   `json:"f,omitempty"`
+	DeviceName string `json:"dn,omitempty"`
+	// RedirectURI is the per-flow redirect_uri a field flow overrode (the origin the
+	// device reached us on), carried so the token Exchange sends the SAME value the
+	// auth request did -- the IdP requires them to match. Empty for a web flow, which
+	// uses the provider's configured redirect.
+	RedirectURI string `json:"ru,omitempty"`
 }
+
+// fieldSSODeepLink is where a field SSO flow ends: a custom scheme the field app
+// registers (in ITS manifest -- NOT with the IdP, which only ever redirects to the
+// server's registered web callback). The system browser hands this back to the app,
+// carrying either the one-time ?code= to redeem or an ?error=.
+const fieldSSOScheme = "voltedge"
+const fieldSSODeepLink = fieldSSOScheme + "://field-sso"
 
 type providerInfo struct {
 	Key         string `json:"key"`
@@ -121,13 +161,30 @@ func (s *service) oidcLoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	verifier := oauth2.GenerateVerifier()
 
-	s.setFlowCookie(w, oidcFlowState{Provider: key, State: state, Nonce: nonce, Verifier: verifier})
+	// A field-app flow (?field=1) is remembered in the flow cookie so the callback
+	// knows to hand the device a code rather than set a web session.
+	field := r.URL.Query().Get("field") == "1"
+	deviceName := strings.TrimSpace(r.URL.Query().Get("device_name"))
+	flow := oidcFlowState{Provider: key, State: state, Nonce: nonce, Verifier: verifier, Field: field, DeviceName: deviceName}
 
-	authURL := provider.oauth2.AuthCodeURL(state,
+	opts := []oauth2.AuthCodeOption{
 		oidc.Nonce(nonce),
 		oauth2.S256ChallengeOption(verifier),
 		oauth2.AccessTypeOnline,
-	)
+	}
+	// The field app opens this directly on the api origin IT reaches (dev: the
+	// container's host port; prod: the real API host), not the web origin. The IdP
+	// must send the code back to that SAME origin so the flow cookie (set here) is
+	// present at the callback -- so the field flow overrides redirect_uri with this
+	// request's origin instead of the web-configured OIDC_*_REDIRECT_URL. That origin's
+	// /auth/oidc/{key}/callback must be registered with the IdP. Web is untouched.
+	if field {
+		flow.RedirectURI = oidcCallbackURL(r, key)
+		opts = append(opts, oauth2.SetAuthURLParam("redirect_uri", flow.RedirectURI))
+	}
+	s.setFlowCookie(w, flow)
+
+	authURL := provider.oauth2.AuthCodeURL(state, opts...)
 	http.Redirect(w, r, authURL, http.StatusSeeOther)
 }
 
@@ -168,7 +225,13 @@ func (s *service) oidcCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := provider.oauth2.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(flow.Verifier))
+	exchangeOpts := []oauth2.AuthCodeOption{oauth2.VerifierOption(flow.Verifier)}
+	// A field flow overrode redirect_uri at the auth step; the token exchange must
+	// present the identical value or the IdP rejects it.
+	if flow.RedirectURI != "" {
+		exchangeOpts = append(exchangeOpts, oauth2.SetAuthURLParam("redirect_uri", flow.RedirectURI))
+	}
+	token, err := provider.oauth2.Exchange(ctx, r.URL.Query().Get("code"), exchangeOpts...)
 	if err != nil {
 		s.logEvent(ctx, r, eventLoginFailure, "", "SSO code exchange failed via "+key)
 		http.Redirect(w, r, loginErrorRedirect("sso"), http.StatusSeeOther)
@@ -208,10 +271,22 @@ func (s *service) oidcCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	user, err := s.authenticateOIDC(ctx, r, key, claims)
 	if err != nil {
 		if isForbiddenError(err) || isUnauthorizedError(err) {
+			if flow.Field {
+				http.Redirect(w, r, fieldSSODeepLink+"?error=no_account", http.StatusSeeOther)
+				return
+			}
 			http.Redirect(w, r, loginErrorRedirect("no_account"), http.StatusSeeOther)
 			return
 		}
 		writeError(w, err)
+		return
+	}
+
+	// Field-app flow: hand the device a one-time code via the voltedge:// scheme
+	// instead of establishing a web session. Diverges here because everything above
+	// (code exchange, token verify, account match) is identical for both.
+	if flow.Field {
+		s.finishFieldSSO(ctx, w, r, user, flow.DeviceName)
 		return
 	}
 
@@ -227,6 +302,31 @@ func (s *service) oidcCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookies(w, rawToken, loaded.CSRFToken)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// finishFieldSSO completes a field-app SSO login: it enforces field:login (a
+// non-field user must not get a code), mints a single-use handoff code, and redirects
+// to the voltedge:// scheme the app intercepts. Failures redirect to the same scheme
+// with an ?error= so the app can show a message -- never a web /login page, which the
+// app's system-browser session can't act on.
+func (s *service) finishFieldSSO(ctx context.Context, w http.ResponseWriter, r *http.Request, user *User, deviceName string) {
+	su, err := LoadSessionUser(ctx, s.db, user.ID)
+	if err != nil {
+		http.Redirect(w, r, fieldSSODeepLink+"?error=sso", http.StatusSeeOther)
+		return
+	}
+	if !su.BreakGlass && !su.Has(PermFieldLogin) {
+		s.logEvent(ctx, r, eventLoginDenied, user.ID, "field SSO: account lacks field:login")
+		http.Redirect(w, r, fieldSSODeepLink+"?error=no_field_access", http.StatusSeeOther)
+		return
+	}
+	code, err := createFieldSSOHandoff(ctx, s.db, user.ID, deviceName)
+	if err != nil {
+		http.Redirect(w, r, fieldSSODeepLink+"?error=sso", http.StatusSeeOther)
+		return
+	}
+	s.logEvent(ctx, r, eventLoginSuccess, user.ID, "field SSO login")
+	http.Redirect(w, r, fieldSSODeepLink+"?code="+url.QueryEscape(code), http.StatusSeeOther)
 }
 
 func (s *service) setFlowCookie(w http.ResponseWriter, flow oidcFlowState) {

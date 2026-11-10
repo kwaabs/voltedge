@@ -483,6 +483,12 @@ type SymbologyRule struct {
 	MinZoom        *int            `bun:"min_zoom"`
 	MaxZoom        *int            `bun:"max_zoom"`
 	StyleDef       json.RawMessage `bun:"style_def"`
+	// Raw (field, value) attribute match (migration 0193): an alternative to
+	// DomainValueID's domain-resolved match, used to key a rule directly on a plain
+	// column (the assembly map-symbol feature keys on assembly_ref). Both nil for an
+	// ordinary rule. resolveSymbologySchema publishes these as domain_field/value_code.
+	MatchField *string `bun:"match_field"`
+	MatchValue *string `bun:"match_value"`
 }
 
 // SymbologyIcon mirrors metadata.symbology_icons (migrations/0023) -- the
@@ -652,6 +658,12 @@ type AssemblyItem struct {
 // (position) order.
 type AssemblyTemplateResolved struct {
 	AnchorSubtypeCode *int
+	// AnchorAttributes are template defaults applied to the ANCHOR feature at
+	// placement (migration 0194), merged UNDER the placing caller's own attributes
+	// (caller wins). Lets a kit pin a required config field on its anchor -- e.g. a
+	// COMPACT packaged-sub template sets package_config=COMPACT -- so the recipe,
+	// not the user, supplies it. Empty for an ordinary kit.
+	AnchorAttributes  map[string]any
 	Items             []AssemblyItem
 }
 

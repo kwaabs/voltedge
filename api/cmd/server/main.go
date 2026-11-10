@@ -37,6 +37,8 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/coupler"
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/alarms"
+	"github.com/kwaabs/voltedge/api/internal/dbexplorer"
 	"github.com/kwaabs/voltedge/api/internal/deviceops"
 	"github.com/kwaabs/voltedge/api/internal/events"
 	"github.com/kwaabs/voltedge/api/internal/protection"
@@ -62,12 +64,10 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/metermount"
 	"github.com/kwaabs/voltedge/api/internal/oms"
 	"github.com/kwaabs/voltedge/api/internal/ownership"
-	"github.com/kwaabs/voltedge/api/internal/packagedsub"
 	"github.com/kwaabs/voltedge/api/internal/panel"
 	"github.com/kwaabs/voltedge/api/internal/powerflow"
 	"github.com/kwaabs/voltedge/api/internal/ratelimit"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
-	"github.com/kwaabs/voltedge/api/internal/rmu"
 	"github.com/kwaabs/voltedge/api/internal/rules"
 	"github.com/kwaabs/voltedge/api/internal/safety"
 	"github.com/kwaabs/voltedge/api/internal/schematic"
@@ -130,6 +130,19 @@ func main() {
 	if err := exportStore.EnsureBucket(context.Background()); err != nil {
 		log.Printf("warning: could not ensure export bucket (exports fail until RustFS is reachable): %v", err)
 	}
+	// CIM sync baselines live in a separate bucket. The API only needs it for the
+	// best-effort cleanup when a sync target is deleted (the export WORKER is what
+	// reads/advances baselines); a failure here just disables that cleanup.
+	if bs, bserr := export.NewObjectStoreForBucket(export.CIMBaselineBucket); bserr != nil {
+		log.Printf("warning: CIM baseline store unavailable (deleted sync-target baselines won't be reaped by the API): %v", bserr)
+	} else {
+		export.SetBaselineStore(bs)
+	}
+
+	// The alarm annunciator's standing off-normal feed lives in deviceops (it reuses
+	// the abnormal-configuration scan); inject it so POST /alarms/reconcile can trigger
+	// a rescan without alarms importing deviceops (a cycle).
+	alarms.SetStandingReconciler(deviceops.ReconcileAbnormalAlarms)
 
 	// Field-app distribution ("our own play store"): a separate bucket for the
 	// published signed APK + its latest.json manifest, served publicly (see the
@@ -305,6 +318,15 @@ func main() {
 	// the assets, not feature data), gated method-aware here so this router
 	// carries no auth of its own -- the same arrangement OMS uses.
 	r.With(auth.RequirePermission(auth.PermWAMRead, auth.PermWAMWrite)).Mount("/wam", wam.Routes(db))
+	// Inspection-template authoring is configuration, not field work: its writes
+	// need metadata:write (admins/planners, the same bar as the fault-mode catalog
+	// and data-quality rules). The GET is readable by EITHER reader -- an inspection
+	// runner (wam:read) listing a checklist to fill out, OR a template author
+	// (metadata:write) opening the Admin page to edit it -- so the Admin nav (gated
+	// metadata:write) and this gate agree even for a metadata:write-only role like
+	// the data-gis preset, which lacks wam:read.
+	r.With(auth.RequirePermissionReadAny([]string{auth.PermWAMRead, auth.PermMetadataWrite}, auth.PermMetadataWrite)).
+		Mount("/inspection-templates", wam.TemplateRoutes(db))
 	// Faults: the electrical fault event -- the causal hinge between OMS (the
 	// outage a fault causes) and WAM (the defect a fault triggers). Its own
 	// faults:read/faults:write capability (a fault straddles both subsystems but
@@ -316,6 +338,14 @@ func main() {
 	// Its own operations:* capability (a device operation is neither a fault
 	// investigation nor an outage); method-aware gate, router carries no auth.
 	r.With(auth.RequirePermission(auth.PermOperationsRead, auth.PermOperationsWrite)).Mount("/operations", deviceops.Routes(db))
+	// Operations-one-line layout overrides (migration 0200): operator position nudges
+	// for the LIVE operations schematic, owned by the operations surface (not the
+	// diagram engine). Same operations:read/write gate as the device-ops surface.
+	r.With(auth.RequirePermission(auth.PermOperationsRead, auth.PermOperationsWrite)).Mount("/oneline-layout", schematic.OverrideRoutes(db))
+	// The operator alarm annunciator (migration 0198): a prioritised, acknowledgeable
+	// worklist fed by device operations + off-normal configuration. A console surface,
+	// gated with the outage board's oms:read / oms:write.
+	r.With(auth.RequirePermission(auth.PermOMSRead, auth.PermOMSWrite)).Mount("/alarms", alarms.Routes(db))
 	// Operational safety (migration 0151): tags, grounds and clearances, and the
 	// interlock a blocking tag feeds. Its own safety:* capability -- a blocking tag
 	// bars operation for everyone, so the right to protect (and release) a work area
@@ -340,6 +370,11 @@ func main() {
 	// The field user PUSHES their own trail under features:write on the fieldsync
 	// surface; seeing someone else's is the privileged action gated here.
 	r.With(auth.RequirePermission(auth.PermFieldTracksRead, auth.PermFieldTracksRead)).Mount("/field-tracks", fieldtrack.Routes(db))
+	// Org-wide field-tracking kill-switch (field_tracking_enabled, default ON). An
+	// opt-out an org flips where staff-location recording is forbidden; off stops the
+	// trail AND the located edits. Method-aware gate: GET field:tracks:read (a
+	// supervisor sees the policy), PUT admin:field-packs (a field admin sets it).
+	r.With(auth.RequirePermission(auth.PermFieldTracksRead, auth.PermFieldPacksAdmin)).Mount("/field-tracking", fieldtrack.PolicyRoutes(db))
 	// Spatial engine (geometry-derived overlap/proximity across the gis.* tables):
 	// "what assets are inside this easement / corridor / parcel?", "what land covers
 	// this asset?", "what vegetation is within N m of this line?". Read-only over the
@@ -383,32 +418,15 @@ func main() {
 	// writes, and panel.Routes adds an inner relationships:commit requirement --
 	// the same layered two-capability gate circuit's assign route uses.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/panels", panel.Routes(db))
-	// Phase RMU (docs/phase-rmu.md): the composite "place one Ring Main Unit and
-	// get its whole assembly of ways + internal bus" endpoint. Like /panels it
-	// creates features and writes containment, but it ALSO commits the internal
-	// way -> bus connections, so it needs THREE capabilities: the method-aware
-	// features gate here covers the feature writes, and rmu.Routes adds inner
-	// relationships:commit + connectivity:commit requirements -- the panel gate,
-	// one capability deeper because the RMU is the first fan-out wiring topology.
-	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/rmus", rmu.Routes(db))
-	// Phase 56 (docs/phase-56-packaged-substation.md): the composite "place one
-	// packaged (movable) substation and get its whole pre-wired kit" endpoint. Like
-	// /rmus it creates features, writes containment AND commits internal
-	// connectivity, so it needs the same THREE capabilities: the method-aware
-	// features gate here covers the feature writes, and packagedsub.Routes adds the
-	// inner relationships:commit + connectivity:commit requirements. The only
-	// difference from /rmus is topology -- a chain (switch -> transformer -> board)
-	// rather than a star of ways around one bus.
-	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/packaged-substations", packagedsub.Routes(db))
-	// Phase 57 (docs/phase-57-overhead-urd-assemblies.md): the GENERAL kit-assembly
-	// endpoint -- place one anchor feature and fan out its templated kit (the pole-
-	// mounted overhead transformer, the pad-mount URD unit, and future recloser/
-	// capacitor/BESS kits). It generalises /rmus and /packaged-substations: each item
-	// names its own structural parent + relationship kind AND its electrical wiring
-	// target by position, so one engine describes a star, a chain OR a branch. Like
-	// them it creates features, writes relationships AND commits connectivity, so it
-	// carries the same THREE capabilities (features gate here + inner relationships:
-	// commit + connectivity:commit in assembly.Routes).
+	// The GENERAL kit-assembly endpoint -- place one anchor feature and fan out its
+	// templated kit. It is now the SINGLE fan-out engine: the former /rmus (star) and
+	// /packaged-substations (chain) engines were folded in (their recipes re-expressed
+	// as assembly_templates, seed/consolidated_assembly_templates.sql), since each
+	// assembly_item names its own structural parent + relationship kind AND its
+	// electrical wiring target by position, so one engine describes a star, a chain OR
+	// a branch. It creates features, writes relationships AND commits connectivity, so
+	// it carries THREE capabilities (features gate here + inner relationships:commit +
+	// connectivity:commit in assembly.Routes).
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/assemblies", assembly.Routes(db))
 	// Attach a lamp to a pole: create a geometry-less pole-mounted STREET_LIGHT,
 	// link it to the pole, and best-effort auto-wire it to the pole's nearby LV.
@@ -512,6 +530,12 @@ func main() {
 	// per-user preference, so unlike map-settings even the GET needs the admin
 	// capability. Persisted in iam.system_settings and re-applied at boot above.
 	r.With(auth.RequirePermission(auth.PermUsersManage, auth.PermUsersManage)).Mount("/log-settings", logsettings.Routes(db))
+	// The database explorer (internal/dbexplorer): a schema browser + read-only SQL
+	// runner for the highest-privilege operators. Gated on admin:db (granted only to
+	// admin / break-glass-admin, migration 0188). STRICTLY READ ONLY -- every query
+	// runs in a read-only transaction with a statement timeout and row cap, and every
+	// execution is audited.
+	r.With(auth.RequirePermission(auth.PermDBExplore, auth.PermDBExplore)).Mount("/db-explorer", dbexplorer.Routes(db))
 	// Phase 61 private-drafts rollout switch (private_drafts_enabled). Same
 	// method-aware gate as map-settings: GET is features:read so an admin screen
 	// can show the current state, while the PUT that flips it -- retroactively
@@ -579,6 +603,31 @@ func main() {
 	// never competes with request handling. The API only enqueues jobs and mints
 	// download URLs; run `task exportworker-dev` (or the compose service)
 	// alongside this server, or queued exports will sit unprocessed.
+
+	// Keep the standing OFF-NORMAL alarm feed fresh regardless of how a device was
+	// operated: a SCADA-ingested operation (webhook "operation"/"alarm" targets) or a
+	// telemetry-driven change never hits the interactive reconcile path, so scan the
+	// abnormal configuration once at startup and then on a ticker. Idempotent (upsert +
+	// clear), so redundant runs across replicas simply converge; panic-guarded so a scan
+	// error never takes the API down.
+	go func() {
+		reconcile := func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("warning: abnormal-config alarm reconcile panicked: %v", rec)
+				}
+			}()
+			if err := deviceops.ReconcileAbnormalAlarms(context.Background(), db); err != nil {
+				log.Printf("warning: abnormal-config alarm reconcile: %v", err)
+			}
+		}
+		reconcile()
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			reconcile()
+		}
+	}()
 
 	log.Printf("voltedge api listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
@@ -944,6 +993,14 @@ func resolveSymbologySchema(ctx context.Context, db *bun.DB, loaded *metadata.Lo
 				code := v.Code
 				s.DomainValueCode = &code
 			}
+		}
+		// Raw (field, value) match (migration 0193): published straight through as the
+		// domain_field/domain_value_code the frontend matcher already compares --
+		// attributes[field] === value -- so a rule can key on a plain column (e.g.
+		// assembly_ref) without a domain. match_field/match_value are both-or-neither.
+		if r.MatchField != nil && r.MatchValue != nil {
+			s.DomainField = r.MatchField
+			s.DomainValueCode = r.MatchValue
 		}
 		out = append(out, s)
 	}

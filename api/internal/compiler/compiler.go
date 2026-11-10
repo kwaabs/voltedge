@@ -183,6 +183,19 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 					result.ColumnsAdded = append(result.ColumnsAdded, "retired_at")
 				}
 
+				// assembly_ref (0192) -- the marker system column a placed assembly's
+				// anchor carries (the template `code`), so a map-context symbology rule
+				// can give the assembly its own map glyph without a new class. All
+				// classes get it; nullable, no default. buildCreateTable emits it on a
+				// fresh table; this backfills any table compiled before it existed.
+				if !existingCols["assembly_ref"] {
+					stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN assembly_ref text", qualifiedTable)
+					if _, err := tx.ExecContext(ctx, stmt); err != nil {
+						return fmt.Errorf("add column assembly_ref: %w", err)
+					}
+					result.ColumnsAdded = append(result.ColumnsAdded, "assembly_ref")
+				}
+
 				// territory_id (Phase 11) -- only geometric classes get it; a
 			// geometry-less class has nothing to place in a territory.
 			// Mirrors the created_by backfill so a recompile also covers a

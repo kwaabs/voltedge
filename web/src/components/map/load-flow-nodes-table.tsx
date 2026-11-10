@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 import { ChevronRight, List, ListTree } from "lucide-react"
 
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { Button } from "@/components/ui/button"
 import { ancestorPathKeys, buildTreeLines, type TreeItem } from "@/lib/result-tree"
 import { cn } from "@/lib/utils"
@@ -158,11 +159,12 @@ export function LoadFlowNodesTable<N extends AnalysisNode>({
     return (
       <tr
         key={key}
-        onClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
+        onClick={() => useSelectionStore.getState().locate(node.feature_class, node.feature_id, { focus: true })}
+        onDoubleClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
         onMouseEnter={tree ? () => setHoveredKey(key) : undefined}
         onMouseLeave={tree ? () => setHoveredKey(null) : undefined}
         className={cn(
-          "hover:bg-accent cursor-pointer border-b last:border-b-0",
+          "hover:bg-accent cursor-pointer border-b last:border-b-0 select-none",
           onPath && !overloaded && "bg-primary/5",
           overloaded && "bg-destructive/10 text-destructive hover:bg-destructive/15",
         )}
@@ -211,6 +213,7 @@ export function LoadFlowNodesTable<N extends AnalysisNode>({
                   ) : (
                     <span className="inline-block size-4 shrink-0" />
                   )}
+                  <FeatureInfoButton featureClass={node.feature_class} featureId={node.feature_id} />
                   <span className={cn("truncate", onPath && "font-medium")}>{classNameFor(node.feature_class)}</span>
                   {tree.isRoot && (
                     <span className="rounded bg-primary/15 text-primary shrink-0 px-1.5 py-0.5 text-[11px] font-medium">
@@ -231,11 +234,14 @@ export function LoadFlowNodesTable<N extends AnalysisNode>({
               </div>
             </div>
           ) : (
-            <>
-              <div>{classNameFor(node.feature_class)}</div>
-              <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
-              {subline && <div className="text-muted-foreground text-xs">{subline}</div>}
-            </>
+            <div className="flex items-start gap-1">
+              <FeatureInfoButton featureClass={node.feature_class} featureId={node.feature_id} className="-mt-0.5" />
+              <div className="min-w-0">
+                <div>{classNameFor(node.feature_class)}</div>
+                <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
+                {subline && <div className="text-muted-foreground text-xs">{subline}</div>}
+              </div>
+            </div>
           )}
         </td>
         {columns.map((col, i) => (
@@ -316,13 +322,19 @@ export function LoadFlowNodesTable<N extends AnalysisNode>({
             {barriers.map((b) => (
               <tr
                 key={nodeKey(b)}
-                onClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
-                className="bg-muted/50 text-muted-foreground hover:bg-muted cursor-pointer border-b last:border-b-0"
+                onClick={() => useSelectionStore.getState().locate(b.feature_class, b.feature_id, { focus: true })}
+                onDoubleClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
+                className="bg-muted/50 text-muted-foreground hover:bg-muted select-none cursor-pointer border-b last:border-b-0"
                 title={barrierLabel}
               >
                 <td className="px-3 py-1.5">
-                  <div>{classNameFor(b.feature_class)}</div>
-                  <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
+                  <div className="flex items-start gap-1">
+                    <FeatureInfoButton featureClass={b.feature_class} featureId={b.feature_id} className="-mt-0.5" />
+                    <div className="min-w-0">
+                      <div>{classNameFor(b.feature_class)}</div>
+                      <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="px-3 py-1.5" colSpan={columns.length}>
                   {barrierLabel}

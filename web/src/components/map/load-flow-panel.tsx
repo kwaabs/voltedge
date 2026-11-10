@@ -129,6 +129,8 @@ export function LoadFlowPanel() {
   const result = useLoadFlowStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("230")
+  const [measuredInput, setMeasuredInput] = useState("")
+  const [allocBasis, setAllocBasis] = useState("kva")
   // Blank the voltage when armed from a transformer so its secondary is derived.
   useDeriveVoltageDefault(armedStart, "230", setVoltageInput)
   const fp = useFloatingPanel(576, "max-h-80")
@@ -220,11 +222,27 @@ export function LoadFlowPanel() {
       return
     }
 
+    // Optional load allocation: spread a measured feeder-head load over the leaves so
+    // the flow matches the real load rather than the model's as-designed demand.
+    let allocation: { measured_kw: number; basis: string } | undefined
+    if (measuredInput.trim() !== "") {
+      const measured = Number(measuredInput)
+      if (!(measured >= 0)) {
+        useToastStore.getState().pushError("Measured load must be a non-negative number of kW.")
+        return
+      }
+      allocation = { measured_kw: measured, basis: allocBasis }
+    }
+
     useLoadFlowStore.getState().setLoading(true)
     try {
       const response = await apiFetch<LoadFlowResult>("/analysis/load-flow", {
         method: "POST",
-        body: JSON.stringify({ start, ...(nv.value !== undefined && { nominal_voltage_v: nv.value }) }),
+        body: JSON.stringify({
+          start,
+          ...(nv.value !== undefined && { nominal_voltage_v: nv.value }),
+          ...(allocation && { allocation }),
+        }),
       })
       useLoadFlowStore.getState().setResult(response)
     } catch (err) {
@@ -247,17 +265,40 @@ export function LoadFlowPanel() {
       </div>
 
       {!result ? (
-        <div className="flex items-center gap-2 p-3">
-          <label className="text-muted-foreground shrink-0 text-sm">Nominal voltage (V)</label>
-          <input
-            type="number"
-            className={cn(inputClass, "w-40")}
-            value={voltageInput}
-            onChange={(e) => setVoltageInput(e.target.value)}
-            placeholder={NOMINAL_VOLTAGE_HINT}
-            title="Leave blank to analyse the LV network below a transformer start (its secondary voltage is used)."
-            autoFocus
-          />
+        <div className="flex flex-wrap items-end gap-2 p-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-muted-foreground text-xs">Nominal voltage (V)</label>
+            <input
+              type="number"
+              className={cn(inputClass, "w-32")}
+              value={voltageInput}
+              onChange={(e) => setVoltageInput(e.target.value)}
+              placeholder={NOMINAL_VOLTAGE_HINT}
+              title="Leave blank to analyse the LV network below a transformer start (its secondary voltage is used)."
+              autoFocus
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-muted-foreground text-xs">Measured load (kW)</label>
+            <input
+              type="number"
+              className={cn(inputClass, "w-28")}
+              value={measuredInput}
+              onChange={(e) => setMeasuredInput(e.target.value)}
+              placeholder="optional"
+              title="Spread a measured feeder-head load over the downstream leaves (load allocation) instead of the model's as-designed demand, so the flow matches reality."
+            />
+          </div>
+          {measuredInput.trim() !== "" && (
+            <div className="flex flex-col gap-1">
+              <label className="text-muted-foreground text-xs">Weight by</label>
+              <select className={cn(inputClass, "w-32")} value={allocBasis} onChange={(e) => setAllocBasis(e.target.value)}>
+                <option value="kva">Connected kVA</option>
+                <option value="customers">Customers</option>
+                <option value="as_designed">As-designed kW</option>
+              </select>
+            </div>
+          )}
           <Button size="sm" className="ml-auto" onClick={runLoadFlow} disabled={loading}>
             {loading ? "Running…" : "Run"}
           </Button>
@@ -281,6 +322,17 @@ export function LoadFlowPanel() {
             toolbar={
               <>
                 <span>Nominal {formatNumber(result.nominal_voltage_v, 0)}V</span>
+                {result.allocation && (
+                  <span
+                    title={`Measured ${formatNumber(result.allocation.measured_kw, 0)} kW spread by ${result.allocation.basis}${
+                      result.allocation.basis_fallback ? ` → ${result.allocation.basis_fallback}` : ""
+                    }; ${result.allocation.applied_nodes}/${result.allocation.leaf_count} leaves applied${
+                      result.allocation.unmatched_leaves > 0 ? ` (${result.allocation.unmatched_leaves} not in tree)` : ""
+                    }. Model ×${formatNumber(result.allocation.scale_factor, 2)} of measured.`}
+                  >
+                    allocated {formatNumber(result.allocation.measured_kw, 0)} kW · ×{formatNumber(result.allocation.scale_factor, 2)}
+                  </span>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"

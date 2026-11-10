@@ -364,17 +364,23 @@ ORDER BY psi.position`
 // api/internal/assembly.
 func LoadAssemblyTemplate(ctx context.Context, db bun.IDB, anchorClassCode, code string) (*AssemblyTemplateResolved, error) {
 	const headerQuery = `
-SELECT at.anchor_subtype_code
+SELECT at.anchor_subtype_code, at.anchor_attributes
 FROM metadata.assembly_templates at
 JOIN metadata.feature_classes afc ON afc.id = at.anchor_feature_class_id
 WHERE afc.code = ? AND at.code = ?`
 
 	resolved := &AssemblyTemplateResolved{}
-	switch err := db.QueryRowContext(ctx, headerQuery, anchorClassCode, code).Scan(&resolved.AnchorSubtypeCode); {
+	var rawAnchorAttrs []byte
+	switch err := db.QueryRowContext(ctx, headerQuery, anchorClassCode, code).Scan(&resolved.AnchorSubtypeCode, &rawAnchorAttrs); {
 	case errors.Is(err, sql.ErrNoRows):
 		return nil, nil
 	case err != nil:
 		return nil, fmt.Errorf("metadata: loading assembly template for %s/%s: %w", anchorClassCode, code, err)
+	}
+	if len(rawAnchorAttrs) > 0 {
+		if err := json.Unmarshal(rawAnchorAttrs, &resolved.AnchorAttributes); err != nil {
+			return nil, fmt.Errorf("metadata: decoding assembly anchor_attributes for %s/%s: %w", anchorClassCode, code, err)
+		}
 	}
 
 	const itemQuery = `

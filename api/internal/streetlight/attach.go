@@ -30,6 +30,12 @@ const (
 	poleMountedSubtype = 3
 	supportKind        = "spatial_support"
 	lampTerminal       = "T1"
+	// supplyModeAttr / supplyModeSolarStandalone: a lamp whose supply_mode is
+	// SOLAR_STANDALONE is off-grid (its own PV + battery), so it is deliberately
+	// NOT auto-wired to the grid LV -- that absence of a connectivity edge is what
+	// keeps it out of electrical traces / OMS. See seed/street_light_supply_mode.sql.
+	supplyModeAttr            = "supply_mode"
+	supplyModeSolarStandalone = "SOLAR_STANDALONE"
 	// defaultRadiusMeters: how close an LV conductor must pass to the pole to be
 	// considered "on" it for the auto-wire. ~10 m covers the span sag / capture
 	// slop without reaching an adjacent street's line.
@@ -121,6 +127,13 @@ func AttachStreetLight(ctx context.Context, db *bun.DB, in AttachInput) (*Attach
 	result := &AttachResult{StreetLight: lamp, Relationship: rel}
 
 	// 2. best-effort auto-wire (never fatal past here -- the lamp is attached).
+	// A solar standalone lamp is off-grid by definition -- never wire it to the grid
+	// LV. Leaving it unwired is deliberate: with no connectivity edge it stays out of
+	// the electrical traces / OMS, while remaining a full asset on its pole.
+	if sm, _ := in.Attributes[supplyModeAttr].(string); sm == supplyModeSolarStandalone {
+		result.WireNote = "attached; solar standalone lamp — off-grid, intentionally not wired to the LV"
+		return result, nil
+	}
 	if !in.CanWire {
 		result.WireNote = "attached but not wired -- needs connectivity:commit to auto-wire"
 		return result, nil

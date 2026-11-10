@@ -8,9 +8,11 @@ import { Toaster } from "@/components/ui/toaster"
 import { useThemeEffect } from "@/hooks/use-theme-effect"
 import { AdminAssetTagsPage } from "@/routes/admin-asset-tags"
 import { AdminCimMappingsPage } from "@/routes/admin-cim-mappings"
+import { AdminCimSyncTargetsPage } from "@/routes/admin-cim-sync-targets"
 import { AdminImportsPage } from "@/routes/admin-imports"
 import { AdminHomePage } from "@/routes/admin-home"
 import { AdminCircuitsPage } from "@/routes/admin-circuits"
+import { AdminDbExplorerPage } from "@/routes/admin-db-explorer"
 import { AdminDomainsPage } from "@/routes/admin-domains"
 import { AdminExternalSystemsPage } from "@/routes/admin-external-systems"
 import { AdminFeatureClassDetailPage } from "@/routes/admin-feature-class-detail"
@@ -28,6 +30,7 @@ import { FieldTracksPage } from "@/routes/field-tracks"
 import { LiveStatePage } from "@/routes/live-state"
 import { AdminFaultModesPage } from "@/routes/admin-fault-modes"
 import { AdminAssetLifePage } from "@/routes/admin-asset-life"
+import { AdminInspectionTemplatesPage } from "@/routes/admin-inspection-templates"
 import { AdminValidationRulesPage } from "@/routes/admin-validation-rules"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
 import { AdminProtectionCurvesPage } from "@/routes/admin-protection-curves"
@@ -38,6 +41,7 @@ import { AdminStencilsPage } from "@/routes/admin-stencils"
 import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { AdminTerritoriesPage } from "@/routes/admin-territories"
 import { AdminUsersPage } from "@/routes/admin-users"
+import { AdminRolesPage } from "@/routes/admin-roles"
 import { AdminLoggingPage } from "@/routes/admin-logging"
 import { AdminActivityPage } from "@/routes/admin-activity"
 import { AdminEditSessionsPage } from "@/routes/admin-edit-sessions"
@@ -52,6 +56,7 @@ import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
 import { NotFoundPage } from "@/routes/not-found"
 import { OperationsPage } from "@/routes/operations"
+import { OperationsSchematicPage } from "@/routes/operations-schematic"
 import { OutageDetailPage, OutagesPage } from "@/routes/outages"
 import { TagResolvePage } from "@/routes/tag-resolve"
 import { WorksPage } from "@/routes/works"
@@ -158,6 +163,19 @@ export function App() {
               element={
                 <RequirePermission perm="operations:read">
                   <OperationsPage />
+                </RequirePermission>
+              }
+            />
+            {/* The ADMS whole-network operations schematic -- a full-screen,
+                persistent one-line built on the diagram engine, nested under the
+                Operations surface. Reads the diagram engine, so it's gated on
+                diagrams:read (the data endpoint's own gate) rather than the
+                device-op log's operations:read. */}
+            <Route
+              path="operations/schematic"
+              element={
+                <RequirePermission perm="diagrams:read">
+                  <OperationsSchematicPage />
                 </RequirePermission>
               }
             />
@@ -284,6 +302,14 @@ export function App() {
               }
             />
             <Route
+              path="admin/cim-sync-targets"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminCimSyncTargetsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
               path="admin/asset-tags"
               element={
                 <RequirePermission perm="tags:read">
@@ -364,6 +390,14 @@ export function App() {
               }
             />
             <Route
+              path="admin/inspection-templates"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminInspectionTemplatesPage />
+                </RequirePermission>
+              }
+            />
+            <Route
               path="admin/asset-life"
               element={
                 <RequirePermission perm="metadata:write">
@@ -428,10 +462,26 @@ export function App() {
               }
             />
             <Route
+              path="admin/roles"
+              element={
+                <RequirePermission perm="admin:users">
+                  <AdminRolesPage />
+                </RequirePermission>
+              }
+            />
+            <Route
               path="admin/logging"
               element={
                 <RequirePermission perm="admin:users">
                   <AdminLoggingPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/db"
+              element={
+                <RequirePermission perm="admin:db">
+                  <AdminDbExplorerPage />
                 </RequirePermission>
               }
             />

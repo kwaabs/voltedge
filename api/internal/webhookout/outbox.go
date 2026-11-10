@@ -34,6 +34,7 @@ const (
 	KindDefect    = "defect"
 	KindFault     = "fault"
 	KindFeature   = "feature"
+	KindExport    = "export"
 )
 
 // Event types -- the semantic `event_type` a write path emits. Namespaced by module so
@@ -66,6 +67,12 @@ const (
 	EventFeatureDeleted     = "feature.deleted"
 	EventFeatureRestored    = "feature.restored"
 	EventFeaturePurged      = "feature.purged"
+
+	// Fired when a CIM sync-target export finishes (api/internal/export's
+	// runCIMSyncJob): an external consumer subscribes to be told a fresh full or
+	// difference model is ready to pull. The payload carries the job id, the
+	// target, the full/difference kind + counts, and a time-limited download URL.
+	EventExportReady = "export.ready"
 )
 
 // OutboundEvent is one row of ops.webhook_outbound_events (migration 0133). Seq is

@@ -1,6 +1,6 @@
 # VoltEdge Integrations & External Systems Guide
 
-_Last updated: 2026-10-30_
+_Last updated: 2026-11-06_
 
 A how-to manual for connecting VoltEdge to the **other systems that run your utility** — SCADA, AMI/metering, a CIS/billing platform, a work-order system, a document store — so a feature on the map knows what it is called everywhere else, can pull live data on demand, and stays in step when another system pushes a change.
 
@@ -125,7 +125,7 @@ The blocks so far are VoltEdge reaching out. A **webhook endpoint** is the rever
 | --- | --- |
 | **Name** | A label for the sender (e.g. *CIS account sync*). |
 | **Direction** | `push` (another system calls us — this chapter), `pull` (we fetch from it — Chapter 6), or `outbound` (we emit to it — Chapter 7). |
-| **Target** | What the delivery drives: `feature`, `reading`, `work`, `fault`, `operation`, `outage`, `protection`, or a read-only **mirror** (`incident`, `workorder`) — hidden for outbound. See the table below, Chapter 7¾ for `protection`, and Chapter 7½ for the mirror targets. |
+| **Target** | What the delivery drives: `feature`, `reading`, `work`, `fault`, `operation`, `alarm`, `outage`, `protection`, or a read-only **mirror** (`incident`, `workorder`) — hidden for outbound. See the table below, Chapter 7¾ for `protection`, and Chapter 7½ for the mirror targets. |
 | **Default feature class** | For `feature`/`reading`: the class used when a change doesn't name one (e.g. `SERVICE_POINT`). |
 | **Service user** | *Required.* Ingested writes run **as this user**, so they inherit that user's RBAC and territory write-scope, and history attributes the change to them. |
 | **Auth mode** | `hmac`, `bearer`, or `both` — how a delivery proves it's genuine (§5.3). |
@@ -142,7 +142,8 @@ Each endpoint has its own **receive URL**: `POST /webhooks/{id}` (the admin page
 | `reading` | the same path | A reading is modelled as a feature row; a thin alias of `feature`, declared separately so intent is explicit. |
 | `work` | the WAM engine | Creates/updates VoltEdge-**owned** work orders from the feed. Correlated via the work/fault entity-ref table. |
 | `fault` | the Faults engine | Same correlation table. |
-| `operation` | the device-operations log | Records a switching/operation event against a device. |
+| `operation` | the device-operations log | Records a switching/operation event against a device. An alarm-worthy op (lockout, trip, earth, device alarm) also **raises an operator alarm** on the annunciator. |
+| `alarm` | the operator alarm annunciator | **Raises an alarm point directly** (a limit violation, comms failure, status alarm — anything that is *not* a device operation) from a SCADA/EMS alarm feed. Keyed by `external_id` per system: a repeat updates one alarm; `op: "clear"` signals return-to-normal. Device is optional (direct or by `device_external_id`). |
 | `outage` | the OMS | **Raises VoltEdge's own incident** from a device signal (SCADA trip / AMI last-gasp) — VoltEdge then runs its own OMS. |
 | `protection` | the protection-settings register | Upserts a device's **as-built relay / overcurrent settings** (pickups, time dials, CT ratio, reclose scheme) from an external relay-setting DB / SCADA. Correlated to the device like `operation`. *(Chapter 7¾.)* |
 | `incident` | the OMS (read-only **mirror**) | Reflects a **full external incident** into a display-only shadow VoltEdge never edits or re-emits. The external OMS owns its lifecycle. *(Chapter 7½.)* |
@@ -243,6 +244,8 @@ A **pull** endpoint inverts a push: instead of waiting to be called, VoltEdge **
 The fourth direction is VoltEdge **emitting** to another system when something changes. Set **Direction: outbound** and configure a **target URL**, the **event types** and **feature-class / territory filters** that select what to send, a **signing secret**, and an **envelope mapping** to shape the payload the receiver expects. VoltEdge signs each outbound delivery with `X-VoltEdge-Signature` (and tags it with `X-VoltEdge-Delivery`), mirroring the inbound HMAC scheme so the receiver can verify it the same way. The endpoint view adds a **Ping** button (send a synthetic event), an **outbound delivery log**, and per-delivery **replay** — the same operability as the inbound side.
 
 💡 Outbound is the counterpart to inbound: inbound keeps VoltEdge in step with the world; outbound keeps the world in step with VoltEdge. A full round-trip integration usually runs both — an inbound endpoint from CIS and an outbound one back to it — joined by the `external_ref` on each feature.
+
+💡 **CIM sync push.** One outbound event type worth knowing is **`export.ready`**: subscribe an endpoint to it and VoltEdge POSTs a notification whenever a **CIM sync-target** export finishes — the job id, the target, whether it was a full or difference model, the add/remove counts, and a time-limited presigned download URL. It is how a consumer is told "a fresh CIM model is ready to pull" without polling. See the [CIM Export Guide](cim-export-guide.md) **Chapter 11 — Incremental exchange** for the sync targets and difference models behind it.
 
 ---
 
@@ -374,6 +377,94 @@ Because an upsert is last-writer-wins, `source` always reflects *who touched it 
 On **Admin → Webhooks → New**, pick **Direction: push** (or `pull`) and **Target: Protection settings**. Set a **Service user** with `features:write`, the **auth** (§5.3), and — if changes name devices by `device_external_id` — the **External system code** (the optional input now shown for the device-resolving targets `operation`, `outage` and `protection` alike; `web/src/routes/admin-webhooks.tsx:69,320`). Leave the System code blank if every change names its device directly with `device_class` + `device_id`.
 
 💡 **Already know VoltEdge's ids?** A system that holds VoltEdge's own `feature_class` + `feature_id` can skip the webhook and write the register **directly**: `PUT /protection/settings/{class}/{id}` (`features:write` — `api/cmd/server/main.go:328`). The webhook target exists for the common case where the external system speaks its *own* device ids and you want provenance, correlation and the delivery log that come with an endpoint.
+
+---
+
+## Chapter 7⅘ — Operations, outages & alarms from the field
+
+🔒 *Administrative — needs `metadata:write` to configure; the ingested writes run as the endpoint's service user, which must hold `operations:write` (`operation`) or `oms:write` (`outage`, `alarm`).*
+
+Three targets turn a **field / SCADA / CIS signal** into an operational record, so the control room sees reality from telemetry instead of waiting for a phone to ring. They share the device/service-point correlation of §5.5 (`resolveFeatureRef`, `adapter_outage.go:168`): a thing is named *directly* by VoltEdge's own ids, **or** by an external id resolved through `external_ref` using the endpoint's **System code**. All three take `op: "upsert"` only (a field signal is never webhook-deleted) except `alarm`, which adds `op: "clear"`.
+
+### 7⅘.1 `operation` — the device-operation log (and an alarm)
+
+A device **operated**: a trip, lockout, reclose, open, close, earth. The `operation` target records one row in the append-only device-operation log (`ops.operations`, the history behind MAIFI and the operations board) through the same `deviceops.Record` a crew log uses (`adapter_operation.go:120`). `external_id` is the event's **dedup key** (becomes `source_event_id`): a re-delivered SCADA batch records nothing the second time.
+
+```json
+{ "changes": [
+  { "op": "upsert", "external_id": "SIG-88123", "op_type": "lockout",
+    "source": "scada", "occurred_at": "2026-11-06T14:03:00Z",
+    "device_external_id": "FDR7-REC-03", "cause": "overcurrent" }
+] }
+```
+
+- **`op_type`** — `trip` / `lockout` / `reclose` / `open` / `close` / `earth` / `alarm` / `other`.
+- **`source`** — `scada` / `relay` / `switching_order` / `telemetry` / `crew` / … (defaults `scada` on this feed).
+- **device ref** — `device_class` + `device_id`, or `device_external_id` + the endpoint's System code.
+
+> ∑ **An alarm-worthy operation also raises an operator alarm.** `deviceops.Record` feeds the annunciator for *every* source (crew, this webhook, telemetry, switching), in the op's own transaction: a `lockout` (high), `earth` (safety, high), `alarm` (medium) or `trip` (low) raises an alarm that stays until acknowledged. Routine `reclose`/`open`/`close` raise nothing. So a SCADA lockout you post here lands on both the operations log *and* the alarm annunciator — see Chapter 7⅘.3 for alarms that are **not** operations.
+
+### 7⅘.2 `outage` — a customer outage from the field
+
+The `outage` target is the OMS counterpart to call-driven prediction. One target, three `kind`s (`adapter_outage.go:99`):
+
+| `kind` | What it does | Result |
+| --- | --- | --- |
+| `device_trip` | A protective device tripped/locked out → `oms.RaiseIncidentFromDevice`. **Raises (or returns the open) incident** blamed on the device, created **confirmed** (telemetry is ground truth) with its downstream cone **frozen as interruptions** (the SAIDI clock starts). Idempotent per open-incident-per-device. | an **incident** |
+| `last_gasp` | A meter's dying power-down frame → `oms.RecordLastGasp`. Logs a **machine trouble call** (`caller_ref = AMI:last-gasp`) for the dark service point, feeding the same intake a human call does. Deduped on an open AMI call per SP. | a **trouble call** |
+| `customer_report` | A customer outage report from an IVR/CIS → `oms.RecordCustomerReport`. Logs a **trouble call** carrying the caller's premise id + callback number (so the restoration callback queue can reach them), located by service point, address or lat/lng. Idempotent on `caller_ref` (defaults to `external_id`). | a **trouble call** |
+
+```json
+{ "changes": [
+  { "op": "upsert", "external_id": "SIG-88123", "kind": "device_trip",
+    "device_external_id": "FDR7-REC-03", "occurred_at": "2026-11-06T14:03:00Z", "cause": "overcurrent" },
+  { "op": "upsert", "external_id": "AMI-48213-5", "kind": "last_gasp",
+    "service_point_external_id": "48213", "occurred_at": "2026-11-06T14:03:05Z" },
+  { "op": "upsert", "external_id": "CIS-9931", "kind": "customer_report",
+    "account_ref": "8842", "phone": "+44…", "address": "12 Oak St", "call_type": "no_supply" }
+] }
+```
+
+💡 The distinction that matters: **`device_trip` raises an incident directly**; `last_gasp` and `customer_report` log **calls** that `POST /incidents/predict` later clusters into an incident. An incident only enters the reliability indices when it is **confirmed** — which `device_trip` is, immediately. (See the **Operations** guide for the incident lifecycle.)
+
+### 7⅘.3 `alarm` — an alarm point straight to the annunciator
+
+Not every SCADA alarm is a device operation: a measurement **limit violation**, a **comms failure**, a station **status alarm**. The `alarm` target raises these directly onto the operator annunciator (`ops.alarms`, migration 0198 — see the **Operations** guide) via `alarms.Raise` (`adapter_alarm.go`). Each point is keyed by its `external_id` **per system**, so a re-raise updates one row and the sender signals **return-to-normal** with `op: "clear"`.
+
+```json
+{ "changes": [
+  { "op": "raise", "external_id": "LIMIT-FDR7-V-01", "severity": "high",
+    "category": "voltage", "message": "Feeder 7 undervoltage 0.91 pu",
+    "device_external_id": "FDR7-CB7" },
+  { "op": "clear", "external_id": "LIMIT-FDR7-V-01" }
+] }
+```
+
+- **`op`** — `raise` (default) or `clear` (return-to-normal; idempotent — a clear for an unknown/already-cleared point is a no-op).
+- **`severity`** — `critical` / `high` / `medium` / `low` (default `medium`).
+- **device ref** — **optional** (a comms/system alarm need name none); direct or by `device_external_id`.
+
+> ∑ **Operation vs alarm.** Post a trip/lockout to `operation` (it logs the op *and* raises an alarm); post a non-operation condition to `alarm`. The annunciator's own off-normal-configuration alarms are raised internally and need no feed.
+
+### 7⅘.4 Bridging a vendor payload
+
+None of these require the sender to speak VoltEdge's shape — a **field mapping** (§5.6) transforms the vendor's own JSON first. A SCADA RTU posting `{ "events": [ { "evt_id": …, "point": …, "state": "LOCKOUT", "ts": …, "reason": "OC" } ] }` to an `outage` endpoint:
+
+```json
+{
+  "items_path": "events",
+  "fields": {
+    "op":                 { "const": "upsert" },
+    "external_id":        { "path": "evt_id" },
+    "kind":               { "path": "state", "map": { "LOCKOUT": "device_trip", "TRIP": "device_trip" } },
+    "device_external_id": { "path": "point" },
+    "occurred_at":        { "path": "ts" },
+    "cause":              { "path": "reason", "map": { "OC": "overcurrent", "EF": "earth fault" }, "default": "unknown" }
+  }
+}
+```
+
+Because `map` is exhaustive, a `state` the table doesn't list (a `CLOSE`) resolves `kind` to nothing, the field is omitted, and the adapter rejects a change with no `kind` — so routine state chatter never raises an outage. The **same** RTU payload can be mapped on a *different* endpoint to the `operation` or `alarm` target by re-authoring `fields` — one feed, different operational meanings, no code.
 
 ---
 

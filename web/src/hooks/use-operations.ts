@@ -129,13 +129,14 @@ export interface AbnormalDevice {
 /** The abnormal-configuration report (GET /operations/abnormal): every switching
  * device whose live device_state contradicts its declared normal_state — the
  * "what's off normal right now" control-room view. */
-export function useAbnormalDevices(deviceClass?: string) {
+export function useAbnormalDevices(deviceClass?: string, enabled = true) {
   const p = new URLSearchParams()
   if (deviceClass) p.set("device_class", deviceClass)
   const qs = p.toString()
   return useQuery({
     queryKey: ["operations", "abnormal", deviceClass ?? ""],
     queryFn: () => apiFetch<{ devices: AbnormalDevice[] }>(`/operations/abnormal${qs ? `?${qs}` : ""}`),
+    enabled,
     staleTime: 30_000,
     retry: 1,
   })

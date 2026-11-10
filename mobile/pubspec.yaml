@@ -92,6 +92,15 @@ dependencies:
   package_info_plus: ^8.0.2
   url_launcher: ^6.3.0
 
+  # Field SSO sign-in (migration 0191). Runs the server-mediated OIDC flow in the
+  # SYSTEM browser (ASWebAuthenticationSession / Chrome Custom Tabs) -- Azure AD
+  # discourages embedded webviews -- and returns on our own `voltedge://` scheme
+  # carrying the one-time handoff code. The scheme is registered in the app manifest
+  # (Android CallbackActivity intent-filter; iOS uses the callback scheme directly),
+  # NOT with the IdP, which only ever redirects to cmd/server's registered callback.
+  # If `flutter pub get` can't resolve this against the current SDK, bump the caret.
+  flutter_web_auth_2: ^4.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

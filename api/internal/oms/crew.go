@@ -490,6 +490,15 @@ func SetIncidentETR(ctx context.Context, db *bun.DB, incidentID string, etr *tim
 		if _, err := upd.Where("id = ?", incidentID).Exec(ctx); err != nil {
 			return fmt.Errorf("oms: setting ETR on incident %s: %w", incidentID, err)
 		}
+		// Timeline-stamp the change so ETR revisions read back on the incident
+		// timeline alongside confirm/dispatch/restore (recorded in the same tx).
+		note := "ETR cleared"
+		if etr != nil {
+			note = "ETR set to " + etr.UTC().Format(time.RFC3339)
+		}
+		if err := recordEvent(ctx, tx, EntityIncident, incidentID, EventIncidentETR, noteOf(note)); err != nil {
+			return err
+		}
 		out, err = GetIncident(ctx, tx, incidentID)
 		if err != nil {
 			return err

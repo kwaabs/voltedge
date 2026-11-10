@@ -27,7 +27,7 @@ type store struct {
 
 var (
 	validDirections = map[string]bool{"push": true, "pull": true, "outbound": true}
-	validTargets    = map[string]bool{"feature": true, "reading": true, "work": true, "fault": true, "operation": true, "outage": true, "incident": true, "workorder": true, "protection": true}
+	validTargets    = map[string]bool{"feature": true, "reading": true, "work": true, "fault": true, "operation": true, "outage": true, "incident": true, "workorder": true, "protection": true, "alarm": true}
 	validAuthModes  = map[string]bool{"hmac": true, "bearer": true, "both": true}
 )
 

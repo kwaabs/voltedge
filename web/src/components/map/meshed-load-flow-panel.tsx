@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { LoadFlowNodesTable, type NodeColumn } from "@/components/map/load-flow-nodes-table"
 import { Button } from "@/components/ui/button"
@@ -279,18 +280,26 @@ export function MeshedLoadFlowPanel() {
                         <tr
                           key={`${loop.closer.feature_class}:${loop.closer.feature_id}:${i}`}
                           onClick={() =>
+                            useSelectionStore.getState().locate(loop.closer.feature_class, loop.closer.feature_id, { focus: true })
+                          }
+                          onDoubleClick={() =>
                             useSelectionStore.getState().select(loop.closer.feature_class, loop.closer.feature_id, { focus: true })
                           }
                           className={cn(
-                            "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+                            "hover:bg-accent cursor-pointer border-b align-top last:border-b-0 select-none",
                             !loop.compensated && "bg-muted/40",
                           )}
                           title={loop.note || (loop.compensated ? "Loop closed by compensation" : "Loop left open")}
                         >
                           <td className="px-3 py-1.5">
-                            <div>{classNameFor(loop.closer.feature_class)}</div>
-                            <div className="text-muted-foreground font-mono text-xs">{shortId(loop.closer.feature_id)}</div>
-                            {!loop.compensated && <div className="text-muted-foreground text-xs">{loop.note || "left open"}</div>}
+                            <div className="flex items-start gap-1">
+                              <FeatureInfoButton featureClass={loop.closer.feature_class} featureId={loop.closer.feature_id} className="-mt-0.5" />
+                              <div className="min-w-0">
+                                <div>{classNameFor(loop.closer.feature_class)}</div>
+                                <div className="text-muted-foreground font-mono text-xs">{shortId(loop.closer.feature_id)}</div>
+                                {!loop.compensated && <div className="text-muted-foreground text-xs">{loop.note || "left open"}</div>}
+                              </div>
+                            </div>
                           </td>
                           <td className="px-3 py-1.5 text-xs whitespace-nowrap">
                             {formatNumber(loop.loop_resistance_ohm, 3)} + j{formatNumber(loop.loop_reactance_ohm, 3)}

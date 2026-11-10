@@ -15,15 +15,19 @@ import {
   type SwitchingOrder,
   type SwitchingStep,
   type SwitchingStepBody,
+  type SwitchingValidation,
   useAddSwitchingStep,
+  useApproveSwitchingOrder,
   useCancelSwitchingOrder,
   useCreatePlannedSwitching,
   useDeleteSwitchingStep,
   useExecuteStep,
+  useIssueSwitchingOrder,
   usePlannedSwitching,
   useReorderSwitchingSteps,
   useUpdatePlannedSwitching,
   useUpdateSwitchingStep,
+  useValidateSwitchingOrder,
 } from "@/hooks/use-oms"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -42,6 +46,41 @@ function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }
 
+/** The switching-order validation study result: the ready/blocked verdict and the
+ * per-step findings (errors block approval, warnings are advisory). */
+function SwitchingValidationPanel({ data, onClose }: { data: SwitchingValidation; onClose: () => void }) {
+  const errorCount = data.findings.filter((f) => f.severity === "error").length
+  const warnCount = data.findings.length - errorCount
+  return (
+    <div className={cn("border-b px-4 py-2 text-xs", data.ready ? "bg-emerald-500/10" : "bg-destructive/10")}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">
+          {data.ready
+            ? warnCount === 0
+              ? "Validation passed — ready to approve."
+              : `Ready to approve — ${warnCount} warning${warnCount === 1 ? "" : "s"}.`
+            : `Blocked — resolve ${errorCount} error${errorCount === 1 ? "" : "s"} before approval.`}
+        </span>
+        <button type="button" className="text-muted-foreground hover:text-foreground" onClick={onClose} title="Dismiss">
+          ✕
+        </button>
+      </div>
+      {data.findings.length > 0 && (
+        <ul className="mt-1.5 flex flex-col gap-1">
+          {data.findings.map((f, i) => (
+            <li key={i} className="flex items-start gap-1.5">
+              <span className={f.severity === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400"}>
+                {f.severity === "error" ? "✕" : "!"}
+              </span>
+              <span>{f.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function statusClass(status: SwitchingOrder["status"]): string {
   switch (status) {
     case "completed":
@@ -50,6 +89,8 @@ function statusClass(status: SwitchingOrder["status"]): string {
       return "bg-amber-500/15 text-amber-700 dark:text-amber-400"
     case "cancelled":
       return "bg-muted text-muted-foreground"
+    case "approved":
+      return "bg-blue-500/15 text-blue-700 dark:text-blue-400"
     default:
       return "bg-primary/10 text-primary"
   }
@@ -330,7 +371,29 @@ function StepRow({
             type="checkbox"
             checked={done}
             title={done ? "Mark outstanding" : "Mark done"}
-            onChange={(e) => execute.mutate({ stepId: step.id, executed: e.target.checked })}
+            onChange={async (e) => {
+              const checked = e.target.checked
+              try {
+                await execute.mutateAsync({ stepId: step.id, executed: checked })
+              } catch (err) {
+                const msg = err instanceof ApiError ? err.message : ""
+                // A sequence / expected-state interlock says "(or force to override)";
+                // offer the supervised override. The safety-tag gate never says that,
+                // so it stays a hard block.
+                if (checked && /force to override/i.test(msg)) {
+                  if (window.confirm(`${msg}\n\nOverride the interlock and execute this step anyway?`)) {
+                    try {
+                      await execute.mutateAsync({ stepId: step.id, executed: true, force: true })
+                    } catch (e2) {
+                      toastErr(e2, "Could not execute the step.")
+                    }
+                    return
+                  }
+                  return // declined override; the controlled checkbox reverts to its real state
+                }
+                toastErr(err, "Could not update the step.")
+              }
+            }}
             className="mt-0.5 size-4"
           />
         ) : done ? (
@@ -382,8 +445,11 @@ function ProgramDetail({ order, canWrite }: { order: SwitchingOrder; canWrite: b
   const [deleteTarget, setDeleteTarget] = useState<SwitchingStep | null>(null)
   const reorder = useReorderSwitchingSteps()
   const del = useDeleteSwitchingStep()
-  const issue = useUpdatePlannedSwitching()
   const cancel = useCancelSwitchingOrder()
+  const approve = useApproveSwitchingOrder()
+  const issueOrder = useIssueSwitchingOrder()
+  const [showValidate, setShowValidate] = useState(false)
+  const validation = useValidateSwitchingOrder(order.id, showValidate)
 
   const editable = order.status !== "completed" && order.status !== "cancelled"
   const steps = order.steps
@@ -421,12 +487,35 @@ function ProgramDetail({ order, canWrite }: { order: SwitchingOrder; canWrite: b
         {canWrite && editable && (
           <div className="flex shrink-0 gap-2">
             {order.status === "draft" && (
+              <>
+                <Button size="sm" variant="ghost" onClick={() => setShowValidate(true)} disabled={validation.isFetching}>
+                  {validation.isFetching ? "Validating…" : "Validate"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={approve.isPending}
+                  onClick={async () => {
+                    try {
+                      await approve.mutateAsync({ orderId: order.id })
+                    } catch (err) {
+                      setShowValidate(true) // reveal the blocking findings
+                      toastErr(err, "Could not approve this program.")
+                    }
+                  }}
+                >
+                  Approve
+                </Button>
+              </>
+            )}
+            {order.status === "approved" && (
               <Button
                 size="sm"
                 variant="outline"
+                disabled={issueOrder.isPending}
                 onClick={async () => {
                   try {
-                    await issue.mutateAsync({ orderId: order.id, patch: { status: "issued" } })
+                    await issueOrder.mutateAsync({ orderId: order.id })
                   } catch (err) {
                     toastErr(err, "Could not issue this program.")
                   }
@@ -452,6 +541,15 @@ function ProgramDetail({ order, canWrite }: { order: SwitchingOrder; canWrite: b
           </div>
         )}
       </div>
+
+      {order.approved_at && (
+        <p className="text-muted-foreground border-b px-4 py-1.5 text-xs">
+          Approved {new Date(order.approved_at).toLocaleString()}
+        </p>
+      )}
+      {showValidate && validation.data && (
+        <SwitchingValidationPanel data={validation.data} onClose={() => setShowValidate(false)} />
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {steps.length === 0 ? (

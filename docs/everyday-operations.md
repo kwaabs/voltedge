@@ -1617,17 +1617,19 @@ dozen manual connections is one placement.
 
 **How it works.** Every item in the Assemblies menu **places a feature and then runs a
 multi-step server composite** — that's the whole reason it's a separate menu from plain
-**New feature**. The menu is organised into sections, and each section commits through its
-own dedicated endpoint:
+**New feature**. The menu is organised into sections; the kit placements all commit through
+the one generic assembly endpoint, and the wiring placements through their own:
 
 | Assembly | What it does | Endpoint |
 | --- | --- | --- |
-| **Ring Main Unit** | Places the RMU point, fans out its internal switches + transformer, wired in a star | `POST /rmus` |
-| **Packaged substation** | Places the point, chains MV switch → transformer → LV board in series; you pick a config *and* a tenure (Permanent / Mobile) | `POST /packaged-substations` |
-| **Overhead & pad-mount kits** | Places an anchor (a pole or a pad-mount transformer) and fans out its kit — cutout, transformer, arrester, LV board — around it | `POST /assemblies` |
+| **Assembly kits** | Places one anchor (a pole, a pad-mount transformer, an **RMU** enclosure, or a **packaged-substation** enclosure) and fans out its pre-wired kit — switches, transformer, arrester, LV board, cables — around it. Each kit is a recipe: a ring main unit (`2W_1T` / `2W_2T`), a compact packaged substation (permanent / mobile), a pole-mount transformer, a pad-mount URD unit, and so on. | `POST /assemblies` |
 | **Cable duct** | Draws the duct as a **line** and fans out the `DUCT_WAY` children its way-count sets | `POST /ducts` |
 | **Bus coupler** | Places the breaker as a point, then wires it **between two buses you pick** | `POST /couplers` |
 | **Feeder tie (NOP)** | Places the switch, wires it **across two feeders**, and forces it **normally-open** | `POST /ties` |
+
+> RMUs and packaged substations used to have their own menu sections and endpoints
+> (`/rmus`, `/packaged-substations`); those engines were folded into the one generic
+> assembly engine, so they are now ordinary kits in the **Assembly kits** section.
 
 A few things worth understanding:
 

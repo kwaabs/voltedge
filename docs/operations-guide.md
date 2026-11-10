@@ -1,6 +1,6 @@
 # Device Operations — Logging & Reporting Device Trips
 
-_Last updated: 2026-10-30_
+_Last updated: 2026-11-06_
 
 The **Device Operations** log is the record of *what the network's protective and
 switching devices actually did* — every trip, lockout, reclose, manual open and
@@ -228,13 +228,22 @@ steps on the right.
   is a **phase** (isolate / restore), an **action** (open / close / earth / verify
   / note), an **instruction**, and — for an open/close — the **device** it
   operates.
-- **Issue** the program (draft → issued) when it's ready for the field.
+- **Validate, approve, issue** — a program now moves through a **governed
+  lifecycle** rather than a free-text status edit. **Validate** runs a read-only
+  dry-run study over the steps and reports any problems; **Approve** is the
+  authorisation gate (it re-runs validation and refuses an order with blocking
+  errors, stamping who approved it and when); **Issue** then releases it to the
+  field. The steps become executable only once the order is **issued**.
 - **Run it**: tick each step off as the crew performs it. An **open** step sets
   the device `OPEN`, a **close** step sets it `CLOSED`, and un-ticking restores the
   opposite — each written through the validated, history-logged, safety-interlocked
-  path (a blocking danger/out-of-service tag refuses the operation), and each a
-  logged device operation. Status tracks the ticks: `draft` → `issued` →
-  `in_progress` → `completed`.
+  path. Execution is now gated by three interlocks on top of the safety tag: the
+  order must be issued, the step must be **in sequence** (earlier steps done
+  first), and the device must be in the **expected pre-state** (an open step needs
+  it CLOSED, a close step OPEN). A blocked step can be force-overridden
+  (`{"force": true}`), which bypasses the sequence and pre-state checks **only** —
+  **never** the safety-tag gate — and records the override on the log. Status runs
+  `draft` → `approved` → `issued` → `in_progress` → `completed`.
 
 > **How to — build and run a planned switching program** 🔒 `oms:read` to view, `oms:write` to build
 > 1. **Operations** page → **Switching** tab → **New**.
@@ -244,27 +253,39 @@ steps on the right.
 >    **Create.**
 > 3. Build the step list: **Add step**, set phase / action / instruction / device;
 >    reorder with the up / down arrows; edit or delete a step that isn't done yet.
-> 4. **Issue** when ready. In the field, tick each step's **Done** box as it's
->    performed — the open/close steps move the device and land in the operations
->    log.
+> 4. **Validate**, then **Approve**, then **Issue** when ready. In the field, tick
+>    each step's **Done** box as it's performed — the open/close steps move the
+>    device (if the interlocks pass) and land in the operations log.
 >
-> ⚠️ **Editing is for the program, operating is for the device.** You can only
-> edit, delete or reorder a step that **hasn't been executed** — once a step has
-> flipped a device, it's part of the record. To undo an operation, un-tick the
-> step (it restores the opposite position); to abandon a program, **Cancel** it
-> (the steps are kept for the record).
+> ⚠️ **Editing is for the program, operating is for the device.** Editing the
+> steps of an **approved** program sends it back to **draft** — re-validate and
+> re-approve it, so the plan that executes is always the one that was approved. An
+> **issued / in-progress** program is **locked** from step edits: **Cancel** it to
+> change the plan (the steps are kept for the record). To undo an operation,
+> un-tick the step (it restores the opposite position).
+>
+> 💡 The step-by-step governance — what the validation study checks, the three
+> execution interlocks, and the supervised `force` override — is documented in the
+> **Switching & Protection** guide (§2.1).
 >
 > 💡 The deep model behind switching — what each device is, what opening one does
 > to the network, barriers, isolation boundaries, and how an *incident* switching
 > order is generated — lives in the **Switching & Protection** guide. This tab is
 > the operator's authoring-and-execution surface for it.
 
-Endpoints: `GET`/`POST /oms/planned-switching`, `PATCH /oms/switching-orders/{id}`
-(retitle / issue), `POST /oms/switching-orders/{id}/steps`,
+Endpoints: `GET`/`POST /oms/planned-switching`; author/edit the plan with
+`PATCH /oms/switching-orders/{id}` (retitle / window / steps — it **no longer
+sets status**), `POST /oms/switching-orders/{id}/steps`,
 `POST /oms/switching-orders/{id}/reorder`,
-`PATCH`/`DELETE /oms/switching-steps/{id}`, reusing the shared
-`POST /oms/switching-steps/{id}/execute` and `.../cancel`
-(`api/internal/oms/http.go:115-126`).
+`PATCH`/`DELETE /oms/switching-steps/{id}`. The **governed lifecycle**
+(`draft → approved → issued → in_progress → completed`) moves through dedicated
+actions: `GET /oms/switching-orders/{id}/validate` (read-only dry-run study),
+`POST /oms/switching-orders/{id}/approve` (draft → approved; validates and stamps
+the approval), `POST /oms/switching-orders/{id}/issue` (approved → issued), and the
+shared `POST /oms/switching-steps/{id}/execute` — which enforces the issued-state,
+in-sequence and expected-pre-state interlocks and accepts a `{"force": true}` body
+to override the sequence/pre-state checks (never the safety-tag gate) — and
+`.../cancel` (`api/internal/oms/http.go`).
 
 ---
 

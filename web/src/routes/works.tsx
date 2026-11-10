@@ -467,9 +467,9 @@ function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWri
   // A mirrored order (0182) is read-only — owned by the external WAM it came from.
   const mirrored = order.origin_system != null
 
-  function set(status: WorkOrder["status"]) {
+  function set(status: WorkOrder["status"], resolveDefect?: boolean) {
     update.mutate(
-      { id: order.id, body: { status } },
+      { id: order.id, body: { status, ...(resolveDefect !== undefined ? { resolve_defect: resolveDefect } : {}) } },
       { onError: (err) => toastError(err, "Could not update the work order.") },
     )
   }
@@ -519,12 +519,24 @@ function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWri
                 Start
               </DropdownMenuItem>
             )}
-            {order.status === "in_progress" && (
-              <DropdownMenuItem disabled={pending} onSelect={() => set("completed")}>
-                <CheckCircle2 className="size-4" />
-                Complete
-              </DropdownMenuItem>
-            )}
+            {order.status === "in_progress" &&
+              (order.defect_id ? (
+                <>
+                  <DropdownMenuItem disabled={pending} onSelect={() => set("completed", true)}>
+                    <CheckCircle2 className="size-4" />
+                    Complete & resolve defect
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={pending} onSelect={() => set("completed", false)}>
+                    <CheckCircle2 className="size-4" />
+                    Complete, keep defect open
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <DropdownMenuItem disabled={pending} onSelect={() => set("completed")}>
+                  <CheckCircle2 className="size-4" />
+                  Complete
+                </DropdownMenuItem>
+              ))}
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive" disabled={pending} onSelect={() => set("cancelled")}>
               <XCircle className="size-4" />

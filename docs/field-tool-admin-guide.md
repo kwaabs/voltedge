@@ -1,20 +1,22 @@
 # VoltEdge Field Tool — Admin Guide
 
-_Last updated: 2026-10-28_
+_Last updated: 2026-11-03_
 
 **Who this is for:** administrators and supervisors who **set up, manage, review,
 and scale** the field tool — not the crews using it. If you're a crew member, read
 the **Field Tool Guide** instead.
 
 This guide assumes you work in the VoltEdge **web app** (cookie session + RBAC) and
-can reach the server environment. It covers five jobs:
+can reach the server environment. It covers six jobs:
 
 1. **Giving crews access** — logins and what a pack is allowed to contain.
 2. **Managing packs** — listing, hiding, and deleting everyone's packs.
 3. **Reviewing field work** — the QA queue: holding, posting, rejecting, and
    resolving conflicts on incoming edits.
-4. **Tuning and scaling** — the build/sync knobs, and what to provision for a fleet.
-5. **Pre-building shared packs** — defining reusable coverage *cells* so many crews
+4. **Field trails** — auditing *where* fieldwork happened, from the GPS trail and
+   located edits the device records.
+5. **Tuning and scaling** — the build/sync knobs, and what to provision for a fleet.
+6. **Pre-building shared packs** — defining reusable coverage *cells* so many crews
    share one pre-built area, with scheduling, retention, and usage accounting.
 
 ---
@@ -68,6 +70,66 @@ a token). For this to work a crew member needs:
 > (`task authadmin-mint-token EMAIL=… NAME=field-tablet`) and pasting it — but the
 > email/password login is the normal route.
 
+### 2.1a Signing in with SSO (Microsoft / Azure)
+
+> **Full reference:** the dedicated **Field App Authentication &amp; SSO** guide
+> (`field-sso-guide.md` / `-interactive.html`) covers the flow hop-by-hop, the token
+> model, deployment config, dev/device testing, troubleshooting and the security model —
+> with interactive widgets. This section is the admin summary.
+
+If your organisation uses SSO, crews can tap **Sign in with Microsoft** on the
+Connection screen instead of typing a password. It's the **same Azure sign-in the web
+app uses** — same accounts, same directory — so a worker who signs in on the web and
+on the tablet is one identity.
+
+**The password you type goes to Microsoft, never to VoltEdge.** VoltEdge only sees the
+result. So a "password incorrect" message on the Microsoft page is a Microsoft/account
+matter (reset it at `myaccount.microsoft.com`), not a VoltEdge one.
+
+**Enrolling a mobile-only SSO user — two steps.** SSO **never auto-creates accounts**;
+you still provision the user, then Microsoft just authenticates them:
+
+1. **Create the user** (Admin → Users) with **email = their Microsoft account email**.
+   The emails must match — that's how VoltEdge links the Microsoft identity to the
+   account on first login.
+2. **Give them a role with `field:login`** (any field role, or admin). Without it,
+   Microsoft accepts them but the field app refuses with *"this account does not have
+   field-app access"*.
+
+You do **not** set a VoltEdge password — an SSO user has none; Microsoft is their
+credential. The **first** Microsoft sign-in auto-links their identity; there's no
+separate "register for Azure" step.
+
+So a field SSO login passes **two gates, in order**:
+
+| Gate | Checks | If it fails |
+|------|--------|-------------|
+| **Microsoft** | the password / MFA (Microsoft's own) | "password incorrect" on the Microsoft page — fix the account at `myaccount.microsoft.com` |
+| **VoltEdge** | a user with that email exists **and** has `field:login` | *"no VoltEdge account exists for this identity"* (not provisioned) or *"no field-app access"* (missing `field:login`) |
+
+**Token model (no action needed, just so you know what to expect).** A password *or*
+SSO login mints a **short-lived access token** the device uses for ~24h and a
+**long-lived refresh token** it swaps for a fresh one automatically — so crews don't
+re-authenticate daily, and offline work is unaffected (the refresh outlives long
+offline stretches). Signing out on the device revokes the refresh token; an admin
+revoking the user / their tokens cuts off both surfaces.
+
+**Server setup (one-time, deploy).** The field app runs the SSO flow against the
+**API** directly (not the web app), so:
+
+- Register a redirect URI in Azure for the **API origin** the device reaches, i.e.
+  `<api-origin>/auth/oidc/azuread/callback`, **alongside** your existing web redirect
+  (keep both). The field flow derives this from the request, so it just needs to be
+  registered.
+- Set **`FIELD_SSO_WEB_ORIGIN`** (on the API + fieldsync services) to that API origin,
+  so the device is told where to start. If unset it's derived from
+  `OIDC_AZURE_REDIRECT_URL`, else the request origin.
+- Apply migration **0191** (the SSO hand-off + refresh-token tables).
+
+No Azure change is needed beyond adding that one redirect URI; the web SSO config is
+untouched. If the **Sign in with Microsoft** button doesn't appear, the app shows a
+diagnostic with the exact reason (it discovers providers at runtime from the API).
+
 ### 2.2 The permissions that gate the field tool
 
 A crew member's RBAC decides both *whether* they can use the field tool and *what
@@ -105,7 +167,7 @@ To do the admin jobs in this guide:
 | `admin:field-packs` | Manage **everyone's** packs (list / disable / delete) |
 | `sync:review` | **View** the sync-review queue |
 | `sync:post` | **Act** on held edits (post / reject / resolve conflicts, set policy) |
-| `field:tracks:read` | **View** field workers' movement trails and located edits (the Field trails map, §5.6) |
+| `field:tracks:read` | **View** field workers' movement trails and located edits (the Field trails map, §6.2) |
 
 ---
 
@@ -180,7 +242,7 @@ crews, many concurrent at shift change):
    heaviest DB consumer, so moving it off the primary protects the sync/edit path.
 4. **For a geographically clustered fleet**, the biggest lever is **not** building
    the same area many times. If 60 crews cover one depot, that's 60 identical
-   builds. **Shared packs (§6) solve this directly:** pre-build a depot's area once
+   builds. **Shared packs (§7) solve this directly:** pre-build a depot's area once
    as a *cell* (overnight, off-peak), and every crew covering it **picks up the same
    build** instead of each triggering their own. Pair it with the review/usage tools
    to see who's holding each build and who's synced.
@@ -202,7 +264,7 @@ Two things cap how far you can push this. **CPU:** tippecanoe is CPU-bound, so
 `c × r` beyond your total core count only makes each build slower. **Database
 connections:** every in-flight build and apply holds a connection, so `c × r` must fit
 inside the PgBouncer pool. And the cheapest lever of all is to **reduce *N***: if 60 of
-those 120 crews cover one depot, a pre-built shared cell (§6) turns 60 builds into 1.
+those 120 crews cover one depot, a pre-built shared cell (§7) turns 60 builds into 1.
 
 Pack size has its own multiplier: each extra zoom level in `FIELDPACK_MAX_ZOOM` costs
 roughly 4× the build time and pack size, which is why the guide tells you not to
@@ -338,19 +400,50 @@ it:
   edit anyway** — conflict detection fails open, so do not treat it as a hard guarantee
   on a contended class.
 
-### 5.6 Field trails — where the work was done
+### 5.6 Troubleshooting field sync
 
-§5.1–5.5 review **what** a crew changed. The **field trail** reviews **where** they
-were while they did it — so you can answer the questions a desk review can't: *were
-they actually at the site? how did they get there? where did they pass?*
+Most "sync is broken" calls are one of a handful of situations. Find the symptom,
+confirm the cause, apply the fix. The statuses referenced here are explained in §5.4,
+and the conflict machinery in §5.3 / §5.5.
 
-**What the device records.** While a crew has a pack open, the field app quietly
-records two things off the GPS, with **no action needed from the crew**:
+| Symptom | Likely cause | What to do |
+|---------|--------------|------------|
+| **"None of my edits have reached the office."** The crew made many edits; nothing shows up. | Their **oldest** edit is held — a `review`-policy hold (§5.2) or an unresolved `conflict` (§5.3) — and the one-device-one-lane rule (§5.4) parks **every later edit behind it**, even ones on `auto` classes. | Find that crew's **oldest held edit** (the queue is oldest-first for exactly this) and clear it — Post / Reject, or resolve the conflict. Everything behind it then drains in order. |
+| An edit is **`rejected`** and **no reviewer rejected it**. | It **failed to apply** on the server — a validation / rule error (e.g. a connectivity rule, a required field), or a worker panic. Every apply failure is **terminal and quarantined with the error as its reason** — no silent retry (the "poison-op" rule), so one bad edit can't loop forever or stall the device. | Open it, read the **reason**, and have the crew **re-capture** it correctly. It does **not** block their later edits. |
+| An edit sits in **`applying`** for a while. | A worker **crashed or lost its lease** mid-apply. The op isn't lost: its lease lapses (≈60 s) and another worker **reclaims** it automatically. | **Wait ~a minute.** Only investigate if it persists far beyond the lease — that points at the sync worker pool being down, not a stuck edit. |
+| Field edits are **overwriting office changes silently.** | **Conflict detection is off** for that class (last-write-wins), or the edit carried **no `base_version`** (an older edit), or the check **failed open** on a DB hiccup (§5.5). | Turn **conflict detection on** for contended classes (§5.1). Treat it as a safeguard, not a hard guarantee — it fails open by design. |
+| A **conflict** keeps coming back after you resolved it. | You chose **Apply anyway**, it re-queued, and the office changed the feature **again** before it applied — so it re-conflicts. (If several offline edits existed, only the **newest** surfaces; older ones are `superseded`.) | Resolve the newly-surfaced conflict. Repeated re-conflicts mean the office is actively editing the same feature — coordinate, or **Keep** to stop the tug-of-war. |
+| You can **see** the review queue but **Post / Reject do nothing** (or 403). | You hold **`sync:review`** (view) but not **`sync:post`** (act). | Grant **`sync:post`** to the reviewer's role (Admin → Users / roles). |
+| A crew **can't see or download** their pack. | The pack was **Disabled** (hidden from the device, §4) or **expired / retention-purged**; or the crew's **access no longer covers** that area. | **Re-enable** or **rebuild** the pack; check the crew's territory / access grants. |
+| Edits **apply instantly** — you expected a review step. | That class is on the **`auto`** policy (the global default, or no override). | Set the class — or the global default — to **`review`** (§5.1). |
+| An edit shows **`superseded`**. | **Not an error.** A **newer** edit to the **same feature** stepped in front of it, so the older one steps aside. | Nothing — it's expected de-duplication. The newest edit carries the change. |
+
+> **The one gotcha to internalise.** A single held edit (review or conflict) silently
+> **blocks the whole device** until it's cleared. When a crew reports "nothing is
+> syncing," your first move is always: *find their oldest held edit.* It's almost never
+> a lost edit — it's a parked lane.
+
+---
+
+## 6. Field trails — where the work was done
+
+Chapters 2–5 cover **what** a crew changed — the pack, the edits, the review of them.
+This chapter is about **where** they were while they did it. The **field trail** answers
+the questions a desk review can't: *were they actually at the site? how did they get
+there? where did they pass?* It's a distinct capability with its own web page
+(`/field-tracks`), its own permission, and — because it logs **staff location** — its own
+compliance weight, which is why it stands as its own chapter rather than a footnote to review.
+
+### 6.1 What the device records
+
+While a crew has a pack open, the field app quietly records two things off the GPS, with
+**no action needed from the crew**:
 
 - a **movement trail** — a breadcrumb every ~20 m (or every 30 s), the path they walked
   or drove through the session; and
-- a **located edit** on **every** save / update / delete / connect / relate — the exact
-  spot the worker was standing when they made that change.
+- a **located edit** on **every** change — a feature save / update / delete / connect /
+  relate, **and** a WAM or fault capture (a defect, an inspection, a fault event) — the
+  exact spot the worker was standing when they made that change.
 
 The located edits ride the **same durable sync channel as the edits themselves**, so a
 change made deep offline keeps its location and never loses it; the trail uploads on the
@@ -358,33 +451,41 @@ next sync. Recording is **foreground-only** — it runs while the app is open, a
 **not** use a background-location permission — so a phone pocketed with the app
 backgrounded leaves a gap in the trail (the edits are still located).
 
-**Seeing it — the Field trails map.** Open **Field trails** in the web app
-(`/field-tracks`), gated on **`field:tracks:read`**. Pick a **worker**, narrow by
-**date**, and choose a **session**: the map draws the trail as a line (green start, blue
-end) with the located edits as pins — **amber** for a create/update, **red** for a
-delete, labelled by action. Each edit lists below the map; **Locate on map** jumps to
-that feature so you can cross-check the change against where it was made.
+### 6.2 Seeing it — the Field trails map
 
-**Access & privacy.** `field:tracks:read` is a **supervisor** capability — granted to
-`admin` and `break-glass-admin` out of the box; grant it to your supervisor roles in
+Open **Field trails** in the web app (`/field-tracks`), gated on **`field:tracks:read`**.
+Pick a **worker**, narrow by **date**, and choose a **session**: the map draws the trail
+as a line (green start, blue end) with the located edits as pins — **amber** for a
+create/update, **red** for a delete, labelled by action. Each edit lists below the map;
+**Locate on map** jumps to that feature so you can cross-check the change against where it
+was made. (The interactive edition of this guide has a scrubbable demo of exactly this.)
+
+### 6.3 Access & privacy
+
+`field:tracks:read` is a **supervisor** capability — granted to `admin` and
+`break-glass-admin` out of the box; grant it to your supervisor roles in
 **Admin → Users / roles**. A crew **records its own trail** under its ordinary
 `features:write` (no extra grant), but **seeing another worker's trail is the privileged
 act** this permission gates. The app shows crews **no in-app notice** that they're
 recorded, so **tell your crews** that fieldwork location is logged — some jurisdictions
 require you to disclose staff location tracking.
 
-**Where it lives.** The trail is `ops.field_track_points`; the located edits are
-`ops.field_action_waypoints` (one row per edit, keyed by its sync op). Both are append-
-only audit data, kept independent of the edits they describe.
+### 6.4 Where it lives
 
-> **Known gaps (today).** Offline **WAM** (defect/work-order/inspection) and **fault**
-> captures are not yet location-stamped, so those specific actions won't appear as pins
-> (the GIS edits — create/update/delete/connect/relate — do). And the trail is
-> foreground-only, so expect gaps when the phone is pocketed mid-walk.
+The trail is `ops.field_track_points`; the located edits are `ops.field_action_waypoints`
+(one row per edit, keyed by its sync op). Both are append-only audit data, kept
+independent of the edits they describe.
+
+> **The one real caveat (today).** Recording is **foreground-only** — it runs while the
+> app is open and uses no background-location permission — so a phone pocketed mid-walk
+> leaves a gap in the *movement trail* (the edits made are still located). WAM
+> (defect/work-order/inspection) and fault captures **are** located now, stamped the same
+> way GIS edits are, as long as the device had a GPS fix at the moment of capture; without
+> a fix, that one action is simply recorded without a pin (a graceful absence, never an error).
 
 ---
 
-## 6. Pre-building shared packs
+## 7. Pre-building shared packs
 
 For a clustered fleet, the biggest waste is many crews each building the **same**
 area. Shared packs fix that: you pre-build an area **once** as a reusable **cell**,
@@ -410,26 +511,26 @@ There are three routes, depending on **who** the pack is for:
 
 | You want to… | Use | How |
 |--------------|-----|-----|
-| Give **many crews** one reusable area | A **shared cell** (§6.2) | Define a cell → **build a version** → crews **pick it up** |
-| Cover a **big territory** in sub-areas | The **grid helper** (§6.3) | One call makes a whole grid of cells |
-| Stage a **personal** pack for **one crew member** | **Build-on-behalf** (§6.7) | Build a pack owned by them, scoped from their RBAC |
+| Give **many crews** one reusable area | A **shared cell** (§7.2) | Define a cell → **build a version** → crews **pick it up** |
+| Cover a **big territory** in sub-areas | The **grid helper** (§7.3) | One call makes a whole grid of cells |
+| Stage a **personal** pack for **one crew member** | **Build-on-behalf** (§7.7) | Build a pack owned by them, scoped from their RBAC |
 
 **The common case — build a shared pack (3 steps):**
 
 1. **Define the cell** — `POST /field-packs/cells` with the area (bbox), the feature
    classes, the extras to include, and (optionally) the territory, schedule, and
-   retention (§6.2).
+   retention (§7.2).
 2. **Build a version** — `POST /field-packs/cells/{id}/build` (or let a **schedule**
-   build it overnight, §6.4). It runs through the normal pack queue; watch the cell's
+   build it overnight, §7.4). It runs through the normal pack queue; watch the cell's
    latest version go `queued → running → succeeded`.
 3. **Crews pick it up** — anyone whose access covers the cell now sees it under
-   **Shared packs** on their device and downloads it instantly (§6.1).
+   **Shared packs** on their device and downloads it instantly (§7.1).
 
 > **Just want a pack for yourself?** You're a user too — build one from the **mobile
-> app** exactly as a crew does, or use **build-on-behalf** (§6.7) with your own user
+> app** exactly as a crew does, or use **build-on-behalf** (§7.7) with your own user
 > id. There's no separate "admin builds a personal pack" surface, by design.
 
-### 6.1 How shared packs work — base + overlay
+### 7.1 How shared packs work — base + overlay
 
 A shared pack is deliberately split so it can be shared **safely**:
 
@@ -479,7 +580,7 @@ crew knows it is coming; a direct pickup attempt on a cell they do not cover is 
 `403`. The device may send a `device_id` with each pickup so one person's two tablets are
 told apart in the usage view.
 
-### 6.2 Defining a cell
+### 7.2 Defining a cell
 
 A **cell** is a definition (create with `POST /field-packs/cells`). Its settings:
 
@@ -490,8 +591,8 @@ A **cell** is a definition (create with `POST /field-packs/cells`). Its settings
 | **Area (bbox)** | The geographic box the base covers. |
 | **Feature classes** | Which layers the base ships (same catalogue as a normal pack). |
 | **Include** connectivity / relationships / faults / tags | The extras the base carries. Each one also **raises the bar for pickup** — a crew must hold the matching `*:read`. |
-| **Schedule** | Automatic rebuild cadence — see §6.4. |
-| **Retention** | How old versions are reaped — see §6.5. |
+| **Schedule** | Automatic rebuild cadence — see §7.4. |
+| **Retention** | How old versions are reaped — see §7.5. |
 | **Active** | Inactive cells are hidden from crews and skipped by scheduling/retention. |
 
 **Building a version.** Each build of a cell is a **version** (an ordinary pack row,
@@ -528,7 +629,7 @@ snapshot time) — that is where you read how big a build came out. A bad body r
 `400` with the first problem named (for example *"bbox must be [minX, minY, maxX, maxY]
 (4 numbers)"*).
 
-### 6.3 Covering a big area — the grid helper
+### 7.3 Covering a big area — the grid helper
 
 Defining a cell per sub-area of a large territory by hand is tedious. The **grid
 helper** (`POST /field-packs/cells/grid`) splits an outer bbox into a `rows × cols`
@@ -557,7 +658,7 @@ sub-cell's base then carries only that territory's features inside its own box. 
 `derived rows/cols = ceil(size ÷ cell_size_deg)`, a cell size that does not divide the
 box evenly still covers it fully (the cells are just slightly smaller than asked).
 
-### 6.4 Scheduling overnight rebuilds
+### 7.4 Scheduling overnight rebuilds
 
 A cell's **schedule** is a cadence token — `hourly`, `daily`, or `weekly` (anything
 else, or empty, means no schedule). A scheduled cell is automatically rebuilt when its
@@ -593,7 +694,7 @@ its newest **succeeded** version is older than the cadence (or it has never buil
   failing is therefore *due* on every tick: fix the cause (usually the feature cap)
   rather than waiting.
 
-### 6.5 Retention — keeping storage in check
+### 7.5 Retention — keeping storage in check
 
 Rebuilding a cell over time piles up versions. **Retention** reaps the old ones —
 but **never one a crew still holds**: a version is a reap candidate only once it's no
@@ -623,7 +724,7 @@ version cascade away with it, which is correct because a reaped version has no h
 left to account for. `manual` and `pinned` cells are never auto-reaped, and the on-demand
 reap endpoint does nothing for them either.
 
-### 6.6 Who's holding what — the usage dashboard
+### 7.6 Who's holding what — the usage dashboard
 
 Because a shared base lives for weeks and crews sync on their own cadence (e.g. every
 Friday), the real operational question is **accounting**, not freshness: per cell, who
@@ -649,7 +750,7 @@ This is the supervisor's "who's holding / who's synced / who's gone quiet" view.
 > against the previous one. Read "quiet" as *nothing synced against the version they hold
 > yet*, then look at the pickup date to judge whether that is a problem.
 
-### 6.7 Staging a pack for a crew — build-on-behalf
+### 7.7 Staging a pack for a crew — build-on-behalf
 
 Separately from cells, you can pre-stage a **personal** pack **as** a named crew
 member (`POST /field-packs/on-behalf`), so a tech finds a ready pack waiting on their
@@ -658,17 +759,17 @@ not yours: the include flags come from the target's permissions, their drafts fr
 their own visibility, and the territory filter is bounded by **their** scope. You can
 never stage a pack that gives a crew member more than they could pull themselves.
 
-### 6.8 Permissions
+### 7.8 Permissions
 
 All cell administration is gated on the same **`admin:field-packs`** permission as the
 pack-management page (plus CSRF). Pickup, by contrast, uses the **crew's own** RBAC —
 their territory access and `*:read` permissions decide which cells they may pull
-(§6.1). So defining cells is an admin act; pulling them is self-service within each
+(§7.1). So defining cells is an admin act; pulling them is self-service within each
 crew's existing entitlements.
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Likely cause / action |
 |---------|----------------------|
@@ -681,19 +782,19 @@ crew's existing entitlements.
 | **Held edits piling up in review** | A class is in **review mode** and nobody's posting them. Either post/reject them, or switch the class back to **auto** if review isn't needed. |
 | **Database connection errors under load** | You're running without (or past) PgBouncer. Put transaction pooling in front of Postgres and size the pool. |
 | **Dense urban features look stacked on the map** | `FIELDPACK_MAX_ZOOM` may have been lowered below 16; set it back to 16 (or 17 for very dense LV) and have affected packs rebuilt. |
-| **A crew can't see a shared pack you made** | Pickup is gated on *their* access. Check the crew's **territory** covers the cell's territory **and** they hold the `*:read` for every extra the base carries (connectivity/relationships/faults/tags). A crew that doesn't fully cover a cell never sees it (§6.1). |
+| **A crew can't see a shared pack you made** | Pickup is gated on *their* access. Check the crew's **territory** covers the cell's territory **and** they hold the `*:read` for every extra the base carries (connectivity/relationships/faults/tags). A crew that doesn't fully cover a cell never sees it (§7.1). |
 | **A shared cell has no build to pick up** | It's never been built (or every build failed). Trigger `POST /field-packs/cells/{id}/build`, or set a **schedule**; check the build didn't fail on the feature cap (regrid finer). |
-| **Old cell versions aren't being cleaned up** | Retention only reaps `keep_n` cells, and never a version a crew still holds. Set the policy to `keep_n`, and check the usage view for lingering holders (§6.6). |
+| **Old cell versions aren't being cleaned up** | Retention only reaps `keep_n` cells, and never a version a crew still holds. Set the policy to `keep_n`, and check the usage view for lingering holders (§7.6). |
 | **A crew says none of their edits are arriving, but their classes are all `auto`** | Head-of-line blocking (§5.4): an **earlier** edit from that device is held (`pending_review` or `conflict`). Filter the queue to that user, clear the **oldest** held edit, and the rest flow. |
 | **A conflict keeps coming back for the same feature** | Check whether the office is still editing it (live row newer than the crew's snapshot each time). After **Apply anyway**, the crew should rebuild/re-pull so their next edit is made against a fresh snapshot. |
 | **Conflicts are not being detected on a class** | Detection is a per-class setting and only checks update/delete edits that carry a snapshot stamp (§5.5). It also fails open if the check errors — don't rely on it as a hard lock. |
 | **A cell is listed on the device as "not yet available"** | It is active and covered, but has no succeeded version yet. Build it (`…/build`) or wait for the schedule; see why a build failed on the cell's latest version. |
-| **A crew shows as "quiet" right after re-pulling** | "Quiet" is per exact version (§6.6). They have not yet synced anything made against the version they just picked up. |
+| **A crew shows as "quiet" right after re-pulling** | "Quiet" is per exact version (§7.6). They have not yet synced anything made against the version they just picked up. |
 | **A scheduled cell isn't rebuilding** | Its `schedule` must be `hourly`/`daily`/`weekly`, it must be **active**, and if `FIELDSYNC_BUILD_WINDOW` is set the rebuild only fires within that UTC window. |
 
 ---
 
-## 8. Quick reference
+## 9. Quick reference
 
 **Permissions**
 
@@ -703,7 +804,7 @@ crew's existing entitlements.
 | `connectivity:read`, `relationships:read`, `wam:read`, `faults:read`, `tags:read` | Crew: what a pack contains |
 | `admin:field-packs` | Admin: manage packs |
 | `sync:review` / `sync:post` | Admin: view / act on the review queue |
-| `field:tracks:read` | Supervisor: view the Field trails map (§5.6) |
+| `field:tracks:read` | Supervisor: view the Field trails map (§6.2) |
 
 **Environment (`cmd/fieldsync`)**
 
@@ -730,12 +831,12 @@ crew's existing entitlements.
 | Reclaim storage | **Delete** the pack (permanent) |
 | Gate a class for review | Sync Review → set that class to **review** (`sync:post`) |
 | Check / release held edits | Sync Review → **Post** / **Reject** |
-| See where a crew worked | **Field trails** (`/field-tracks`, `field:tracks:read`) → worker → session (§5.6) |
+| See where a crew worked | **Field trails** (`/field-tracks`, `field:tracks:read`) → worker → session (§6.2) |
 | Settle a conflict | Sync Review → conflict → **Apply anyway** / **Keep** |
 | Build faster for a fleet | PgBouncer + raise concurrencies + add `cmd/fieldsync` replicas |
 | Pre-build a shared area | Define a **cell** (`POST /field-packs/cells`) → build it (`…/build`) or schedule it |
 | Grid a big territory | `POST /field-packs/cells/grid` (rows×cols or `cell_size_deg`) |
-| See who holds / synced a cell | `GET /field-packs/cells/{id}/usage` (§6.6) |
+| See who holds / synced a cell | `GET /field-packs/cells/{id}/usage` (§7.6) |
 | Reap old cell versions | Set `keep_n` retention; `POST /field-packs/cells/{id}/reap` |
 | Stage a pack for a crew | `POST /field-packs/on-behalf` (scoped from *their* RBAC) |
 

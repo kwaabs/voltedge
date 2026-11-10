@@ -287,6 +287,15 @@ var manifest = []Doc{
 		RequiredPerm: auth.PermFieldPacksAdmin,
 	},
 	{
+		ID:           "field-sso-guide-interactive",
+		Title:        "Field App Auth & SSO (interactive)",
+		Description:  "How a field tablet signs in with Microsoft/Azure SSO, end to end: a topology toggle (web vs field path), a hop-by-hop flow stepper from tap to token, the two-gates simulator (Microsoft authenticates, VoltEdge authorises), a scrubbable access+refresh token timeline, a config resolver for FIELD_SSO_WEB_ORIGIN and the Azure redirect per topology, and a troubleshooting diagnoser. The interactive companion to the Field App Authentication & SSO guide.",
+		Category:     "Interactive guides",
+		Filename:     "field-sso-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermFieldPacksAdmin,
+	},
+	{
 		ID:           "symbology-guide-interactive",
 		Title:        "Symbology & Map Styling (interactive)",
 		Description:  "The symbology manual as a working engine painting a sample Oakwood network: a why-can't-Priya-see-it pipeline with the cache and hard-refresh, a most-specific-wins scorer, a real SVG icon library and editor with live width/height and intrinsic-size diagnostics, a sizing calculator, the per-class rule editor (default rule, subtype and field targeting, line and polygon styles) with a click inspector, zoom bands vs Display zoom vs labels, map and diagram contexts side by side, and a seven-step diagnoser with SQL peeks. A persona switch gates every control by metadata permission.",
@@ -601,6 +610,17 @@ var manifest = []Doc{
 		Description:  "Running the offline field tool: crew access and the RBAC that gates pack contents, managing everyone's packs (disable/delete), the sync-review QA queue (hold/post/reject/resolve conflicts), and tuning build/sync for a fleet (zoom, size cap, worker concurrency, replicas).",
 		Category:     "Administration",
 		Filename:     "field-tool-admin-guide.md",
+		RequiredPerm: auth.PermFieldPacksAdmin,
+	},
+	{
+		// Field-app SSO: the server-mediated OIDC flow, the access+refresh token
+		// model (mig 0191), enrolment, Azure/deploy config and troubleshooting.
+		// Admin/operator audience, so gated on the same field-packs admin capability.
+		ID:           "field-sso-guide",
+		Title:        "Field App Authentication & SSO",
+		Description:  "How a field tablet signs in with a password or Microsoft/Azure SSO: why the flow is server-mediated, the hop-by-hop sign-in, enrolling a mobile SSO user (matching email + field:login), the short access + long refresh token model, the Azure/deployment config, local dev & device testing, troubleshooting, and the security model.",
+		Category:     "Administration",
+		Filename:     "field-sso-guide.md",
 		RequiredPerm: auth.PermFieldPacksAdmin,
 	},
 	{

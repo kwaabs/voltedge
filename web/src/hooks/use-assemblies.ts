@@ -17,6 +17,10 @@ export interface AssemblyOption {
   config: string
   name: string
   anchor_subtype?: number | null
+  /** The kit's default anchor attributes (migration 0194) -- the create form seeds
+   * these so a required config field (package_config / rmu_config) arrives
+   * pre-selected instead of being re-entered. Absent when the kit declares none. */
+  anchor_attributes?: Record<string, unknown> | null
 }
 
 /** The whole addable (anchor class x config) list for the Assemblies menu.
@@ -75,6 +79,15 @@ export interface Kit {
   name: string
   anchor_subtype_code?: number | null
   diagram_template_name?: string | null
+  /** The assembly's own glyph on the geographic map (migration 0192): an icon ref +
+   * hex color. A managed map-context symbology rule on the anchor class renders it;
+   * the components' / diagram symbology is untouched. Null = no assembly map symbol. */
+  map_icon_ref?: string | null
+  map_color?: string | null
+  /** Template defaults applied to the ANCHOR feature at placement (migration 0194),
+   * merged under the placing user's own attributes. Lets a kit pin its anchor's
+   * required config field (e.g. package_config) so the recipe supplies it. */
+  anchor_attributes?: Record<string, unknown> | null
   components: KitComponent[]
 }
 
@@ -94,6 +107,9 @@ export interface KitInput {
   name: string
   anchor_subtype_code?: number | null
   diagram_template_name?: string | null
+  map_icon_ref?: string | null
+  map_color?: string | null
+  anchor_attributes?: Record<string, unknown> | null
   components: KitComponent[]
 }
 

@@ -1,9 +1,11 @@
 package agenttools
 
 // The composite "place a whole assembly" builder tools -- each a thin adapter
-// over an already-exported fan-out engine (rmu/packagedsub/assembly/tie/coupler/
-// duct/panel), the same call its REST POST route makes. Every builder creates a
-// whole pre-wired assembly (the anchor plus its fanned-out components, contained
+// over an already-exported fan-out engine (assembly/tie/coupler/duct/panel), the
+// same call its REST POST route makes. The former place_rmu / place_packaged_
+// substation tools were folded into create_assembly when their engines were
+// consolidated. Every builder creates a whole pre-wired assembly (the anchor plus
+// its fanned-out components, contained
 // and connected) in one transaction, so each is a write tool carrying its own
 // annotations for human confirmation.
 //
@@ -24,104 +26,19 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/coupler"
 	"github.com/kwaabs/voltedge/api/internal/duct"
-	"github.com/kwaabs/voltedge/api/internal/packagedsub"
 	"github.com/kwaabs/voltedge/api/internal/panel"
-	"github.com/kwaabs/voltedge/api/internal/rmu"
 	"github.com/kwaabs/voltedge/api/internal/tie"
 	"github.com/uptrace/bun"
 )
 
-// builderTools returns the seven composite-builder tools plus their options
-// listers. The create tools all set readOnly/destructive/idempotent/openWorld
+// builderTools returns the composite-builder tools plus their options listers
+// (create_assembly covers RMU and packaged substations too, since their fan-out
+// engines were consolidated into it). The create tools all set
+// readOnly/destructive/idempotent/openWorld
 // false: a build writes, is additive (not a delete), re-running it creates
 // another assembly, and it touches only this system's database.
 func builderTools() []Tool {
 	return []Tool{
-		{
-			Name: "place_rmu",
-			Description: "Place a ring main unit (RMU) as a whole pre-wired assembly -- the same " +
-				"write the REST POST /ring-main-units route performs (the map's Assemblies menu). " +
-				"From the RMU's config attribute it fans out the internal bus and every switching " +
-				"way, contains them in the RMU, and wires each way to the bus, all in one " +
-				"transaction. Returns the placed RMU, its bus, and every created way. This WRITES " +
-				"to the database: confirm with a human before calling.",
-			InputSchema: json.RawMessage(`{
-				"type":"object",
-				"properties":{
-					"rmu_feature_class":{"type":"string","description":"The RMU (container) feature class code to create."},
-					"subtype":{"type":"integer","description":"Subtype code for the RMU -- required when the class has subtypes."},
-					"name":{"type":"string","description":"Optional label for the RMU."},
-					"geometry":{"type":"object","description":"The GeoJSON geometry object where the RMU is placed -- required."},
-					"territory_id":{"type":"string","description":"Optional territory override (uuid); omit to auto-assign from geometry."},
-					"attributes":{"type":"object","description":"RMU field values keyed by field name -- MUST include the config field that selects the way template (see list_rmu_options).","additionalProperties":true}
-				},
-				"required":["rmu_feature_class","geometry"],
-				"additionalProperties":false
-			}`),
-			Annotations: &Annotations{
-				Title:           "Place RMU",
-				ReadOnlyHint:    &falseHint,
-				DestructiveHint: &falseHint,
-				IdempotentHint:  &falseHint,
-				OpenWorldHint:   &falseHint,
-			},
-			RequiredPerm: auth.PermFeaturesWrite,
-			ExtraPerms:   []string{auth.PermRelationshipsCommit, auth.PermConnectivityCommit},
-			Handler:      toolPlaceRMU,
-		},
-		{
-			Name: "list_rmu_options",
-			Description: "List the RMU feature classes and the config values each supports -- the " +
-				"same catalog the REST GET /ring-main-units/options route returns, backing the " +
-				"map's Assemblies menu. Use it to pick a valid rmu_feature_class and config " +
-				"attribute for place_rmu. Takes no arguments.",
-			InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-			RequiredPerm: auth.PermFeaturesRead,
-			Handler:      toolListRMUOptions,
-		},
-		{
-			Name: "place_packaged_substation",
-			Description: "Place a packaged (unit) substation as a whole pre-wired assembly -- the " +
-				"same write the REST POST /packaged-substations route performs (the map's " +
-				"Assemblies menu). From the config attribute it fans out the internal components " +
-				"in series, contains them in the enclosure, and wires the chain, all in one " +
-				"transaction. Returns the placed enclosure and every created component. This " +
-				"WRITES to the database: confirm with a human before calling.",
-			InputSchema: json.RawMessage(`{
-				"type":"object",
-				"properties":{
-					"packaged_feature_class":{"type":"string","description":"The packaged substation (enclosure) feature class code to create."},
-					"subtype":{"type":"integer","description":"Subtype code for the enclosure -- required when the class has subtypes."},
-					"name":{"type":"string","description":"Optional label for the packaged substation."},
-					"geometry":{"type":"object","description":"The GeoJSON geometry object where the unit is placed -- required."},
-					"territory_id":{"type":"string","description":"Optional territory override (uuid); omit to auto-assign from geometry."},
-					"attributes":{"type":"object","description":"Enclosure field values keyed by field name -- MUST include the config field that selects the fan-out template (see list_packaged_substation_options).","additionalProperties":true}
-				},
-				"required":["packaged_feature_class","geometry"],
-				"additionalProperties":false
-			}`),
-			Annotations: &Annotations{
-				Title:           "Place packaged substation",
-				ReadOnlyHint:    &falseHint,
-				DestructiveHint: &falseHint,
-				IdempotentHint:  &falseHint,
-				OpenWorldHint:   &falseHint,
-			},
-			RequiredPerm: auth.PermFeaturesWrite,
-			ExtraPerms:   []string{auth.PermRelationshipsCommit, auth.PermConnectivityCommit},
-			Handler:      toolPlacePackagedSub,
-		},
-		{
-			Name: "list_packaged_substation_options",
-			Description: "List the packaged substation feature classes and the config values each " +
-				"supports -- the same catalog the REST GET /packaged-substations/options route " +
-				"returns, backing the map's Assemblies menu. Use it to pick a valid " +
-				"packaged_feature_class and config attribute for place_packaged_substation. Takes " +
-				"no arguments.",
-			InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
-			RequiredPerm: auth.PermFeaturesRead,
-			Handler:      toolListPackagedSubOptions,
-		},
 		{
 			Name: "create_assembly",
 			Description: "Create a guided kit assembly around an anchor feature -- the same write the " +
@@ -384,88 +301,6 @@ func builderTools() []Tool {
 }
 
 // --- create handlers (each owns its transaction via asDB) ---
-
-func toolPlaceRMU(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
-	var in struct {
-		RMUFeatureClass string          `json:"rmu_feature_class"`
-		Subtype         *int            `json:"subtype"`
-		Name            *string         `json:"name"`
-		Geometry        json.RawMessage `json:"geometry"`
-		TerritoryID     *string         `json:"territory_id"`
-		Attributes      map[string]any  `json:"attributes"`
-	}
-	if err := json.Unmarshal(args, &in); err != nil {
-		return nil, fmt.Errorf("invalid arguments: %w", err)
-	}
-	if in.RMUFeatureClass == "" {
-		return nil, fmt.Errorf("rmu_feature_class is required")
-	}
-	if len(in.Geometry) == 0 {
-		return nil, fmt.Errorf("geometry is required")
-	}
-	sdb, err := asDB(db)
-	if err != nil {
-		return nil, err
-	}
-	// The acting user is on ctx via auth.WithUser in Execute; CreateRMU owns the
-	// transaction and re-validates the config attribute and required fields.
-	return rmu.CreateRMU(ctx, sdb, rmu.CreateRMUInput{
-		RMUFeatureClass: in.RMUFeatureClass,
-		Subtype:         in.Subtype,
-		Name:            in.Name,
-		Geometry:        in.Geometry,
-		TerritoryID:     in.TerritoryID,
-		Attributes:      in.Attributes,
-	})
-}
-
-func toolListRMUOptions(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
-	opts, err := rmu.ListRMUOptions(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"options": opts, "count": len(opts)}, nil
-}
-
-func toolPlacePackagedSub(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
-	var in struct {
-		PackagedFeatureClass string          `json:"packaged_feature_class"`
-		Subtype              *int            `json:"subtype"`
-		Name                 *string         `json:"name"`
-		Geometry             json.RawMessage `json:"geometry"`
-		TerritoryID          *string         `json:"territory_id"`
-		Attributes           map[string]any  `json:"attributes"`
-	}
-	if err := json.Unmarshal(args, &in); err != nil {
-		return nil, fmt.Errorf("invalid arguments: %w", err)
-	}
-	if in.PackagedFeatureClass == "" {
-		return nil, fmt.Errorf("packaged_feature_class is required")
-	}
-	if len(in.Geometry) == 0 {
-		return nil, fmt.Errorf("geometry is required")
-	}
-	sdb, err := asDB(db)
-	if err != nil {
-		return nil, err
-	}
-	return packagedsub.CreatePackagedSubstation(ctx, sdb, packagedsub.CreatePackagedSubInput{
-		PackagedFeatureClass: in.PackagedFeatureClass,
-		Subtype:              in.Subtype,
-		Name:                 in.Name,
-		Geometry:             in.Geometry,
-		TerritoryID:          in.TerritoryID,
-		Attributes:           in.Attributes,
-	})
-}
-
-func toolListPackagedSubOptions(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
-	opts, err := packagedsub.ListPackagedSubOptions(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"options": opts, "count": len(opts)}, nil
-}
 
 func toolCreateAssembly(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {

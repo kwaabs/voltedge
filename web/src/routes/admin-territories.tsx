@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import { useNavigate } from "react-router"
 import {
   AlertTriangle,
+  ChevronDown,
   EyeOff,
   FolderInput,
   Loader2,
@@ -320,6 +321,10 @@ function AccessRolloutCard() {
   const { data, isPending, isError } = useTerritoryCoverage()
   const backfill = useBackfillTerritories()
   const setEnforcement = useSetEnforcement()
+  // The per-class coverage breakdown is a setup/remediation detail, not a
+  // dashboard -- collapsed by default so it doesn't dominate the page; the
+  // summary (count + Run backfill) is enough day-to-day.
+  const [showBreakdown, setShowBreakdown] = useState(false)
 
   const classes = data?.classes ?? []
   const enforcement = data?.enforcement ?? false
@@ -410,18 +415,32 @@ function AccessRolloutCard() {
           <p className="text-sm text-emerald-700">Every geometric feature has a territory. Ready to enforce.</p>
         ) : (
           <div className="flex flex-col gap-1">
-            <div className="text-muted-foreground grid grid-cols-[1fr_auto_auto] gap-x-4 border-b pb-1 text-xs font-medium">
-              <span>Feature class</span>
-              <span className="text-right">Unassigned</span>
-              <span className="text-right">Total</span>
-            </div>
-            {withGaps.map((c) => (
-              <div key={c.class_code} className="grid grid-cols-[1fr_auto_auto] gap-x-4 text-sm">
-                <span className="font-mono text-xs">{c.class_code}</span>
-                <span className="text-right font-medium text-amber-700">{c.unassigned}</span>
-                <span className="text-muted-foreground text-right">{c.total}</span>
+            {/* The full per-class table is collapsed by default -- a remediation
+                detail, not something to scroll past every visit. */}
+            <button
+              type="button"
+              onClick={() => setShowBreakdown((v) => !v)}
+              className="text-muted-foreground hover:text-foreground flex items-center gap-1 self-start text-xs"
+            >
+              <ChevronDown className={`size-3.5 transition-transform ${showBreakdown ? "" : "-rotate-90"}`} />
+              {showBreakdown ? "Hide" : "Show"} per-class breakdown ({withGaps.length} class{withGaps.length === 1 ? "" : "es"})
+            </button>
+            {showBreakdown && (
+              <div className="mt-1 flex flex-col gap-1">
+                <div className="text-muted-foreground grid grid-cols-[1fr_auto_auto] gap-x-4 border-b pb-1 text-xs font-medium">
+                  <span>Feature class</span>
+                  <span className="text-right">Unassigned</span>
+                  <span className="text-right">Total</span>
+                </div>
+                {withGaps.map((c) => (
+                  <div key={c.class_code} className="grid grid-cols-[1fr_auto_auto] gap-x-4 text-sm">
+                    <span className="font-mono text-xs">{c.class_code}</span>
+                    <span className="text-right font-medium text-amber-700">{c.unassigned}</span>
+                    <span className="text-muted-foreground text-right">{c.total}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
       </CardContent>
@@ -540,25 +559,37 @@ export function AdminTerritoriesPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="flex w-full flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold">Territories</h1>
-            <p className="text-muted-foreground text-sm">
-              The administrative-area hierarchy features are classified against. Editing the tree here never re-assigns
-              already-placed features -- that stays automatic on each feature save.
-            </p>
-          </div>
-          <Button size="sm" onClick={() => setCreating({ parentId: null })}>
-            <Plus className="size-4" />
-            New territory
-          </Button>
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+        <div>
+          <h1 className="text-lg font-semibold">Territories</h1>
+          <p className="text-muted-foreground text-sm">
+            The administrative-area hierarchy features are classified against, and the access policies that use it.
+          </p>
         </div>
 
-        <Card>
+        {/* Spatial-access rollout is the content-heavy card, so it keeps its own
+            full-width row; the two compact cards below -- private drafts and the
+            territory tree -- sit side-by-side (uneven heights are fine). */}
+        <AccessRolloutCard />
+
+        <div className="grid items-start gap-4 md:grid-cols-2">
+          <PrivateDraftsRolloutCard />
+
+          <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Hierarchy</CardTitle>
-            <CardDescription>Hover a row for its actions: add a child, rename, move, or delete.</CardDescription>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-sm">Territory hierarchy</CardTitle>
+                <CardDescription>
+                  Hover a row for its actions: add a child, rename, move, or delete. Editing the tree never re-assigns
+                  already-placed features.
+                </CardDescription>
+              </div>
+              <Button size="sm" className="shrink-0" onClick={() => setCreating({ parentId: null })}>
+                <Plus className="size-4" />
+                New territory
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="pt-0">
             {isPending ? (
@@ -587,10 +618,8 @@ export function AdminTerritoriesPage() {
               </div>
             )}
           </CardContent>
-        </Card>
-
-        <AccessRolloutCard />
-        <PrivateDraftsRolloutCard />
+          </Card>
+        </div>
       </div>
 
       {creating !== null && (

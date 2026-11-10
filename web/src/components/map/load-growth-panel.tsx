@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation } from "@/components/map/analysis-explanation"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -370,15 +371,21 @@ function ForecastRow({ asset, classNameFor }: { asset: ForecastAsset; classNameF
   const violating = asset.first_violation_year !== null
   return (
     <tr
-      onClick={() => useSelectionStore.getState().select(asset.feature_class, asset.feature_id, { focus: true })}
+      onClick={() => useSelectionStore.getState().locate(asset.feature_class, asset.feature_id, { focus: true })}
+      onDoubleClick={() => useSelectionStore.getState().select(asset.feature_class, asset.feature_id, { focus: true })}
       className={cn(
-        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0 select-none",
         violating ? "bg-destructive/10 hover:bg-destructive/15" : "bg-amber-500/10 hover:bg-amber-500/15",
       )}
     >
       <td className="px-3 py-1.5">
-        <div>{classNameFor(asset.feature_class)}</div>
-        <div className="text-muted-foreground font-mono text-xs">{shortId(asset.feature_id)}</div>
+        <div className="flex items-start gap-1">
+          <FeatureInfoButton featureClass={asset.feature_class} featureId={asset.feature_id} className="-mt-0.5" />
+          <div className="min-w-0">
+            <div>{classNameFor(asset.feature_class)}</div>
+            <div className="text-muted-foreground font-mono text-xs">{shortId(asset.feature_id)}</div>
+          </div>
+        </div>
       </td>
       <td className="px-3 py-1.5 text-xs">
         <div>{limitKindLabel(asset.limit_kind)}</div>
@@ -419,15 +426,21 @@ function VoltageTable({ result, classNameFor }: { result: LoadGrowthResult; clas
             return (
               <tr
                 key={`${v.feature_class}:${v.feature_id}`}
-                onClick={() => useSelectionStore.getState().select(v.feature_class, v.feature_id, { focus: true })}
+                onClick={() => useSelectionStore.getState().locate(v.feature_class, v.feature_id, { focus: true })}
+                onDoubleClick={() => useSelectionStore.getState().select(v.feature_class, v.feature_id, { focus: true })}
                 className={cn(
-                  "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+                  "hover:bg-accent cursor-pointer border-b align-top last:border-b-0 select-none",
                   violating ? "bg-destructive/10 hover:bg-destructive/15" : "bg-amber-500/10 hover:bg-amber-500/15",
                 )}
               >
                 <td className="px-3 py-1.5">
-                  <div>{classNameFor(v.feature_class)}</div>
-                  <div className="text-muted-foreground font-mono text-xs">{shortId(v.feature_id)}</div>
+                  <div className="flex items-start gap-1">
+                    <FeatureInfoButton featureClass={v.feature_class} featureId={v.feature_id} className="-mt-0.5" />
+                    <div className="min-w-0">
+                      <div>{classNameFor(v.feature_class)}</div>
+                      <div className="text-muted-foreground font-mono text-xs">{shortId(v.feature_id)}</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap">
                   {violating ? <span className="font-medium">year {v.first_violation_year}</span> : <span className="text-muted-foreground">approaching</span>}
@@ -467,12 +480,18 @@ function DerHeadroomTable({ result, classNameFor }: { result: LoadGrowthResult; 
             return (
               <tr
                 key={`${r.feature_class}:${r.feature_id}`}
-                onClick={() => useSelectionStore.getState().select(r.feature_class, r.feature_id, { focus: true })}
-                className="hover:bg-accent cursor-pointer border-b align-top last:border-b-0"
+                onClick={() => useSelectionStore.getState().locate(r.feature_class, r.feature_id, { focus: true })}
+                onDoubleClick={() => useSelectionStore.getState().select(r.feature_class, r.feature_id, { focus: true })}
+                className="hover:bg-accent select-none cursor-pointer border-b align-top last:border-b-0"
               >
                 <td className="px-3 py-1.5">
-                  <div>{classNameFor(r.feature_class)}</div>
-                  <div className="text-muted-foreground font-mono text-xs">{shortId(r.feature_id)}</div>
+                  <div className="flex items-start gap-1">
+                    <FeatureInfoButton featureClass={r.feature_class} featureId={r.feature_id} className="-mt-0.5" />
+                    <div className="min-w-0">
+                      <div>{classNameFor(r.feature_class)}</div>
+                      <div className="text-muted-foreground font-mono text-xs">{shortId(r.feature_id)}</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap">{first ? formatNumber(first.hosting_capacity_kw, 0) : "—"}</td>
                 <td className="px-3 py-1.5 whitespace-nowrap">{last ? formatNumber(last.hosting_capacity_kw, 0) : "—"}</td>

@@ -75,15 +75,19 @@ class _WamScreenState extends ConsumerState<WamScreen>
       // Stamp WAM captures with the worker's position: a recorder on the shared
       // field session feeds store.actorLocation (no breadcrumb sink here — the trail
       // itself is recorded on the map screen; this only supplies the edit stamp).
-      final recorder = FieldTrackRecorder(sessionId: ref.read(fieldSessionIdProvider));
-      store.actorLocation = recorder.actorLocation;
-      _recorderSub = ref.listenManual<AsyncValue<GnssSample>>(
-        gnssStreamProvider,
-        (prev, next) {
-          final sample = next.valueOrNull;
-          if (sample != null) recorder.onSample(sample);
-        },
-      );
+      // Gated on the org-wide field-tracking switch: when off, leave actorLocation
+      // null so captures carry no location (the server enforces the same).
+      if (ref.read(settingsRepositoryProvider).fieldTrackingEnabled) {
+        final recorder = FieldTrackRecorder(sessionId: ref.read(fieldSessionIdProvider));
+        store.actorLocation = recorder.actorLocation;
+        _recorderSub = ref.listenManual<AsyncValue<GnssSample>>(
+          gnssStreamProvider,
+          (prev, next) {
+            final sample = next.valueOrNull;
+            if (sample != null) recorder.onSample(sample);
+          },
+        );
+      }
       setState(() => _store = store);
       // Reconcile any ops left in flight from a prior session so a returning crew
       // sees applied/rejected without a manual sync. Fire-and-forget.

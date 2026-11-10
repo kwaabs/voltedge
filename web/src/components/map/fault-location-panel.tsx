@@ -5,6 +5,7 @@ import {
   resolveNominalVoltage,
   useDeriveVoltageDefault,
 } from "@/components/map/analysis-voltage"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { FloatingPanel } from "@/components/ui/floating-panel"
@@ -207,13 +208,13 @@ function CandidateRow({
 }) {
   const pct = Math.round(c.fraction_along_segment * 100)
   return (
-    <li>
+    <li className="flex items-start gap-1">
+      <FeatureInfoButton featureClass={c.segment.feature_class} featureId={c.segment.feature_id} className="mt-1" />
       <button
         type="button"
-        onClick={() =>
-          useSelectionStore.getState().select(c.segment.feature_class, c.segment.feature_id, { focus: true })
-        }
-        className="hover:bg-accent w-full rounded border p-2 text-left"
+        onClick={() => useSelectionStore.getState().locate(c.segment.feature_class, c.segment.feature_id, { focus: true })}
+        onDoubleClick={() => useSelectionStore.getState().select(c.segment.feature_class, c.segment.feature_id, { focus: true })}
+        className="hover:bg-accent select-none w-full rounded border p-2 text-left"
       >
         <div className="flex items-center justify-between gap-2">
           <span className="font-medium">

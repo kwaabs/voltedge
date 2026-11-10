@@ -1,4 +1,4 @@
-import { Activity, ListChecks, Radio } from "lucide-react"
+import { Activity, ListChecks, Network, Radio } from "lucide-react"
 import { Link, useLocation } from "react-router"
 
 import { usePermission } from "@/hooks/use-auth"
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 // switch between, so the strip omits itself entirely.
 const OPS_TABS = [
   { to: "/operations", label: "Operations", icon: Activity, perm: "operations:read" },
+  { to: "/operations/schematic", label: "Schematic", icon: Network, perm: "diagrams:read" },
   { to: "/live-state", label: "Live state", icon: Radio, perm: "telemetry:read" },
   { to: "/switching", label: "Switching", icon: ListChecks, perm: "oms:read" },
 ]
@@ -23,10 +24,14 @@ export function OperationsTabs() {
   const tabs = OPS_TABS.filter((t) => can(t.perm))
   if (tabs.length < 2) return null
 
+  const matches = (to: string) => pathname === to || pathname.startsWith(`${to}/`)
   return (
     <div className="bg-background sticky top-0 z-10 flex shrink-0 gap-1 border-b">
       {tabs.map((t) => {
-        const active = pathname === t.to || pathname.startsWith(`${t.to}/`)
+        // Only the most specific matching tab is active: "/operations/schematic"
+        // matches both "/operations" and itself, so the nested tab wins over its
+        // parent (otherwise both would light up).
+        const active = matches(t.to) && !tabs.some((o) => o.to !== t.to && o.to.length > t.to.length && matches(o.to))
         const Icon = t.icon
         return (
           <Link

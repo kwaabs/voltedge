@@ -292,7 +292,7 @@ svg text{font-family:var(--f-mono)}
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>Switching &amp; Protection</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · Start</a><a href="#c2">2 · Devices</a><a href="#c3">3 · State</a><a href="#c4">4 · Opening</a><a href="#c5">5 · Ties &amp; RMUs</a><a href="#c6">6 · Protection</a><a href="#c7">7 · Curves</a><a href="#c8">8 · Coordination</a><a href="#c9">9 · Fault duty</a><a href="#c10">10 · Together</a><a href="#c11">11 · Practice</a>
+      <a href="#c1">1 · Start</a><a href="#c2">2 · Devices</a><a href="#c3">3 · State</a><a href="#cgov">3.1 · Governance</a><a href="#c4">4 · Opening</a><a href="#c5">5 · Ties &amp; RMUs</a><a href="#c6">6 · Protection</a><a href="#c7">7 · Curves</a><a href="#c8">8 · Coordination</a><a href="#c9">9 · Fault duty</a><a href="#c10">10 · Together</a><a href="#c11">11 · Practice</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -454,12 +454,57 @@ svg text{font-family:var(--f-mono)}
   <ol class="steps"><li>Select the switch/breaker → <b>Edit</b> (pencil) → <b>Attributes</b>.</li><li>Choose <code>device_state</code> <code>OPEN</code> or <code>CLOSED</code> → <b>Save.</b></li><li>Re-run any trace, or open the one-line’s <b>Live</b> shading, to see the effect.</li></ol>
   <p style="margin-bottom:6px">⚠️ There is <b>no one-click “operate” toggle</b> — it is the normal Edit → Attributes → Save path, or an OMS switching-step tick. 💡 To take an asset <em>out of service</em> (not just open), edit <code>operational_state</code> to <code>ISOLATED</code>; it blocks traces the same way and is governed by the state machine.</p></div>
   <h4>Who sets state — and OMS switching orders</h4>
-  <p>Both columns are ordinary attributes (REST <code>PATCH /features/…</code>, the attribute editor, or the <code>update_feature</code> MCP tool). The <b>OMS module</b> flips <code>device_state</code> as crew execute a <b>switching order</b>: executing an <em>open</em> step sets <code>OPEN</code>, a <em>close</em> step sets <code>CLOSED</code>, un-ticking restores the opposite — inside the same transaction that ticks the step, through <code>crud.UpdateFeature</code> (validated, history-logged). A generated order always has <b>five steps</b>: <i>isolate</i> — open the blamed device, verify the downstream supplies are de-energised, earth at the nearest upstream isolation point; <i>restore</i> — note “remove earths”, close the device. Only <code>open</code>/<code>close</code> move a device. Status: <code>draft → issued → in_progress → completed</code> (or <code>cancelled</code>). Chapter 10 runs one.</p>
+  <p>Both columns are ordinary attributes (REST <code>PATCH /features/…</code>, the attribute editor, or the <code>update_feature</code> MCP tool). The <b>OMS module</b> flips <code>device_state</code> as crew execute a <b>switching order</b>: executing an <em>open</em> step sets <code>OPEN</code>, a <em>close</em> step sets <code>CLOSED</code>, un-ticking restores the opposite — inside the same transaction that ticks the step, through <code>crud.UpdateFeature</code> (validated, history-logged). A generated order always has <b>five steps</b>: <i>isolate</i> — open the blamed device, verify the downstream supplies are de-energised, earth at the nearest upstream isolation point; <i>restore</i> — note “remove earths”, close the device. Only <code>open</code>/<code>close</code> move a device. Status runs through a <b>governed lifecycle</b> — <code>draft → approved → issued → in_progress</code> (first tick) <code>→ completed</code> (last tick), <code>cancelled</code> from any non-terminal state — advanced by the governed actions <b>validate / approve / issue / execute</b>, <b>not</b> by a free-text status edit (see <b>3.1</b> below). Chapter 10 runs one.</p>
   <h4>Planned switching — a program with no incident</h4>
   <p>The order above is <em>generated from an incident</em>. For <b>planned</b> work — a maintenance isolation, a construction cut-over — author a <b>standalone switching program</b> tied to no incident. It reuses the very same <code>oms.switching_orders</code> / <code>oms.switching_steps</code> tables (migration <code>0186</code> made <code>incident_id</code> nullable and added a booked window + purpose), so it executes, logs and interlocks <em>identically</em> — the only difference is <code>incident_id IS NULL</code>. A program lives on <b>Operations → Switching</b> (route <code>/switching</code>): read with <code>oms:read</code>, build with <code>oms:write</code>. Start it empty and write each step, or <b>seed</b> it with the standard open → verify → earth → close steps for a chosen device (the same <code>buildIsolateRestoreDrafts</code> the incident generator uses), then add / edit / delete / reorder steps.</p>
   <div class="pl-b"><span class="tag pl">▶ Operator</span><h4 style="margin-top:0">How to author a planned switching program 🔒 <span class="perm">oms:write</span></h4>
-  <ol class="steps"><li>Sidebar → <b>Operations</b> → the <b>Switching</b> tab (or <code>/switching</code>) → <b>➕ New program</b>.</li><li>Give it a <b>title</b>, optionally a <b>planned window</b> + <b>purpose</b>, and (optionally) a <b>target device</b> to pre-fill the isolate/restore steps. <b>Create.</b></li><li><b>➕ Add step</b> for each operation (phase <em>isolate</em>/<em>restore</em>; action <em>open</em>/<em>close</em>/<em>earth</em>/<em>verify</em>/<em>note</em>; the instruction; the device for an open/close step); <b>↑ / ↓</b> to reorder, pencil / trash to edit or remove. (<code>POST /oms/switching-orders/{id}/steps</code>, <code>…/reorder</code>, <code>PATCH</code>/<code>DELETE /oms/switching-steps/{id}</code>.)</li><li><b>Issue</b> it (<code>draft → issued</code>), then <b>tick each step</b> in the field — an open/close tick flips the device live and logs the operation; un-tick reverts. <b>Cancel</b> keeps the steps for the record.</li></ol>
+  <ol class="steps"><li>Sidebar → <b>Operations</b> → the <b>Switching</b> tab (or <code>/switching</code>) → <b>➕ New program</b>.</li><li>Give it a <b>title</b>, optionally a <b>planned window</b> + <b>purpose</b>, and (optionally) a <b>target device</b> to pre-fill the isolate/restore steps. <b>Create.</b></li><li><b>➕ Add step</b> for each operation (phase <em>isolate</em>/<em>restore</em>; action <em>open</em>/<em>close</em>/<em>earth</em>/<em>verify</em>/<em>note</em>; the instruction; the device for an open/close step); <b>↑ / ↓</b> to reorder, pencil / trash to edit or remove. (<code>POST /oms/switching-orders/{id}/steps</code>, <code>…/reorder</code>, <code>PATCH</code>/<code>DELETE /oms/switching-steps/{id}</code>.)</li><li><b>Validate</b> it (the dry-run study), <b>Approve</b> it (the authorisation gate), then <b>Issue</b> it (<code>approved → issued</code>) — the steps become executable only once issued. Then <b>tick each step</b> in the field — an open/close tick flips the device live and logs the operation; un-tick reverts. <b>Cancel</b> keeps the steps for the record. (The <code>PATCH /oms/switching-orders/{id}</code> edits title/window/steps; it <b>no longer sets status</b> — that moves through the governed actions in <b>3.1</b>.)</li></ol>
   <p style="margin-bottom:6px">⚠️ An open/close step <b>must name the device it operates</b> (the server refuses one without); the builder edits <b>only</b> standalone programs, not incident-backed orders. 💡 A planned program is the place to <b>pre-stage a transfer</b> (<em>open REC-7 · open Way A · open FSW-12 · close T-79</em>) as one reviewable sheet the crew ticks off on the day.</p></div>
+</section>
+
+
+<!-- ============ CH3.1 — switching-order governance ============ -->
+<section class="ch" id="cgov">
+  <div class="ch-head"><div class="ch-num">3·1</div><h2>Switching-order governance — validate, approve, issue, interlocks</h2><p>A switching order changes status by four guarded actions, never a free-text edit — so the plan a crew executes is always the exact plan that was authorised.</p></div>
+  <p>A switching order — incident-generated or planned — is driven through a <b>governed lifecycle</b> by four actions, each a guarded transition: <b>validate</b>, <b>approve</b>, <b>issue</b> and <b>execute</b>. The lifecycle is <code>draft → approved → issued → in_progress → completed</code>, with <code>cancelled</code> reachable from <b>any</b> non-terminal state:</p>
+<pre class="pre">  draft ──approve──▶ approved ──issue──▶ issued ──first step──▶ in_progress ──last step──▶ completed
+    ▲                   │
+    └── edit a step ────┘                    (cancel from any non-terminal state)</pre>
+
+  <div class="en-b"><span class="tag en">∑ Engineer · ▶ Operator</span>
+  <h4 style="margin-top:0">Validate — the dry-run study 🔒 <span class="perm">oms:read</span></h4>
+  <p><code>GET /oms/switching-orders/{id}/validate</code>. Read-only — it <b>mutates nothing</b>. It walks the steps <b>in order</b> over a <b>simulated</b> device state (seeded from the live network, then advanced one step at a time) and returns a findings list. For every <code>open</code>/<code>close</code> step it checks three things:</p>
+  <ol class="steps">
+    <li>the named <b>device exists</b> and actually models a switchable <code>device_state</code>;</li>
+    <li>the device is in the <b>expected pre-state</b> in the simulation — an <b>open</b> step expects it <code>CLOSED</code>, a <b>close</b> step expects it <code>OPEN</code> (a mismatch means the network isn’t where the order assumes, or an earlier step is wrong);</li>
+    <li><b>no safety tag / clearance</b> blocks operating it.</li>
+  </ol>
+  <p>A step whose device is <b>already in its target state</b> is a <b>warning</b> (the step is redundant). A <b>pre-state mismatch</b>, a <b>missing device</b>, or a <b>safety block</b> is an <b>error</b>. The response is <code>{order_id, ready, findings:[{step_no, severity:"error"|"warning", code, message}]}</code>; <b><code>ready = true</code> only when there are no error findings.</b></p></div>
+  <div class="tip">▶ Run <b>Validate</b> before you ask for approval. A pre-state mismatch usually means the field has moved since you wrote the order, or two steps are out of sequence — fix the plan, don’t try to push past it.</div>
+
+  <div class="en-b"><span class="tag en">∑ Engineer · ▶ Operator</span>
+  <h4 style="margin-top:0">Approve — the authorisation gate 🔒 <span class="perm">oms:write</span></h4>
+  <p><code>POST /oms/switching-orders/{id}/approve</code> (<code>draft → approved</code>). Approve <b>runs the validation first and refuses if it has any blocking error</b> — you cannot authorise an order the study says won’t execute. On success it stamps <b><code>approved_at</code> / <code>approved_by</code></b> (migration <code>0199</code> added these columns). This is the <b>ADMS authorisation gate</b>: an approved order carries a record of who signed it off and when.</p>
+  <h4>Issue — release for execution 🔒 <span class="perm">oms:write</span></h4>
+  <p><code>POST /oms/switching-orders/{id}/issue</code> (<code>approved → issued</code>). Issuing hands the order to the field; <b>only an issued (or already in-progress) order can have its steps executed.</b></p></div>
+
+  <div class="en-b"><span class="tag en">∑ Engineer</span>
+  <h4 style="margin-top:0">The three execution interlocks</h4>
+  <p>Executing a step (<code>POST /oms/switching-steps/{id}/execute</code>) is gated by three checks, <b>on top of</b> the existing safety-tag / clearance gate:</p>
+  <ol class="steps">
+    <li><b>Order state</b> — the order must be <b>issued</b> or <b>in_progress</b> (you cannot execute steps on a <code>draft</code> or merely-<code>approved</code> order).</li>
+    <li><b>In sequence</b> — every earlier <code>step_no</code> must already be executed; you cannot skip ahead.</li>
+    <li><b>Pre-state</b> — the device must be in the expected pre-state (an <b>open</b> step needs it <code>CLOSED</code>, a <b>close</b> step needs it <code>OPEN</code>) — the same check the validation study makes, now enforced live.</li>
+  </ol></div>
+
+  <div class="pl-b"><span class="tag pl">▶ Operator</span>
+  <h4 style="margin-top:0">The supervised force override</h4>
+  <p>A step blocked by the <b>sequence</b> or <b>pre-state</b> interlock can be forced through with a <code>{"force": true}</code> body on the execute call. Force bypasses <b>only</b> those two checks, and it is recorded as <em>“forced past interlock: …”</em> on the device-operation log entry, so every override is auditable.</p></div>
+  <div class="caution"><b>Force never bypasses the safety-tag / clearance gate.</b> A danger or out-of-service tag stays a <b>hard block</b> whatever you pass — <code>force</code> cannot operate a tagged device. Force is a deliberate, supervised operator action; the in-app assistant / MCP tool <b>never</b> forces.</div>
+
+  <div class="en-b"><span class="tag en">∑ Engineer</span>
+  <h4 style="margin-top:0">Edit reverts approval</h4>
+  <p>Editing an <b>approved</b> order’s steps drops it straight back to <b>draft</b> — it must be re-validated and re-approved before it can be issued again, so an executed plan is always exactly the one that was approved. An <b>issued or in-progress</b> order is <b>locked</b> from step edits: to change the plan, <b>cancel</b> it and author a fresh one.</p></div>
 </section>
 
 
@@ -550,7 +595,7 @@ svg text{font-family:var(--f-mono)}
   <div class="cards">
     <div class="card"><h4>Feeder tie (NOP) <code>POST /ties</code></h4><p>Pick the switch class (default <b>MV Switch</b>; the list offers every active class that has a <code>normal_state</code> with <code>NORMALLY_OPEN</code> <em>and</em> both conductor rules). <b>Map geometry is required.</b> Two feeder pickers (<code>feeder_a</code>, <code>feeder_b</code>, different features). Born <code>NORMALLY_OPEN</code> <em>and</em> <code>OPEN</code>; an explicit value you supply wins. Wired <code>feeder A → T1</code> and <code>T2 → feeder B</code>: <b>A is the supply side</b>.</p></div>
     <div class="card"><h4>Bus coupler <code>POST /couplers</code></h4><p>Pick the breaker class (<b>MV Breaker</b>); two bus pickers (<code>bus_a</code>, <code>bus_b</code>, different). Wired <code>bus A.T2 → breaker.T1</code> and <code>breaker.T2 → bus B.T1</code>; stamped <code>switch_function = BUS_COUPLER</code> (you may pass <code>BUS_SECTION</code>). Downstream there is no coupler code — it is just a breaker.</p></div>
-    <div class="card"><h4>Ring main unit <code>POST /rmus</code></h4><p>Pick <code>rmu_config</code>: <code>2W_1T</code> (2 ring + 1 transformer → 3 ways) or <code>2W_2T</code> (2 ring + 2 transformer → 4 ways). Creates the <code>RMU</code> container, its internal <code>MV_BUSBAR</code>, the <code>MV_SWITCH</code> ways (each way’s T2 wired to the bus) and an underground cable <code>MV_CONDUCTOR</code> on each way’s T1. Fused (transformer) ways are stamped <code>is_fused = true</code>.</p></div>
+    <div class="card"><h4>Ring main unit <code>POST /assemblies</code></h4><p>Pick <code>rmu_config</code>: <code>2W_1T</code> (2 ring + 1 transformer → 3 ways) or <code>2W_2T</code> (2 ring + 2 transformer → 4 ways). Creates the <code>RMU</code> container, its internal <code>MV_BUSBAR</code>, the <code>MV_SWITCH</code> ways (each way’s T2 wired to the bus) and an underground cable <code>MV_CONDUCTOR</code> on each way’s T1. Fused (transformer) ways are stamped <code>is_fused = true</code>.</p></div>
   </div>
   <div class="widget" id="w8">
     <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>Assembly builder — what gets created, and what is rejected</h4></div>
@@ -1348,7 +1393,7 @@ const SC=['var(--s0)','var(--s1)','var(--s2)','var(--s3)','var(--s4)','var(--s5)
    ['Wire a switch to a conductor (New connection)','POST /connectivity',['cc'],'Topology commit.'],
    ['Link a relay to its breaker / CT / VT (New relationship)','POST /relationships',['rc'],'Relationship commit.'],
    ['Place a feeder tie or bus coupler','POST /ties · POST /couplers',['fw','cc'],'Mount needs features:write; the handler adds connectivity:commit.'],
-   ['Place a ring main unit','POST /rmus',['fw','cc','rc'],'Also writes the containment relationships.'],
+   ['Place a ring main unit (assembly kit)','POST /assemblies',['fw','cc','rc'],'Also writes the containment relationships.'],
    ['Generate or cancel a switching order','POST /oms/incidents/{id}/switching-orders',['ow'],'oms:write.'],
    ['Execute (tick) a switching step — flips device_state','POST /oms/switching-steps/{id}/execute',['ow'],'Written through crud.UpdateFeature: validated and history-logged.'],
    ['Read the outage board / energisation','GET /oms/…',['or'],'oms:read.'],
@@ -1932,7 +1977,7 @@ const FLTS=[['c0','C-0 (substation tail)'],['c1','C-1 (CB-7 → REC-7)'],['c2','
    ['Sweep the whole feeder',['Arm a coordination study on the source','Click Sweep feeder — no fault pick','Read the pairs, miscoordinated-first, worst margin each','Open a single Run on a flagged pair for its TCC chart'],'POST /analysis/coordination-sweep · analysis:run'],
    ['Check the fuse-saving scheme',['Arm a coordination study on the source','Click Fuse-saving — no fault pick','Read each recloser → fuse: Fuse saved / Fuse clears + saved ≤ I','Issues (either verdict failing) sort to the top'],'POST /analysis/fuse-saving · analysis:run'],
    ['Record a device’s protection settings',['Protection settings page → New','Name the device, or paste its GUID (non-protection ids rejected)','Fill relay model, CT ratio, phase/ground pickups, reclose scheme','Save — a source badge marks externally-fed rows'],'PUT /protection/settings/{class}/{id} · features:write'],
-   ['Author a planned switching program',['Operations → Switching tab → New program','Title + window; optional target device seeds isolate/restore steps','Add / reorder / edit steps; Issue (draft → issued)','Tick each step in the field — open/close flips the device live'],'POST /oms/planned-switching · oms:write'],
+   ['Author a planned switching program',['Operations → Switching tab → New program','Title + window; optional target device seeds isolate/restore steps','Add / reorder / edit steps; Validate, Approve, then Issue (approved → issued)','Tick each step in the field — open/close flips the device live (interlocked: order issued, in sequence, correct pre-state)'],'POST /oms/planned-switching · oms:write'],
    ['Find off-normal devices',['Operations → Abnormal tab','Lists devices whose device_state contradicts normal_state','A report, not an alarm — run it after restoration'],'GET /operations/abnormal · operations:read']];
   $('#recipes').innerHTML=R.map(r=>`<div class="card"><h4>${esc(r[0])}</h4><ol style="padding-left:18px;margin:6px 0;font-size:13.5px">${r[1].map(s=>`<li>${esc(s)}</li>`).join('')}</ol><p class="muted" style="font-size:12px;margin:6px 0 0"><code>${esc(r[2])}</code></p></div>`).join('');
 })();

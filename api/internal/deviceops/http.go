@@ -8,6 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/events"
 )
 
 // Routes returns the device-operation log endpoints:
@@ -204,6 +206,17 @@ func recordHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Record already raised any event alarm for this op (it does so for EVERY source
+		// -- crew, SCADA webhook, telemetry, switching). On this interactive path also
+		// refresh the standing off-normal alarms (the operation may have changed the
+		// config) and nudge every open annunciator to refetch. Best-effort: the op has
+		// already committed, so an alarm problem here must not fail the request.
+		_ = ReconcileAbnormalAlarms(r.Context(), db)
+		events.Broadcast("alarms", nil)
+		// A device changed state: nudge the operations schematic + any live view to
+		// refresh energisation / off-normal / affected cones (the "operations" event
+		// is the generic device-state-changed heartbeat, distinct from "alarms").
+		events.Broadcast("operations", nil)
 		writeJSON(w, http.StatusCreated, op)
 	}
 }

@@ -16,6 +16,8 @@ package export
 import (
 	"bufio"
 	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,7 +68,12 @@ type cimSubstation struct {
 
 // writeCIM streams a single combined CIM RDF/XML document of every layer to w,
 // using the resolved declarative mapping. generated stamps the md:FullModel
-// header (passed in rather than read from the clock so the output is testable).
+// header's Model.created only (the human "when was this file made" instant,
+// passed in -- the export job's created_at in production, a fixed value in
+// tests -- rather than read from the clock here). The FullModel's identity mRID
+// is NOT derived from generated: it is a hash of the exported CONTENT (see
+// modelMRID), so re-exporting an unchanged network keeps the same model identity
+// and a changed one gets a new identity -- the basis for diffing CIM models.
 //
 // targetSRID is the export reprojection target: nil means the geometry is still
 // the stored EPSG:4326, so the CoordinateSystem keeps the profile's declared
@@ -117,6 +124,8 @@ type cimWriter struct {
 	// the CoordinateSystem's crsUrn.
 	targetSRID *int
 
+	modelID string // md:FullModel identity mRID (content hash, set in write() before the header)
+
 	geoID  string // GeographicalRegion mRID
 	subID  string // SubGeographicalRegion mRID
 	csID   string // CoordinateSystem mRID
@@ -149,6 +158,18 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 	cw.b = cimBuf{w: bw}
 	profile := cw.mapping.Profile
 
+	// Deterministic emission order (M4): every pass below iterates layers and their
+	// features in a fixed order -- by class code, then feature id -- so two exports
+	// of the same model are byte-identical (the BaseVoltage, literal and topology
+	// passes already sort internally). Safe: every pass is keyed by id/geometry/
+	// content, never by position, and RDF tolerates any element order. This is also
+	// the exact ordering modelMRID hashes over, so identity and body stay in step.
+	sort.Slice(layers, func(i, j int) bool { return layers[i].Code < layers[j].Code })
+	for i := range layers {
+		fs := layers[i].Features
+		sort.Slice(fs, func(a, b int) bool { return fs[a].ID < fs[b].ID })
+	}
+
 	cw.b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	// The ve: extension namespace is declared only when the profile carries
 	// unmapped fields (H3), keeping a default 'drop' export byte-for-byte unchanged.
@@ -160,6 +181,10 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 			rdfNS, profile.CimNamespace, mdNS)
 	}
 
+	// Derive the model identity from the exported content (not the clock) so an
+	// unchanged network re-exports to the same md:FullModel mRID. Computed here,
+	// before the header, from the pure encoder inputs.
+	cw.modelID = modelMRID(docName, profile, cw.targetSRID, layers)
 	cw.writeHeader(docName)
 	cw.writeScaffold(profile)
 
@@ -230,8 +255,7 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 // document is identified and profiled by.
 func (cw *cimWriter) writeHeader(docName string) {
 	profile := cw.mapping.Profile
-	modelID := uuidV5("model:" + docName + ":" + cw.generated.Format(time.RFC3339))
-	fmt.Fprintf(&cw.b, "  <md:FullModel rdf:about=\"urn:uuid:%s\">\n", modelID)
+	fmt.Fprintf(&cw.b, "  <md:FullModel rdf:about=\"urn:uuid:%s\">\n", cw.modelID)
 	fmt.Fprintf(&cw.b, "    <md:Model.created>%s</md:Model.created>\n", cw.generated.UTC().Format(time.RFC3339))
 	if docName != "" {
 		fmt.Fprintf(&cw.b, "    <md:Model.description>%s</md:Model.description>\n", xmlEscape(docName))
@@ -239,6 +263,50 @@ func (cw *cimWriter) writeHeader(docName string) {
 	fmt.Fprintf(&cw.b, "    <md:Model.modelingAuthoritySet>%s</md:Model.modelingAuthoritySet>\n", xmlEscape(profile.ModelAuthority))
 	fmt.Fprintf(&cw.b, "    <md:Model.profile>%s</md:Model.profile>\n", xmlEscape(profile.ProfileURI))
 	cw.b.WriteString("  </md:FullModel>\n")
+}
+
+// modelMRID derives the md:FullModel identity mRID from the export's CONTENT
+// rather than the clock, so re-exporting an unchanged network yields the same
+// model identity (and a changed one a different identity) -- what lets a consumer
+// diff/version CIM models. It hashes the pure inputs the output is a function of:
+// the document name, the profile identity, the reprojection target, and every
+// feature's id, subtype, geometry and attributes. Layers are sorted by code and
+// features by id so a different read order never changes the hash; attribute maps
+// are canonicalised by json.Marshal's sorted keys. The whole document streams, so
+// this hashes the small in-memory inputs instead of the serialized body (which
+// would need a second pass or a full-document buffer).
+//
+// NOTE: it tracks the NETWORK (plus profile and CRS), not a pure mapping-config
+// edit -- changing which fields the mapping emits does not churn the model
+// identity. That is the intended semantic: a cosmetic mapping tweak should not
+// invalidate every downstream model's version. (For clean body-level diffs the
+// element ORDER must also be deterministic -- the separate ordering fix.)
+func modelMRID(docName string, profile *metadata.CimProfile, targetSRID *int, layers []Layer) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "doc\x00%s\x00", docName)
+	fmt.Fprintf(h, "profile\x00%s\x00%s\x00%s\x00%s\x00%s\x00",
+		profile.ProfileURI, profile.CimNamespace, profile.ModelAuthority, profile.UnmappedAttrPolicy, profile.CoordinateCRS)
+	if targetSRID != nil {
+		fmt.Fprintf(h, "srid\x00%d\x00", *targetSRID)
+	} else {
+		io.WriteString(h, "srid\x00none\x00")
+	}
+
+	sortedLayers := append([]Layer(nil), layers...)
+	sort.Slice(sortedLayers, func(i, j int) bool { return sortedLayers[i].Code < sortedLayers[j].Code })
+	for _, layer := range sortedLayers {
+		fmt.Fprintf(h, "layer\x00%s\x00", layer.Code)
+		feats := append([]Feature(nil), layer.Features...)
+		sort.Slice(feats, func(i, j int) bool { return feats[i].ID < feats[j].ID })
+		for _, f := range feats {
+			// json.Marshal sorts a map's keys, so the Attributes map canonicalises
+			// deterministically; the struct's own fields have fixed order.
+			b, _ := json.Marshal(f)
+			h.Write(b)
+			h.Write([]byte{0})
+		}
+	}
+	return uuidV5("model:" + docName + ":" + hex.EncodeToString(h.Sum(nil)))
 }
 
 // writeScaffold emits the containment/coordinate scaffold every export shares:

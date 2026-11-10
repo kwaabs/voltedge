@@ -552,6 +552,11 @@ type UpdateWorkOrderParams struct {
 	ScheduledFor     *time.Time
 	DueBy            *time.Time
 	CompletionNotes  *string
+	// ResolveDefect, on a patch that moves the order to 'completed', also resolves
+	// the defect this order was raised from -- but only when no OTHER active order
+	// still references it. The UI defaults it on; other callers leave it nil (no
+	// defect side effect). Ignored for any status other than completed.
+	ResolveDefect *bool
 }
 
 // UpdateWorkOrder applies a sparse patch and keeps the lifecycle timestamps
@@ -659,6 +664,28 @@ func UpdateWorkOrder(ctx context.Context, db bun.IDB, id string, p UpdateWorkOrd
 	if err != nil {
 		return nil, err
 	}
+
+	// Close the loop on the linked defect when THIS patch changed the order's
+	// lifecycle. Completing the last active order on a defect resolves it (opt-in
+	// via ResolveDefect -- the UI defaults it on); cancelling the last active order
+	// reopens it (no one is working it any more). Both are guarded to the defect's
+	// work_ordered state (never override a human's resolve/dismiss) and to "no other
+	// active order" (a defect addressed by several orders isn't closed prematurely).
+	if p.Status != nil && o.DefectID != nil && *o.DefectID != "" {
+		switch o.Status {
+		case WorkStatusCompleted:
+			if p.ResolveDefect != nil && *p.ResolveDefect {
+				if err := syncDefectFromWorkOrder(ctx, db, *o.DefectID, o.ID, DefectStatusResolved); err != nil {
+					return nil, err
+				}
+			}
+		case WorkStatusCancelled:
+			if err := syncDefectFromWorkOrder(ctx, db, *o.DefectID, o.ID, DefectStatusOpen); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// A patch that lands the order on 'completed' is the lifecycle event subscribers
 	// care about (the job is done); anything else is a plain update.
 	event := webhookout.EventWorkOrderUpdated
@@ -674,6 +701,38 @@ func UpdateWorkOrder(ctx context.Context, db bun.IDB, id string, p UpdateWorkOrd
 		publishAssignment(o)
 	}
 	return o, nil
+}
+
+// syncDefectFromWorkOrder transitions a work_ordered defect to `target` (resolved
+// when its order completed, open when its order was cancelled) as long as no OTHER
+// active order still references it. Guarded on status='work_ordered' so a defect a
+// human already resolved/dismissed is never resurrected, and keeps resolved_at
+// consistent with the DB CHECK. A no-op (0 rows) is fine. Runs on the caller's IDB
+// so it rides whatever transaction the caller holds.
+func syncDefectFromWorkOrder(ctx context.Context, db bun.IDB, defectID, excludeOrderID, target string) error {
+	other, err := db.NewSelect().
+		TableExpr("wam.work_orders").
+		Where("defect_id = ?", defectID).
+		Where("id <> ?", excludeOrderID).
+		Where("status NOT IN (?, ?)", WorkStatusCompleted, WorkStatusCancelled).
+		Exists(ctx)
+	if err != nil {
+		return fmt.Errorf("wam: checking other work orders for defect %s: %w", defectID, err)
+	}
+	if other {
+		return nil // still being worked by another order -- leave the defect as is
+	}
+	resolvedAt := "NULL"
+	if target == DefectStatusResolved {
+		resolvedAt = "COALESCE(resolved_at, now())"
+	}
+	if _, err := db.ExecContext(ctx,
+		fmt.Sprintf("UPDATE wam.defects SET status = ?, updated_at = now(), resolved_at = %s WHERE id = ? AND status = ?", resolvedAt),
+		target, defectID, DefectStatusWorkOrdered,
+	); err != nil {
+		return fmt.Errorf("wam: syncing defect %s from work order: %w", defectID, err)
+	}
+	return nil
 }
 
 // StartIncidentCrewWorkOrders advances a crew's not-yet-started work orders for an

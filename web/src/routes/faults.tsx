@@ -1,18 +1,11 @@
 import { useMemo, useState } from "react"
-import { CheckCircle2, History, Loader2, MoreHorizontal, Plus, RotateCcw, Search, TriangleAlert, Wrench, Zap, ZapOff } from "lucide-react"
+import { CheckCircle2, History, Loader2, Plus, RotateCcw, Search, TriangleAlert, Wrench, X, Zap, ZapOff } from "lucide-react"
 
 import { FormDialog } from "@/components/admin/form-dialog"
 import { AssetIdField } from "@/components/map/asset-id-field"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { usePermission } from "@/hooks/use-auth"
 import {
   type FaultEvent,
@@ -27,6 +20,7 @@ import {
   useSetFaultStatus,
 } from "@/hooks/use-faults"
 import { ApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
@@ -202,116 +196,143 @@ function LogFaultDialog({ onClose }: { onClose: () => void }) {
 
 // --- fault row -------------------------------------------------------------
 
-function FaultRow({ fault, canWrite }: { fault: FaultEvent; canWrite: boolean }) {
+function FaultRow({ fault, selected, onSelect }: { fault: FaultEvent; selected: boolean; onSelect: (f: FaultEvent) => void }) {
+  const hasLoc = fault.longitude != null && fault.latitude != null
+  const asset = assetLabel(fault.asset_class, fault.asset_id)
+
+  return (
+    <tr
+      onClick={() => onSelect(fault)}
+      className={cn(
+        "border-border/50 cursor-pointer border-b align-top last:border-0",
+        selected ? "bg-primary/5" : "hover:bg-muted/40",
+      )}
+    >
+      <td className="py-2 pr-3">
+        <Badge text={fault.status} cls={FAULT_STATUS_BADGE[fault.status]} />
+      </td>
+      <td className="py-2 pr-3">
+        <span className="text-sm font-medium">{fault.title}</span>
+        {fault.fault_type && <span className="text-muted-foreground ml-2 font-mono text-xs">{fault.fault_type}</span>}
+      </td>
+      <td className="text-muted-foreground py-2 pr-3 text-xs">
+        {asset ?? (hasLoc ? "pinned" : fault.incident_id ? `outage ${shortId(fault.incident_id)}` : "—")}
+        {fault.cause && <> · {humanize(fault.cause)}</>}
+        {fault.fault_current_a != null && <> · {fault.fault_current_a} A</>}
+        {fault.incident_id && asset && <> · outage {shortId(fault.incident_id)}</>}
+        {fault.defect_id && <> · defect {shortId(fault.defect_id)}</>}
+      </td>
+      <td className="text-muted-foreground py-2 pr-3 text-xs whitespace-nowrap">{formatWhen(fault.detected_at)}</td>
+    </tr>
+  )
+}
+
+// --- detail panel ----------------------------------------------------------
+
+/** The right-hand master-detail panel: the selected fault's meta, its status
+ * actions, and its full history timeline. Opens when a fault row is clicked. */
+function FaultDetailPanel({ fault, canWrite, onClose }: { fault: FaultEvent; canWrite: boolean; onClose: () => void }) {
   const setStatus = useSetFaultStatus()
   const book = useBookDefectFromFault()
   const pending = setStatus.isPending || book.isPending
-  const [showHistory, setShowHistory] = useState(false)
-  const history = useFaultHistory(fault.id, showHistory)
+  const history = useFaultHistory(fault.id, true)
 
   const hasAsset = !!fault.asset_class && !!fault.asset_id
   const hasLoc = fault.longitude != null && fault.latitude != null
   const isClosed = fault.status === "closed"
   const canBookDefect = canWrite && !fault.defect_id && (hasAsset || hasLoc) && !isClosed
-
-  function set(status: FaultStatus) {
-    setStatus.mutate(
-      { id: fault.id, status },
-      { onError: (err) => toastError(err, "Could not update the fault.") },
-    )
-  }
-
-  function bookDefect() {
-    book.mutate(
-      { faultId: fault.id },
-      { onError: (err) => toastError(err, "Could not book a defect from this fault.") },
-    )
-  }
-
   const asset = assetLabel(fault.asset_class, fault.asset_id)
 
+  const set = (status: FaultStatus) =>
+    setStatus.mutate({ id: fault.id, status }, { onError: (err) => toastError(err, "Could not update the fault.") })
+  const bookDefect = () =>
+    book.mutate({ faultId: fault.id }, { onError: (err) => toastError(err, "Could not book a defect from this fault.") })
+
+  return (
+    <Card className="flex max-h-[calc(100svh-9rem)] flex-col lg:sticky lg:top-4 lg:self-start">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <Badge text={fault.status} cls={FAULT_STATUS_BADGE[fault.status]} />
+              {fault.fault_type && (
+                <span className="text-muted-foreground font-mono text-xs">
+                  {fault.fault_type} · {FAULT_TYPE_LABELS[fault.fault_type]}
+                </span>
+              )}
+            </div>
+            <CardTitle className="text-sm">{fault.title}</CardTitle>
+          </div>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0" aria-label="Close">
+            <X className="size-4" />
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto pt-0 text-sm">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+          <Meta label="Anchor" value={asset ?? (hasLoc ? "Location pin" : fault.incident_id ? `Outage ${shortId(fault.incident_id)}` : "—")} />
+          {fault.cause && <Meta label="Cause" value={humanize(fault.cause)} />}
+          {fault.fault_current_a != null && <Meta label="Fault current" value={`${fault.fault_current_a} A`} />}
+          {fault.clearing_time_ms != null && <Meta label="Clearing time" value={`${fault.clearing_time_ms} ms`} />}
+          {fault.detected_by && <Meta label="Detected by" value={fault.detected_by} />}
+          <Meta label="Detected" value={formatWhen(fault.detected_at)} />
+          {fault.incident_id && <Meta label="Outage" value={shortId(fault.incident_id)} />}
+          {fault.defect_id && <Meta label="Defect" value={shortId(fault.defect_id)} />}
+        </dl>
+
+        {fault.description && <p className="text-muted-foreground text-xs">{fault.description}</p>}
+
+        {canWrite && (
+          <div className="flex flex-wrap gap-1.5">
+            {canBookDefect && (
+              <Button variant="outline" size="sm" disabled={pending} onClick={bookDefect}>
+                <Wrench className="mr-1 size-3.5" />
+                Book defect
+              </Button>
+            )}
+            {fault.status === "detected" && (
+              <Button variant="outline" size="sm" disabled={pending} onClick={() => set("investigating")}>
+                <Search className="mr-1 size-3.5" />
+                Investigate
+              </Button>
+            )}
+            {(fault.status === "detected" || fault.status === "investigating") && (
+              <Button variant="outline" size="sm" disabled={pending} onClick={() => set("cleared")}>
+                <CheckCircle2 className="mr-1 size-3.5" />
+                Mark cleared
+              </Button>
+            )}
+            {fault.status === "cleared" && (
+              <Button variant="outline" size="sm" disabled={pending} onClick={() => set("closed")}>
+                <CheckCircle2 className="mr-1 size-3.5" />
+                Close
+              </Button>
+            )}
+            {(fault.status === "cleared" || fault.status === "closed") && (
+              <Button variant="ghost" size="sm" disabled={pending} onClick={() => set("investigating")}>
+                <RotateCcw className="mr-1 size-3.5" />
+                Reopen
+              </Button>
+            )}
+          </div>
+        )}
+
+        <div>
+          <div className="text-muted-foreground mb-1 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase">
+            <History className="size-3.5" /> Timeline
+          </div>
+          <FaultHistoryPanel query={history} />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <tr className="hover:bg-muted/40 border-border/50 border-b last:border-0 align-top">
-        <td className="py-2 pr-3">
-          <Badge text={fault.status} cls={FAULT_STATUS_BADGE[fault.status]} />
-        </td>
-        <td className="py-2 pr-3">
-          <span className="text-sm font-medium">{fault.title}</span>
-          {fault.fault_type && (
-            <span className="text-muted-foreground ml-2 font-mono text-xs">{fault.fault_type}</span>
-          )}
-        </td>
-        <td className="text-muted-foreground py-2 pr-3 text-xs">
-          {asset ?? (hasLoc ? "pinned" : fault.incident_id ? `outage ${shortId(fault.incident_id)}` : "—")}
-          {fault.cause && <> · {humanize(fault.cause)}</>}
-          {fault.fault_current_a != null && <> · {fault.fault_current_a} A</>}
-          {fault.incident_id && asset && <> · outage {shortId(fault.incident_id)}</>}
-          {fault.defect_id && <> · defect {shortId(fault.defect_id)}</>}
-        </td>
-        <td className="text-muted-foreground py-2 pr-3 text-xs whitespace-nowrap">
-          {formatWhen(fault.detected_at)}
-        </td>
-        <td className="py-1 text-right">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-muted-foreground size-8 p-0" aria-label="Fault actions">
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onSelect={() => setShowHistory((v) => !v)}>
-                <History className="size-4" />
-                {showHistory ? "Hide history" : "History"}
-              </DropdownMenuItem>
-              {canWrite && (
-                <>
-                  <DropdownMenuSeparator />
-                  {canBookDefect && (
-                    <DropdownMenuItem disabled={pending} onSelect={bookDefect}>
-                      <Wrench className="size-4" />
-                      Book defect
-                    </DropdownMenuItem>
-                  )}
-                  {fault.status === "detected" && (
-                    <DropdownMenuItem disabled={pending} onSelect={() => set("investigating")}>
-                      <Search className="size-4" />
-                      Investigate
-                    </DropdownMenuItem>
-                  )}
-                  {(fault.status === "detected" || fault.status === "investigating") && (
-                    <DropdownMenuItem disabled={pending} onSelect={() => set("cleared")}>
-                      <CheckCircle2 className="size-4" />
-                      Mark cleared
-                    </DropdownMenuItem>
-                  )}
-                  {fault.status === "cleared" && (
-                    <DropdownMenuItem disabled={pending} onSelect={() => set("closed")}>
-                      <CheckCircle2 className="size-4" />
-                      Close
-                    </DropdownMenuItem>
-                  )}
-                  {(fault.status === "cleared" || fault.status === "closed") && (
-                    <DropdownMenuItem disabled={pending} onSelect={() => set("investigating")}>
-                      <RotateCcw className="size-4" />
-                      Reopen
-                    </DropdownMenuItem>
-                  )}
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </td>
-      </tr>
-      {showHistory && (
-        <tr>
-          <td colSpan={5} className="border-border/50 border-b">
-            <div className="bg-muted/20 px-3 pb-2">
-              <FaultHistoryPanel query={history} />
-            </div>
-          </td>
-        </tr>
-      )}
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="tabular-nums">{value}</dd>
     </>
   )
 }
@@ -369,9 +390,13 @@ export function FaultsPage() {
   const faults = useFaults({ openOnly })
 
   const [logging, setLogging] = useState(false)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const rows = useMemo(() => faults.data?.faults ?? [], [faults.data])
   const openCount = rows.filter((f) => f.status !== "cleared" && f.status !== "closed").length
+  // Resolve the open panel from the live rows so it tracks edits and vanishes if
+  // the selected fault is filtered out (e.g. toggling "Open only").
+  const selected = rows.find((f) => f.id === selectedId) ?? null
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -395,60 +420,63 @@ export function FaultsPage() {
           )}
         </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Zap className="size-4" />
-                  Fault events
-                </CardTitle>
-                <CardDescription>
-                  {rows.length === 0
-                    ? openOnly
-                      ? "No open faults."
-                      : "No faults."
-                    : `${rows.length} fault${rows.length === 1 ? "" : "s"}${!openOnly && openCount > 0 ? ` · ${openCount} still open` : ""}.`}
-                </CardDescription>
+        <div className={cn("grid items-start gap-4", selected ? "lg:grid-cols-[1fr_28rem]" : "grid-cols-1")}>
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Zap className="size-4" />
+                    Fault events
+                  </CardTitle>
+                  <CardDescription>
+                    {rows.length === 0
+                      ? openOnly
+                        ? "No open faults."
+                        : "No faults."
+                      : `${rows.length} fault${rows.length === 1 ? "" : "s"}${!openOnly && openCount > 0 ? ` · ${openCount} still open` : ""}.`}
+                  </CardDescription>
+                </div>
+                <label className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs">
+                  <input type="checkbox" checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)} />
+                  Open only
+                </label>
               </div>
-              <label className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs">
-                <input type="checkbox" checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)} />
-                Open only
-              </label>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {faults.isPending ? (
-              <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                <Loader2 className="size-4 animate-spin" />
-                Loading faults…
-              </div>
-            ) : faults.isError ? (
-              <p className="text-destructive text-sm">Could not load faults.</p>
-            ) : rows.length > 0 ? (
-              <table className="w-full">
-                <thead>
-                  <tr className="text-muted-foreground border-border border-b text-left text-xs">
-                    <th className="py-1.5 pr-3 font-medium">Status</th>
-                    <th className="py-1.5 pr-3 font-medium">Fault</th>
-                    <th className="py-1.5 pr-3 font-medium">Asset / cause</th>
-                    <th className="py-1.5 pr-3 font-medium">Detected</th>
-                    <th className="w-8 py-1.5" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((f) => (
-                    <FaultRow key={f.id} fault={f} canWrite={canWrite} />
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                No faults{openOnly ? " open" : ""} yet. Log one here, or raise one from an outage on the Outages page.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {faults.isPending ? (
+                <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading faults…
+                </div>
+              ) : faults.isError ? (
+                <p className="text-destructive text-sm">Could not load faults.</p>
+              ) : rows.length > 0 ? (
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-muted-foreground border-border border-b text-left text-xs">
+                      <th className="py-1.5 pr-3 font-medium">Status</th>
+                      <th className="py-1.5 pr-3 font-medium">Fault</th>
+                      <th className="py-1.5 pr-3 font-medium">Asset / cause</th>
+                      <th className="py-1.5 pr-3 font-medium">Detected</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((f) => (
+                      <FaultRow key={f.id} fault={f} selected={f.id === selectedId} onSelect={(fx) => setSelectedId(fx.id)} />
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No faults{openOnly ? " open" : ""} yet. Log one here, or raise one from an outage on the Outages page.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {selected && <FaultDetailPanel fault={selected} canWrite={canWrite} onClose={() => setSelectedId(null)} />}
+        </div>
 
         <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
           <TriangleAlert className="size-3.5" />

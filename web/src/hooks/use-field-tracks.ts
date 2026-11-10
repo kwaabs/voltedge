@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQueries, useQuery } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
 
@@ -86,5 +86,19 @@ export function useTrail(sessionId: string | null) {
     queryFn: () => apiFetch<Trail>(`/field-tracks/sessions/${sessionId}`),
     enabled: sessionId != null,
     staleTime: 30_000,
+  })
+}
+
+/** Several sessions' trails at once — the supervisor can overlay multiple workers'
+ * trails on one map (capped by the caller). Results are index-aligned to
+ * `sessionIds` and share the same cache as useTrail (identical queryKey), so a
+ * trail already opened singly is reused. */
+export function useTrails(sessionIds: string[]) {
+  return useQueries({
+    queries: sessionIds.map((id) => ({
+      queryKey: [...KEY, "trail", id],
+      queryFn: () => apiFetch<Trail>(`/field-tracks/sessions/${id}`),
+      staleTime: 30_000,
+    })),
   })
 }

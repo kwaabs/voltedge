@@ -56,9 +56,16 @@ class SettingsRepository {
   static const _signedInEmailKey = 'signedInEmail';
   static const _signedInNameKey = 'signedInName';
   static const _permissionsKey = 'permissions';
+  static const _fieldTrackingKey = 'field_tracking_enabled';
+  static const _fieldTrackingDisclosureKey = 'field_tracking_disclosure_enabled';
+  static const _accessExpiresKey = 'access_expires_at';
 
-  /// The keystore entry the bearer token lives under.
+  /// The keystore entry the bearer (access) token lives under.
   static const _secureTokenKey = 've_api_token';
+
+  /// The keystore entry the long-lived refresh token lives under (migration 0191).
+  /// A credential, so keystore, not the JSON file -- same as the access token.
+  static const _secureRefreshKey = 've_refresh_token';
 
   /// Default basemap = "none" (pack-only). Offline-first: an online basemap is
   /// opt-in. Mirrors basemaps.dart's kDefaultBasemapId (kept as a literal here so
@@ -72,7 +79,18 @@ class SettingsRepository {
   static const defaultBaseUrl = 'http://10.0.2.2:3706';
 
   String baseUrl = defaultBaseUrl;
+
+  /// The access bearer presented on every call. Short-lived under the migration-0191
+  /// session model (paired with [refreshToken] + [accessExpiresAt]); a device signed
+  /// in before that shipped holds a legacy non-expiring token with no refresh/expiry.
   String? token;
+
+  /// The long-lived refresh token (keystore), swapped for a fresh access token near
+  /// [accessExpiresAt]. Null on a legacy session (nothing to refresh).
+  String? refreshToken;
+
+  /// When [token] lapses (UTC). Null on a legacy non-expiring session.
+  DateTime? accessExpiresAt;
 
   /// Whether edit snapping is enabled. When on, a placed point, dragged vertex,
   /// or inserted midpoint snaps to the nearest existing feature vertex within a
@@ -120,6 +138,17 @@ class SettingsRepository {
   /// sign-in populates them and real UI gating takes effect.
   bool hasPermission(String perm) =>
       permissions.isEmpty || permissions.contains(perm);
+
+  /// Org-wide field-tracking switch from the field-login response (default ON).
+  /// When off, the app records no breadcrumbs and stamps no located edits, and the
+  /// in-app disclosure reflects "not recording". Persisted so it survives an
+  /// offline restart; the server also enforces it as a backstop.
+  bool fieldTrackingEnabled = true;
+
+  /// Whether the field app DISCLOSES tracking to the crew (shows the in-app "you
+  /// are being recorded" notice). From the field-login response; default ON.
+  /// Independent of [fieldTrackingEnabled] — an org can record without disclosing.
+  bool fieldTrackingDisclosureEnabled = true;
 
   bool get isConfigured => token != null && token!.isNotEmpty;
 
@@ -173,6 +202,15 @@ class SettingsRepository {
         permissions = storedPerms == null
             ? const []
             : storedPerms.map((p) => p.toString()).toList();
+        final storedTracking = map[_fieldTrackingKey];
+        fieldTrackingEnabled = storedTracking is bool ? storedTracking : true;
+        final storedDisclosure = map[_fieldTrackingDisclosureKey];
+        fieldTrackingDisclosureEnabled =
+            storedDisclosure is bool ? storedDisclosure : true;
+        final storedExpiry = map[_accessExpiresKey] as String?;
+        accessExpiresAt = (storedExpiry == null || storedExpiry.isEmpty)
+            ? null
+            : DateTime.tryParse(storedExpiry)?.toUtc();
         final storedToken = map[_tokenKey] as String?;
         legacyToken =
             (storedToken == null || storedToken.isEmpty) ? null : storedToken;
@@ -186,6 +224,7 @@ class SettingsRepository {
     }
 
     token = await _readToken();
+    refreshToken = await _readRefreshToken();
     // Migrate a token written by the old JSON-only build into the keystore, then
     // strip it from the file so the credential no longer sits in plain JSON.
     if (token == null && legacyToken != null) {
@@ -216,17 +255,61 @@ class SettingsRepository {
   /// the credential; the identity is just for display.
   Future<void> signIn({
     required String token,
+    String? refreshToken,
+    DateTime? accessExpiresAt,
     String? email,
     String? displayName,
     List<String> permissions = const [],
+    bool fieldTrackingEnabled = true,
+    bool fieldTrackingDisclosureEnabled = true,
   }) async {
     await setToken(token);
+    await _setRefreshToken(refreshToken);
+    this.accessExpiresAt = accessExpiresAt;
     final e = email?.trim();
     final n = displayName?.trim();
     signedInEmail = (e == null || e.isEmpty) ? null : e;
     signedInName = (n == null || n.isEmpty) ? null : n;
     this.permissions = permissions;
+    this.fieldTrackingEnabled = fieldTrackingEnabled;
+    this.fieldTrackingDisclosureEnabled = fieldTrackingDisclosureEnabled;
     await _persist();
+  }
+
+  /// Apply a refreshed session (POST /auth/field-refresh): swap in the new access
+  /// token + expiry, keeping the identity/permissions. The refresh token is unchanged
+  /// in v1 (non-rotating) but stored again defensively in case the server ever rotates.
+  Future<void> applyRefreshedSession({
+    required String token,
+    String? refreshToken,
+    DateTime? accessExpiresAt,
+  }) async {
+    await setToken(token);
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      await _setRefreshToken(refreshToken);
+    }
+    this.accessExpiresAt = accessExpiresAt;
+    await _persist();
+  }
+
+  /// Refresh the org-wide tracking policy from an ONGOING server response (the sync
+  /// heartbeat), not just login. The field token is non-expiring, so login is a
+  /// one-time event — a policy change an admin makes later would never reach an
+  /// already-signed-in device if it only arrived at login. Sync carries it, and this
+  /// applies it. Persists (and returns true) only when something actually changed, so
+  /// the caller can react — e.g. surface the disclosure notice when it newly turns on.
+  Future<bool> applyFieldTrackingPolicy({
+    required bool enabled,
+    required bool disclosureEnabled,
+  }) async {
+    if (fieldTrackingEnabled == enabled &&
+        fieldTrackingDisclosureEnabled == disclosureEnabled) {
+      return false;
+    }
+    fieldTrackingEnabled = enabled;
+    fieldTrackingDisclosureEnabled = disclosureEnabled;
+    await _persist();
+    return true;
   }
 
   /// Sign out: drop the token from the keystore and forget the identity. The
@@ -236,6 +319,8 @@ class SettingsRepository {
   /// handled by revoking centrally.
   Future<void> signOut() async {
     await setToken(null);
+    await _setRefreshToken(null);
+    accessExpiresAt = null;
     signedInEmail = null;
     signedInName = null;
     permissions = const [];
@@ -291,8 +376,45 @@ class SettingsRepository {
       if (signedInEmail != null) _signedInEmailKey: signedInEmail,
       if (signedInName != null) _signedInNameKey: signedInName,
       if (permissions.isNotEmpty) _permissionsKey: permissions,
+      _fieldTrackingKey: fieldTrackingEnabled,
+      _fieldTrackingDisclosureKey: fieldTrackingDisclosureEnabled,
+      if (accessExpiresAt != null)
+        _accessExpiresKey: accessExpiresAt!.toUtc().toIso8601String(),
     };
     await file.writeAsString(jsonEncode(map), flush: true);
+  }
+
+  /// Set (or clear, when null/empty) the refresh token in the keystore and mirror it
+  /// into [refreshToken]. A credential, so keystore only -- never the JSON file.
+  Future<void> _setRefreshToken(String? value) async {
+    final trimmed = value?.trim();
+    refreshToken = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+    if (refreshToken == null) {
+      await _deleteRefreshToken();
+    } else {
+      await _writeRefreshToken(refreshToken!);
+    }
+  }
+
+  Future<String?> _readRefreshToken() async {
+    try {
+      final t = await _secure.read(key: _secureRefreshKey);
+      return (t == null || t.isEmpty) ? null : t;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeRefreshToken(String value) async {
+    try {
+      await _secure.write(key: _secureRefreshKey, value: value);
+    } catch (_) {}
+  }
+
+  Future<void> _deleteRefreshToken() async {
+    try {
+      await _secure.delete(key: _secureRefreshKey);
+    } catch (_) {}
   }
 
   // Keystore access, best-effort: a MissingPluginException (e.g. a unit-test

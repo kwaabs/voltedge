@@ -9,10 +9,26 @@ class FieldLoginResult {
     required this.token,
     required this.email,
     required this.displayName,
+    this.refreshToken,
+    this.accessExpiresAt,
     this.permissions = const [],
+    this.fieldTrackingEnabled = true,
+    this.fieldTrackingDisclosureEnabled = true,
   });
 
+  /// The short-lived ACCESS bearer presented on every call (migration 0191). Paired
+  /// with [refreshToken]; the device swaps the refresh token for a fresh access
+  /// token near [accessExpiresAt] instead of re-authenticating. Null refresh/expiry
+  /// means a legacy non-expiring token (a device signed in before this shipped).
   final String token;
+
+  /// The long-lived refresh token the device keystores and swaps for a new access
+  /// token. Null on a legacy session.
+  final String? refreshToken;
+
+  /// When [token] lapses (UTC). Null on a legacy non-expiring session.
+  final DateTime? accessExpiresAt;
+
   final String email;
   final String displayName;
 
@@ -20,6 +36,27 @@ class FieldLoginResult {
   /// flow). The app gates which modules it shows off this; the server still
   /// enforces every operation, so this is UX, not security.
   final List<String> permissions;
+
+  /// Org-wide field-tracking switch (field_tracking_enabled, default ON). The app
+  /// gates location recording and the in-app "you are being recorded" disclosure
+  /// off this; the server also enforces it, so this is behaviour + disclosure, not
+  /// security.
+  final bool fieldTrackingEnabled;
+
+  /// Whether the field app DISCLOSES tracking to the crew (shows the in-app
+  /// "you are being recorded" notice). Default ON; independent of
+  /// [fieldTrackingEnabled] — an org can record without disclosing, a deliberate
+  /// choice it owns. The device shows the disclosure UI only when this is true.
+  final bool fieldTrackingDisclosureEnabled;
+}
+
+/// SsoProvider is one SSO sign-in option the login screen can offer (from the web
+/// origin's GET /auth/providers). [key] is the provider slug used in the start URL
+/// (/auth/oidc/{key}/login); [displayName] is the button label.
+class SsoProvider {
+  const SsoProvider({required this.key, required this.displayName});
+  final String key;
+  final String displayName;
 }
 
 /// PackManifest is the download envelope on a succeeded pack: two presigned

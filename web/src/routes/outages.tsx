@@ -35,6 +35,7 @@ import { FormDialog } from "@/components/admin/form-dialog"
 import { FeaturePicker, type PickedFeature } from "@/components/feature-picker"
 import { inputClass } from "@/components/map/field-utils"
 import { OutageMap } from "@/components/map/outage-map"
+import { AlarmAnnunciator } from "@/components/oms/alarm-annunciator"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePermission } from "@/hooks/use-auth"
@@ -50,6 +51,7 @@ import {
   type IncidentAction,
   type IncidentStatus,
   type FaultCauseContribution,
+  type ReliabilityIndices,
   type RestorationPlan,
   type SwitchingOrder,
   type SwitchingStep,
@@ -67,16 +69,22 @@ import {
   useDispatchCrew,
   useIncidentCrews,
   useSetIncidentETR,
+  useSuggestIncidentETR,
   useTaskSubcontractor,
   useIncidentCallbacks,
   useMarkCallbackNotified,
+  type SwitchingValidation,
+  useApproveSwitchingOrder,
   useAssociateTroubleCall,
+  useCloseTroubleCall,
   useCancelSwitchingOrder,
   useCreatePlannedOutage,
   useCreateTroubleCall,
   useExecuteStep,
   useGenerateRestorationOrder,
   useGenerateSwitchingOrder,
+  useIssueSwitchingOrder,
+  useValidateSwitchingOrder,
   useIncidentAction,
   useIncidentDeviceCandidates,
   useIncidentEnergization,
@@ -694,11 +702,27 @@ function StepRow({ step, canWrite }: { step: SwitchingStep; canWrite: boolean })
   const execute = useExecuteStep()
   const done = step.executed_at != null
 
-  function toggle() {
-    execute.mutate(
-      { stepId: step.id, executed: !done },
-      { onError: (err) => toastError(err, "Could not update the step.") },
-    )
+  async function toggle() {
+    const next = !done
+    try {
+      await execute.mutateAsync({ stepId: step.id, executed: next })
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : ""
+      // A sequence / expected-state interlock offers "(or force to override)"; the
+      // safety-tag gate never does, so it stays a hard block.
+      if (next && /force to override/i.test(msg)) {
+        if (window.confirm(`${msg}\n\nOverride the interlock and execute this step anyway?`)) {
+          try {
+            await execute.mutateAsync({ stepId: step.id, executed: true, force: true })
+          } catch (e2) {
+            toastError(e2, "Could not execute the step.")
+          }
+          return
+        }
+        return
+      }
+      toastError(err, "Could not update the step.")
+    }
   }
 
   return (
@@ -725,16 +749,55 @@ function StepRow({ step, canWrite }: { step: SwitchingStep; canWrite: boolean })
 
 const SWITCHING_BADGE: Record<SwitchingOrder["status"], string> = {
   draft: "bg-muted text-muted-foreground",
-  issued: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  approved: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  issued: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
   in_progress: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
   completed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
   cancelled: "bg-muted text-muted-foreground line-through",
+}
+
+/** A compact validation-study note under a switching order: the ready/blocked verdict
+ * and the per-step findings (errors block approval; warnings are advisory). */
+function SwitchingValidationNote({ data, onClose }: { data: SwitchingValidation; onClose: () => void }) {
+  const errorCount = data.findings.filter((f) => f.severity === "error").length
+  return (
+    <div
+      className={`mt-2 rounded border px-2 py-1.5 text-[11px] ${
+        data.ready ? "border-emerald-500/40 bg-emerald-500/10" : "border-destructive/40 bg-destructive/10"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">
+          {data.ready
+            ? `Ready to approve${data.findings.length ? ` · ${data.findings.length} warning(s)` : ""}`
+            : `Blocked · ${errorCount} error(s) to resolve`}
+        </span>
+        <button type="button" className="text-muted-foreground" onClick={onClose} title="Dismiss">
+          ✕
+        </button>
+      </div>
+      {data.findings.length > 0 && (
+        <ul className="mt-1 flex flex-col gap-0.5">
+          {data.findings.map((f, i) => (
+            <li key={i} className={f.severity === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400"}>
+              {f.severity === "error" ? "✕ " : "! "}
+              {f.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function SwitchingOrderCard({ order, canWrite }: { order: SwitchingOrder; canWrite: boolean }) {
   const cancel = useCancelSwitchingOrder()
   const canSafety = usePermission()("safety:write")
   const issueClearance = useIssueClearanceFromOrder()
+  const approve = useApproveSwitchingOrder()
+  const issueOrder = useIssueSwitchingOrder()
+  const [showValidate, setShowValidate] = useState(false)
+  const validation = useValidateSwitchingOrder(order.id, showValidate)
   const isTerminal = order.status === "completed" || order.status === "cancelled"
   const isolate = order.steps.filter((s) => s.phase === "isolate")
   const restore = order.steps.filter((s) => s.phase === "restore")
@@ -805,6 +868,56 @@ function SwitchingOrderCard({ order, canWrite }: { order: SwitchingOrder; canWri
               ))}
             </>
           )}
+          {/* ADMS governance: a draft must be validated + approved, then issued,
+              before its steps can be executed (the per-step interlocks enforce it). */}
+          {canWrite && !isTerminal && (order.status === "draft" || order.status === "approved") && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {order.status === "draft" && (
+                <>
+                  <Button variant="ghost" size="sm" onClick={() => setShowValidate(true)} disabled={validation.isFetching}>
+                    {validation.isFetching ? "Validating…" : "Validate"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={approve.isPending}
+                    onClick={() =>
+                      approve.mutate(
+                        { orderId: order.id },
+                        {
+                          onError: (err) => {
+                            setShowValidate(true)
+                            toastError(err, "Could not approve the order.")
+                          },
+                        },
+                      )
+                    }
+                  >
+                    Approve
+                  </Button>
+                </>
+              )}
+              {order.status === "approved" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={issueOrder.isPending}
+                  onClick={() =>
+                    issueOrder.mutate(
+                      { orderId: order.id },
+                      { onError: (err) => toastError(err, "Could not issue the order.") },
+                    )
+                  }
+                >
+                  Issue
+                </Button>
+              )}
+            </div>
+          )}
+          {showValidate && validation.data && (
+            <SwitchingValidationNote data={validation.data} onClose={() => setShowValidate(false)} />
+          )}
+
           {/* Issue a permit-to-work from this order: danger-tag the devices it
               opens and ground the points it earths, so they can't be operated
               until the clearance is surrendered. Needs safety:write. */}
@@ -1321,6 +1434,7 @@ const EVENT_LABEL: Record<string, string> = {
   "incident.attributed": "Device attributed",
   "incident.cause": "Cause / source updated",
   "incident.dispatched": "Crew dispatched",
+  "incident.etr": "ETR updated",
   "incident.restored": "Restored",
   "incident.cancelled": "Cancelled",
 }
@@ -1375,7 +1489,16 @@ function TroubleCallRow({
 }) {
   const [expanded, setExpanded] = useState(false)
   const navigate = useNavigate()
+  const close = useCloseTroubleCall()
   const needsSP = call.service_point_id == null && call.status === "open"
+  // An open call that turns out to be a non-event can be closed directly, without
+  // routing it through an incident: cleared (false alarm / customer back) or
+  // cancelled (test / duplicate). Associated calls follow their incident instead.
+  const canClose = canWrite && call.status === "open"
+
+  function doClose(status: "cleared" | "cancelled") {
+    close.mutate({ id: call.id, status }, { onError: (err) => toastError(err, "Could not close the call.") })
+  }
 
   // Locate the call on the main map: a resolved SP selects that feature (and the
   // panel opens); a bare pin just centres there. Only shown when there's
@@ -1425,6 +1548,38 @@ function TroubleCallRow({
             <MapPin className="size-4" />
             Associate
           </Button>
+        )}
+        {canClose && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground shrink-0"
+              disabled={close.isPending}
+              title="Customer back / false alarm"
+              onClick={(e) => {
+                e.stopPropagation()
+                doClose("cleared")
+              }}
+            >
+              <CheckCircle2 className="size-4" />
+              Clear
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-destructive shrink-0"
+              disabled={close.isPending}
+              title="Test / duplicate / not a real event"
+              onClick={(e) => {
+                e.stopPropagation()
+                doClose("cancelled")
+              }}
+            >
+              <XCircle className="size-4" />
+              Dismiss
+            </Button>
+          </>
         )}
       </div>
 
@@ -1561,10 +1716,20 @@ function ReliabilityCard() {
           <p className="text-destructive text-sm">{errorMsg}</p>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
               <IndexStat label="SAIFI" value={fmt(d.saifi)} unit="int/cust" hint="interruptions per customer" />
               <IndexStat label="SAIDI" value={fmt(d.saidi, 1)} unit="min/cust" hint="outage minutes per customer" />
               <IndexStat label="CAIDI" value={fmt(d.caidi, 1)} unit="min" hint="avg minutes per interruption" />
+              <IndexStat
+                label="MAIFI"
+                value={d.maifi_applicable ? fmt(d.maifi) : "—"}
+                unit="mom/cust"
+                hint={
+                  d.maifi_applicable
+                    ? `momentary interruptions per customer (${d.momentary_mode}, ≤${fmt(d.sustained_threshold_minutes, 0)} min)`
+                    : (d.maifi_note ?? "momentary index unavailable")
+                }
+              />
               <IndexStat label="ENS" value={fmt(d.ens_kwh, 1)} unit="kWh" hint={`est. @ ${fmt(d.avg_load_kw, 1)} kW/cust`} />
             </div>
             <p className="text-muted-foreground mt-3 text-[11px]">
@@ -1574,10 +1739,54 @@ function ReliabilityCard() {
               assumed average demand; swap in measured load for a true figure.
             </p>
             <FaultCauseBreakdown rows={d.by_fault_cause} saidi={d.saidi} />
+            <WorstServedBreakdown d={d} />
           </>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/** The worst-served-customer lens the averages hide: CEMI (customers with more than N
+ * interruptions) and CELID (customers out longer than a total-duration threshold), plus
+ * the ranked service points behind them. Hidden when nobody crosses either threshold. */
+function WorstServedBreakdown({ d }: { d: ReliabilityIndices }) {
+  const rows = d.worst_served ?? []
+  if (d.cemi_customers === 0 && d.celid_customers === 0 && rows.length === 0) return null
+  return (
+    <div className="mt-3 border-t pt-3">
+      <p className="text-muted-foreground mb-2 text-[11px] font-medium">Worst-served customers</p>
+      <div className="grid grid-cols-2 gap-4">
+        <IndexStat
+          label="CEMI"
+          value={fmt(d.cemi * 100, 1)}
+          unit="%"
+          hint={`${d.cemi_customers.toLocaleString()} customers with more than ${d.cemi_threshold} interruptions`}
+        />
+        <IndexStat
+          label="CELID"
+          value={fmt(d.celid * 100, 1)}
+          unit="%"
+          hint={`${d.celid_customers.toLocaleString()} customers out over ${fmt(d.celid_hours, 0)} h total`}
+        />
+      </div>
+      {rows.length > 0 && (
+        <div className="mt-3 flex flex-col gap-1">
+          {rows.slice(0, 8).map((r) => (
+            <div key={`${r.feature_class}:${r.feature_id}`} className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground font-mono">{r.feature_id.slice(0, 8)}</span>
+              <span className="text-muted-foreground truncate">{r.feature_class}</span>
+              <span className="ml-auto shrink-0 tabular-nums">
+                {r.interruptions}× · {fmt(r.total_minutes / 60, 1)} h
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-muted-foreground mt-2 text-[11px]">
+        CEMI/CELID count customers over the thresholds, over the same window as the indices above.
+      </p>
+    </div>
   )
 }
 
@@ -2341,6 +2550,8 @@ export function OutagesPage() {
         </div>
 
         <KpiStrip incidents={incidentRows} openCalls={openCallCount} />
+
+        <AlarmAnnunciator canWrite={canWrite} />
 
         <div className="flex flex-col gap-4">
             <AreaImpactCard onScope={setTerritoryId} />
@@ -3354,10 +3565,12 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
   const taskSub = useTaskSubcontractor()
   const advance = useAdvanceAssignment()
   const setEtr = useSetIncidentETR()
+  const suggestEtr = useSuggestIncidentETR()
   const queryClient = useQueryClient()
   const [pickCrew, setPickCrew] = useState("")
   const [pickSub, setPickSub] = useState("")
   const [etrLocal, setEtrLocal] = useState("")
+  const [etrNote, setEtrNote] = useState("")
   const [raiseWO, setRaiseWO] = useState(true)
 
   const rows = assignments.data?.assignments ?? []
@@ -3415,6 +3628,16 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
     const iso = etrLocal ? new Date(etrLocal).toISOString() : null
     setEtr.mutate({ id: inc.id, etr: iso }, { onError: (e) => toastError(e, "Could not set the ETR.") })
   }
+  function suggest() {
+    suggestEtr.mutate(inc.id, {
+      onSuccess: (s) => {
+        if (s.suggested_etr) setEtrLocal(toLocalInput(new Date(s.suggested_etr)))
+        setEtrNote(s.note ?? "")
+      },
+      onError: (e) => toastError(e, "Could not suggest an ETR."),
+    })
+  }
+  const etrOverdue = !!inc.etr && !isTerminal && new Date(inc.etr).getTime() < Date.now()
 
   return (
     <Card>
@@ -3430,6 +3653,11 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground w-12">ETR</span>
           <span className="font-medium tabular-nums">{inc.etr ? formatWhen(inc.etr) : "— not set"}</span>
+          {etrOverdue && (
+            <span className="bg-destructive/15 text-destructive rounded px-1.5 py-0.5 text-[11px] font-medium">
+              overdue
+            </span>
+          )}
           {canWrite && !isTerminal && (
             <div className="flex flex-wrap items-center gap-1.5">
               <input
@@ -3438,6 +3666,15 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
                 value={etrLocal}
                 onChange={(e) => setEtrLocal(e.target.value)}
               />
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={suggestEtr.isPending}
+                onClick={suggest}
+                title="Suggest an ETR from the median restoration time of similar past outages"
+              >
+                {suggestEtr.isPending ? "…" : "Suggest"}
+              </Button>
               <Button variant="ghost" size="sm" onClick={() => setEtrLocal(toLocalInput(new Date(Date.now() + 2 * 3600_000)))}>
                 +2h
               </Button>
@@ -3461,6 +3698,8 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
             </div>
           )}
         </div>
+
+        {etrNote && <p className="text-muted-foreground -mt-1 text-[11px]">{etrNote}</p>}
 
         {/* Assigned crews */}
         <div className="flex flex-col gap-1.5">

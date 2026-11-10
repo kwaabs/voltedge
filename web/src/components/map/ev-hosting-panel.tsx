@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -305,16 +306,22 @@ function EvHostingRow({
   const hostable = candidate.ev_hosting_capacity_kw > 0
   return (
     <tr
-      onClick={() => useSelectionStore.getState().select(candidate.node.feature_class, candidate.node.feature_id, { focus: true })}
+      onClick={() => useSelectionStore.getState().locate(candidate.node.feature_class, candidate.node.feature_id, { focus: true })}
+      onDoubleClick={() => useSelectionStore.getState().select(candidate.node.feature_class, candidate.node.feature_id, { focus: true })}
       className={cn(
-        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0 select-none",
         hostable && "bg-emerald-500/10 hover:bg-emerald-500/15",
         preExisting && "bg-destructive/10 hover:bg-destructive/15",
       )}
     >
       <td className="px-3 py-1.5">
-        <div>{classNameFor(candidate.node.feature_class)}</div>
-        <div className="text-muted-foreground font-mono text-xs">{shortId(candidate.node.feature_id)}</div>
+        <div className="flex items-start gap-1">
+          <FeatureInfoButton featureClass={candidate.node.feature_class} featureId={candidate.node.feature_id} className="-mt-0.5" />
+          <div className="min-w-0">
+            <div>{classNameFor(candidate.node.feature_class)}</div>
+            <div className="text-muted-foreground font-mono text-xs">{shortId(candidate.node.feature_id)}</div>
+          </div>
+        </div>
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap">
         <div className="font-medium">

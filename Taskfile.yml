@@ -189,6 +189,7 @@ tasks:
       - adb reverse tcp:{{.FIELDSYNC_PORT}} tcp:{{.FIELDSYNC_PORT}}
       - adb reverse tcp:{{.RUSTFS_S3_PORT}} tcp:{{.RUSTFS_S3_PORT}}
       - adb reverse tcp:{{.API_PORT}} tcp:{{.API_PORT}}
+      - adb reverse tcp:5173 tcp:5173
       - adb reverse --list
 
   api-test:
@@ -246,14 +247,6 @@ tasks:
       DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
     cmds:
       - go run ./cmd/uncompile {{.CODE}}
-
-  rmu-backfill-cables:
-    desc: "Promote the bare cable side of EXISTING RMUs into real MV_CONDUCTOR features + wire them + rebuild each single-line (idempotent; the one-shot companion to the fan-out cable step). Prereqs: migration 0123 applied, MV_CONDUCTOR geometry_optional + `task compile CODE=MV_CONDUCTOR`, and `task seed-rmu-templates` re-run so the templates carry a cable. Pass DRY_RUN=--dry-run to preview."
-    dir: "{{.API_DIR}}"
-    env:
-      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
-    cmds:
-      - go run ./cmd/rmubackfill {{.DRY_RUN}}
 
   authadmin-create:
     desc: "Bootstrap/create a break-glass admin (Phase 10). EMAIL + NAME vars; set AUTHADMIN_PASSWORD in your env/.env first"
@@ -423,6 +416,22 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/tower_relationship_example.sql
 
+  seed-double-circuit:
+    desc: "Double-circuit TEST FIXTURE (3 networks for the tower-elevation PoC): 33kV double-circuit on towers, 11kV double-circuit on mixed poles+towers, LV two parallel lines on poles -- structures + two circuit_ref-tagged conductors each + spatial_support links (NO sources/connectivity). Idempotent; RAISEs if a prereq class/subtype/relationship-class/circuit_ref field is missing (needs TOWER, POLE, MV_CONDUCTOR, LV_CONDUCTOR compiled + circuit_ref + tower/pole-supports relationship classes). Remove with task clean-double-circuit."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/double_circuit_example.sql
+
+  clean-double-circuit:
+    desc: "Remove the double-circuit test fixture (features with the dc33.../dc11.../dc0b... id prefixes + their spatial_support links) left by task seed-double-circuit."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -c "DELETE FROM runtime.feature_relationships WHERE established_by = 'seed:double_circuit'; DELETE FROM gis.mv_conductor WHERE id::text LIKE 'dc330000-%' OR id::text LIKE 'dc110000-%'; DELETE FROM gis.lv_conductor WHERE id::text LIKE 'dc0b0000-%'; DELETE FROM gis.tower WHERE id::text LIKE 'dc330000-%' OR id::text LIKE 'dc110000-%'; DELETE FROM gis.pole WHERE id::text LIKE 'dc110000-%' OR id::text LIKE 'dc0b0000-%';"
+
   seed-connectivity:
     desc: Load the MV_CONDUCTOR/DIST_XFMR connectivity example metadata through the gitbash sidecar
     cmds:
@@ -494,6 +503,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/substation_panel_symbology.sql
+
+  seed-packaged-substation-symbology:
+    desc: Load the geographic-map symbology for PACKAGED_SUBSTATION through the gitbash sidecar (adds the mandatory class default + a package_config=COMPACT rule carrying the packaged-station glyph, so an ALREADY-PLACED unit styles on the map without an assembly_ref marker; no compile -- symbology rows are read client-side/live, reload the map to pick them up)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/packaged_substation_symbology.sql
 
   seed-control-building:
     desc: Load the CONTROL_BUILDING (optional control room/building of a substation -- polygon with optional geometry, holds SUBSTATION_PANEL as its physical home; num_floors/construction_type/floor_area attributes) example metadata through the gitbash sidecar (Phase 47 Slice 1; compile CODE=CONTROL_BUILDING after; panels get two legal parents -- building when present, yard when not, since not all substations have a building)
@@ -627,6 +644,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/consumer_leaf_load_fields.sql
+
+  seed-street-light-supply-mode:
+    desc: Add a coded supply_mode field (grid / solar_standalone / solar_hybrid) to STREET_LIGHT through the gitbash sidecar, so a solar off-grid lamp can be modelled. A SOLAR_STANDALONE lamp is skipped by the auto-wire (attach.go) and so has no connectivity edge -- the electrical engines (trace/OMS/load-flow) exclude it for free, while it stays a full asset (register/WAM/ownership). Metadata-only; RECOMPILE after (task compile CODE=STREET_LIGHT). Idempotent.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/street_light_supply_mode.sql
 
   seed-terminal-cardinality:
     desc: Add metadata.terminals.single_connection (default false) and stamp the cable-joint terminals single through the gitbash sidecar -- the connect path then refuses a 2nd feature on a joint terminal and the connectivity audit flags over-subscribed ones (busbars stay unflagged = many-to-one). Metadata-only, no recompile; idempotent
@@ -779,6 +804,22 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -c "DELETE FROM ops.device_telemetry WHERE source = 'SIM';"
+
+  seed-field-tracks-sim:
+    desc: "Field-trail demo seed (0178): populate the breadcrumb audit trail (ops.field_track_points + ops.field_action_waypoints) with a few walking sessions for the earliest field users, anchored on REAL point features so /field-tracks has data to show without the Flutter field app. Tagged device_id LIKE 'SIM-FIELD-%'. Re-running ADDS more; reset with task clean-field-tracks-sim. Requires migration 0178."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/field_tracks_sim.sql
+
+  clean-field-tracks-sim:
+    desc: "Remove the simulated field trails (device_id LIKE 'SIM-FIELD-%') left by task seed-field-tracks-sim."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -c "DELETE FROM ops.field_track_points WHERE device_id LIKE 'SIM-FIELD-%'; DELETE FROM ops.field_action_waypoints WHERE device_id LIKE 'SIM-FIELD-%';"
 
   seed-fault-modes:
     desc: Load the per-feature-class FAILURE-MODE (FMEA) catalog for fault logging (faults.fault_modes -- the class-aware cause picker, ~400 modes across all 63 classes, each with dimension/typical cause/effect/severity) through the gitbash sidecar (requires migration 0154 first; no compile -- pure faults-schema reference data, idempotent via ON CONFLICT DO UPDATE)
@@ -964,14 +1005,6 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}" -v ON_ERROR_STOP=1
         -f /workspace/seed/collapse_rmu_way_into_mv_switch.sql
 
-  seed-rmu-templates:
-    desc: Load the per-config RMU way recipes (2W_1T/2W_2T -> ring+transformer ways + one bus; Phase RMU Slice 2, backs POST /rmus) through the gitbash sidecar (requires migration 0073 + seed-rmu applied first; no compile step -- pure metadata rows)
-    cmds:
-      - >-
-        docker compose exec -T gitbash
-        psql "{{.CONTAINER_DATABASE_URL}}"
-        -f /workspace/seed/rmu_templates.sql
-
   seed-packaged-substation:
     desc: Load the Phase 56 packaged (movable) substation catalog -- PACKAGED_SUBSTATION class (point/container/MV), permanent+mobile subtypes, PACKAGED_SUB_CONFIG domain, package_config field, containment rules for MV_SWITCH/DIST_XFMR/LV_BUSBAR, the two internal network rules (MV_SWITCH T2->DIST_XFMR T1, DIST_XFMR T2->LV_BUSBAR T1) and its CIM Substation-container mapping -- through the gitbash sidecar (requires the MV_SWITCH/DIST_XFMR/LV_BUSBAR class seeds applied first; then task compile CODE=PACKAGED_SUBSTATION)
     cmds:
@@ -980,13 +1013,13 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/packaged_substation_example.sql
 
-  seed-packaged-substation-templates:
-    desc: Load the COMPACT packaged-substation chain recipe (MV_SWITCH -> DIST_XFMR -> LV_BUSBAR wired in series; Phase 56 Slice 2, backs POST /packaged-substations) through the gitbash sidecar (requires migration 0092 + seed-packaged-substation applied first; also relaxes DIST_XFMR to geometry_optional so the kit can fan out -- run `task compile CODE=DIST_XFMR` after)
+  seed-consolidated-assembly-templates:
+    desc: "Load the RMU + packaged-substation recipes as GENERIC assembly_templates (the engine-consolidation seed; one path for every kit). Requires migrations 0093 + 0194 + 0192, and the RMU/PACKAGED_SUBSTATION/MV_SWITCH/DIST_XFMR/LV_BUSBAR/MV_BUSBAR/MV_CONDUCTOR class seeds applied + compiled. Relaxes DIST_XFMR + MV_CONDUCTOR to geometry_optional -- run `task compile CODE=DIST_XFMR` and `CODE=MV_CONDUCTOR` after. Pure metadata; idempotent."
     cmds:
       - >-
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
-        -f /workspace/seed/packaged_substation_templates.sql
+        -f /workspace/seed/consolidated_assembly_templates.sql
 
   seed-overhead-pole-transformer:
     desc: Load the Phase 57 POLE_MOUNT_STD kit -- POLE spatial_support {MV_FUSE/DIST_XFMR/MV_ARRESTER/LV_BUSBAR}, the internal network legs (MV_FUSE T2->DIST_XFMR T1, DIST_XFMR T1->MV_ARRESTER T1, DIST_XFMR T2->LV_BUSBAR T1) and the assembly template that backs POST /assemblies -- through the gitbash sidecar (requires migration 0093 + the POLE/MV_FUSE/MV_ARRESTER/DIST_XFMR/LV_BUSBAR class seeds applied first; no compile step -- pure metadata rows)
@@ -1585,9 +1618,8 @@ tasks:
       - task: seed-bus-coupler-fields
       - task: seed-switch-normal-state
       - task: seed-rmu
-      - task: seed-rmu-templates
       - task: seed-packaged-substation
-      - task: seed-packaged-substation-templates
+      - task: seed-consolidated-assembly-templates
       - task: seed-overhead-pole-transformer
       - task: seed-pad-mount-urd
       - task: seed-lv-pillar

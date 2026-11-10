@@ -49,11 +49,6 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/work-orders/{id}", getWorkOrderHandler(db))
 	r.Patch("/work-orders/{id}", updateWorkOrderHandler(db))
 
-	r.Get("/inspection-templates", listTemplatesHandler(db))
-	r.Post("/inspection-templates", createTemplateHandler(db))
-	r.Get("/inspection-templates/{id}", getTemplateHandler(db))
-	r.Post("/inspection-templates/{id}/active", setTemplateActiveHandler(db))
-
 	r.Get("/inspections", listInspectionsHandler(db))
 	r.Post("/inspections", recordInspectionHandler(db))
 	r.Get("/inspections/{id}", getInspectionHandler(db))
@@ -65,6 +60,21 @@ func Routes(db *bun.DB) chi.Router {
 	r.Patch("/subcontractors/{id}", updateSubcontractorHandler(db))
 	r.Post("/subcontractors/{id}/active", setSubcontractorActiveHandler(db))
 
+	return r
+}
+
+// TemplateRoutes is the inspection-TEMPLATE surface, mounted separately from the
+// main WAM router so it can carry a different gate: authoring a checklist is
+// configuration (like the fault-mode catalog / data-quality rules), so its writes
+// need metadata:write (admins/planners), while the GETs stay at wam:read so the
+// inspection runner can still list and load templates to fill one out. The mount
+// in cmd/server/main.go applies RequirePermission(wam:read, metadata:write).
+func TemplateRoutes(db *bun.DB) chi.Router {
+	r := chi.NewRouter()
+	r.Get("/", listTemplatesHandler(db))
+	r.Post("/", createTemplateHandler(db))
+	r.Get("/{id}", getTemplateHandler(db))
+	r.Post("/{id}/active", setTemplateActiveHandler(db))
 	return r
 }
 
@@ -391,6 +401,7 @@ type updateWorkOrderRequest struct {
 	ScheduledFor     *time.Time `json:"scheduled_for"`
 	DueBy            *time.Time `json:"due_by"`
 	CompletionNotes  *string    `json:"completion_notes"`
+	ResolveDefect    *bool      `json:"resolve_defect"`
 }
 
 func updateWorkOrderHandler(db *bun.DB) http.HandlerFunc {
@@ -412,6 +423,7 @@ func updateWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 			ScheduledFor:     req.ScheduledFor,
 			DueBy:            req.DueBy,
 			CompletionNotes:  req.CompletionNotes,
+			ResolveDefect:    req.ResolveDefect,
 		})
 		if err != nil {
 			writeError(w, err)

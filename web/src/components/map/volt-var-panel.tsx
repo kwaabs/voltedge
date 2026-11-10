@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -264,16 +265,22 @@ function VoltVarRow({
   const worsensLoss = rec.loss_reduction_kw < 0
   return (
     <tr
-      onClick={() => useSelectionStore.getState().select(rec.node.feature_class, rec.node.feature_id, { focus: true })}
+      onClick={() => useSelectionStore.getState().locate(rec.node.feature_class, rec.node.feature_id, { focus: true })}
+      onDoubleClick={() => useSelectionStore.getState().select(rec.node.feature_class, rec.node.feature_id, { focus: true })}
       className={cn(
-        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0 select-none",
         rec.resolves_under_voltage && "bg-emerald-500/10 hover:bg-emerald-500/15",
         worsensLoss && "bg-destructive/10 hover:bg-destructive/15",
       )}
     >
       <td className="px-3 py-1.5">
-        <div>{classNameFor(rec.node.feature_class)}</div>
-        <div className="text-muted-foreground font-mono text-xs">{shortId(rec.node.feature_id)}</div>
+        <div className="flex items-start gap-1">
+          <FeatureInfoButton featureClass={rec.node.feature_class} featureId={rec.node.feature_id} className="-mt-0.5" />
+          <div className="min-w-0">
+            <div>{classNameFor(rec.node.feature_class)}</div>
+            <div className="text-muted-foreground font-mono text-xs">{shortId(rec.node.feature_id)}</div>
+          </div>
+        </div>
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap font-medium">{formatNumber(rec.rated_kvar, 0)} kVAr</td>
       <td className="px-3 py-1.5 text-xs whitespace-nowrap">

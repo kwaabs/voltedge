@@ -823,6 +823,44 @@ function applyLifecycleStyle(styles: Style | Style[], status: string): Style | S
   return Array.isArray(styles) ? styles.map(transform) : transform(styles)
 }
 
+// The "loaded pole" count badge, drawn on its OWN overlay layer (above the
+// selection highlight, so it's never buried when a pole is selected) at each
+// loaded pole's coordinate -- the at-a-glance half of the pole-attachments
+// feature. Reads the `count` property the map's populate effect stamps on each
+// badge feature; cached per count (a handful of small integers). A saturated
+// amber pill with a white ring reads over any basemap and never matches the
+// teal/green highlight or the red network.
+const poleBadgeByCount = new Map<number, Style>()
+export function poleBadgeStyleForFeature(feature: FeatureLike): Style {
+  const count = (feature.get("count") as number | undefined) ?? 0
+  const cached = poleBadgeByCount.get(count)
+  if (cached) return cached
+  const label = count > 99 ? "99+" : String(count)
+  // Round notification-style badge (filled disc + white ring + centred digit),
+  // sat at the pole's upper-right. The disc and the text share the same up-right
+  // displacement so the digit lands dead-centre; the disc grows for 2-3 chars.
+  const radius = label.length >= 3 ? 11 : label.length === 2 ? 10 : 8.5
+  const dx = 11
+  const dy = 11
+  const style = new Style({
+    image: new Circle({
+      radius,
+      fill: new Fill({ color: "#b8720c" }),
+      stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+      displacement: [dx, dy], // positive y = up (image convention)
+    }),
+    text: new Text({
+      text: label,
+      font: "bold 10.5px ui-sans-serif, system-ui, sans-serif",
+      offsetX: dx,
+      offsetY: -dy, // positive y = down (text convention) → match the disc
+      fill: new Fill({ color: "#ffffff" }),
+    }),
+  })
+  poleBadgeByCount.set(count, style)
+  return style
+}
+
 /**
  * The territory boundary overlay's palette, indexed by level rank (0 =
  * utility, deepest = the min-feature level). Canvas-rendered like every

@@ -27,6 +27,8 @@ export interface MapView {
   bounds_min_lat: number | null
   bounds_max_lng: number | null
   bounds_max_lat: number | null
+  /** Whether the map draws the "loaded pole" count-badge overlay. Default true. */
+  pole_attachment_badges: boolean
 }
 
 /**

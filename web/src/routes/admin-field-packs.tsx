@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react"
-import { ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Package, Trash2 } from "lucide-react"
+import { BellOff, BellRing, ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Package, Trash2 } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { useFieldTrackingPolicy, useSetFieldTrackingPolicy } from "@/hooks/use-field-tracking-policy"
 import {
   type AdminFieldPack,
   useAdminFieldPacks,
@@ -18,6 +19,120 @@ import {
 } from "@/hooks/use-field-packs"
 import { ApiError } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
+
+/** Org-wide field-tracking kill-switch (field_tracking_enabled, default ON). An
+ * opt-out for jurisdictions/policies that forbid recording staff location; off
+ * stops the movement trail AND the located edits, device-side and server-side.
+ * All-or-nothing, org-wide (not per worker). The field app reads the same flag to
+ * stop recording and to drive its in-app disclosure. */
+function FieldTrackingPolicyCard() {
+  const { data } = useFieldTrackingPolicy()
+  const setPolicy = useSetFieldTrackingPolicy()
+  const enabled = data?.enabled ?? true
+  const disclosure = data?.disclosure_enabled ?? true
+
+  function setTracking() {
+    const next = !enabled
+    setPolicy.mutate(
+      { enabled: next },
+      {
+        onSuccess: () =>
+          useToastStore.getState().pushSuccess(next ? "Field tracking is now ON." : "Field tracking is now OFF."),
+        onError: (e) =>
+          useToastStore.getState().pushError(e instanceof ApiError ? e.message : "Could not change the tracking policy."),
+      },
+    )
+  }
+
+  function setDisclosure() {
+    const next = !disclosure
+    setPolicy.mutate(
+      { disclosure_enabled: next },
+      {
+        onSuccess: () =>
+          useToastStore
+            .getState()
+            .pushSuccess(next ? "Crews will be told they're recorded." : "Crews will no longer be told they're recorded."),
+        onError: (e) =>
+          useToastStore.getState().pushError(e instanceof ApiError ? e.message : "Could not change the disclosure setting."),
+      },
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Field location tracking</CardTitle>
+        <CardDescription>
+          When on, the field app records each crew's movement trail and the location of every edit (reviewed under
+          Field trails). Turning it off stops all of it — the trail and the located edits — on the device and on the
+          server. Org-wide, all or nothing.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid items-start gap-3 pt-0 sm:grid-cols-2">
+        <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="flex items-center gap-2">
+            {enabled ? (
+              <Eye className="size-4 shrink-0 text-emerald-600" />
+            ) : (
+              <EyeOff className="text-muted-foreground size-4 shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-medium">Tracking {enabled ? "on" : "off"}</p>
+              <p className="text-muted-foreground text-xs">
+                {enabled ? "Crews' movements and edit locations are recorded." : "No field location is recorded anywhere."}
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant={enabled ? "outline" : "default"}
+            onClick={setTracking}
+            disabled={setPolicy.isPending}
+            className="shrink-0"
+          >
+            {setPolicy.isPending && <Loader2 className="size-4 animate-spin" />}
+            Turn {enabled ? "off" : "on"}
+          </Button>
+        </div>
+
+        {/* Whether the field app TELLS crews they're recorded (the in-app disclosure
+            notice). Independent of tracking: an org may record transparently (both on)
+            or record without disclosing — a deliberate, auditable choice with its own
+            legal weight, so it's a separate switch. */}
+        <div className={`flex items-center justify-between rounded-md border p-3 ${enabled ? "" : "opacity-60"}`}>
+          <div className="flex items-center gap-2">
+            {disclosure ? (
+              <BellRing className="size-4 shrink-0 text-emerald-600" />
+            ) : (
+              <BellOff className="text-muted-foreground size-4 shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-medium">Inform crews {disclosure ? "on" : "off"}</p>
+              <p className="text-muted-foreground text-xs">
+                {!enabled
+                  ? "Nothing to disclose while tracking is off — turn tracking on to use this."
+                  : disclosure
+                    ? "The field app shows crews a notice that their location is being recorded."
+                    : "The field app does NOT tell crews they're being recorded — make sure this is lawful where you operate."}
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant={disclosure ? "outline" : "default"}
+            onClick={setDisclosure}
+            disabled={setPolicy.isPending || !enabled}
+            className="shrink-0"
+          >
+            {setPolicy.isPending && <Loader2 className="size-4 animate-spin" />}
+            Turn {disclosure ? "off" : "on"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 /**
  * Pack management (docs/phase-21-field-tool.md). Every field-tool region pack,
@@ -54,6 +169,8 @@ export function AdminFieldPacksPage() {
             hide it from its owner's tablet (reversible), or delete it to reap its storage for good.
           </p>
         </div>
+
+        <FieldTrackingPolicyCard />
 
         {isPending ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">

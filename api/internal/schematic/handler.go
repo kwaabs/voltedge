@@ -18,14 +18,38 @@ import (
 //	     the per-feature graph for a lon/lat viewport (device_state overlay source)
 //	POST /one-line  {bbox|feature_refs}
 //	     the ephemeral, laid-out one-line for a selection or the current view
+//	GET  /network-one-line
+//	     the ephemeral, laid-out one-line for the WHOLE connected network -- the live
+//	     source for the ADMS operations schematic (computed on demand, never stored)
 //
-// Both are READS (a POST only because the selection is a list in the body) -- the
+// All are READS (the POST only because the selection is a list in the body) -- the
 // mount's method-aware gate resolves to features:read for every call.
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/", viewHandler(db))
 	r.Post("/one-line", oneLineHandler(db))
+	r.Get("/network-one-line", networkOneLineHandler(db))
 	return r
+}
+
+// networkOneLineHandler lays out the ENTIRE connected network as an abstract
+// one-line and returns it as data. This is the live source the operations schematic
+// renders: the layout is recomputed from the current network each call (deterministic
+// for a fixed network), so the operating picture is always current without any
+// persisted diagram to keep in sync. Over the node cap it returns truncated=true.
+func networkOneLineHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		maxNodes := envMaxNodes()
+		if maxNodes > maxNodesCeiling {
+			maxNodes = maxNodesCeiling
+		}
+		one, err := BuildNetworkOneLine(r.Context(), db, maxNodes)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to build network one-line")
+			return
+		}
+		writeJSON(w, http.StatusOK, one)
+	}
 }
 
 // oneLineRequest is the POST /schematic/one-line body: EITHER an explicit feature

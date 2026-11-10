@@ -234,6 +234,13 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 	cols = append(cols, `commissioned_at date`)
 	cols = append(cols, `retired_at date`)
 
+	// assembly_ref (0192): a marker system column on EVERY class (like external_ref).
+	// Set to the assembly template `code` when a feature is placed as an assembly's
+	// ANCHOR (api/internal/assembly); NULL for a standalone feature. A map-context
+	// symbology rule keyed on it gives a placed assembly its own map glyph without
+	// making the assembly a feature class. Nullable, no default.
+	cols = append(cols, `assembly_ref text`)
+
 	// The territory this feature belongs to (Phase 11) -- only for classes
 	// that actually carry a geometry to place; a geometry-less class has
 	// nothing to contain in a territory, so it never gets the column.

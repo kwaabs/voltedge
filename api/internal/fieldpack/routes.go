@@ -74,6 +74,14 @@ func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 	// a hard body-size limit on top of the generous global cap.
 	loginLimiter := ratelimit.New(10, 10)
 	r.With(loginLimiter.Middleware, httpx.MaxBytes(64<<10)).Post("/auth/field-login", fieldLoginHandler(db))
+	// SSO + refresh credential surface (fieldauth.go). All public like field-login:
+	// the SSO handoff code / refresh token IS the credential. Redeem code -> session,
+	// refresh -> new access token, logout -> revoke refresh, sso-config -> where to
+	// start the SSO flow. Throttled + tightly body-capped like the password login.
+	r.With(loginLimiter.Middleware, httpx.MaxBytes(64<<10)).Post("/auth/field-sso/exchange", fieldSSOExchangeHandler(db))
+	r.With(loginLimiter.Middleware, httpx.MaxBytes(64<<10)).Post("/auth/field-refresh", fieldRefreshHandler(db))
+	r.With(loginLimiter.Middleware, httpx.MaxBytes(8<<10)).Post("/auth/field-logout", fieldLogoutHandler(db))
+	r.Get("/auth/sso-config", ssoConfigHandler())
 
 	r.Group(func(r chi.Router) {
 		r.Use(bearerAuth(db))
@@ -85,6 +93,12 @@ func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 		// The class catalog the device's "new pack" form picks from, so a
 		// user checks boxes instead of typing UPPERCASE codes (classes.go).
 		r.Get("/feature-classes", featureClassesHandler(db))
+		// The org-wide field-tracking policy, pulled on pack open so a device that
+		// signed in earlier (the field token is non-expiring) reflects an admin's
+		// later change before it decides whether to record and whether to disclose.
+		// Reads the caller's own governing policy, so features:read; the sync
+		// responses carry the same shape for in-session refresh (sync.go).
+		r.Get("/tracking-policy", trackingPolicyHandler(db))
 		// The sync status pull is a read (a device reconciling the apply outcome of
 		// its own already-pushed ops), so it sits with the reads behind features:read
 		// -- separate from the POST /sync write below (Phase 23 Slice 1).

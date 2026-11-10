@@ -22,8 +22,30 @@ func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Post("/", establishHandler(db))
 	r.Get("/", listHandler(db))
+	r.Get("/support-counts", supportCountsHandler(db))
 	r.Delete("/{id}", revokeHandler(db))
 	return r
+}
+
+// supportCountsHandler returns, per support structure of ?origin_class (default
+// POLE), how many spatial_support attachments it carries -- the map's "loaded
+// pole" badge reads this once and styles the pole tiles client-side.
+func supportCountsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		originClass := r.URL.Query().Get("origin_class")
+		if originClass == "" {
+			originClass = "POLE"
+		}
+		rows, err := supportStructureCounts(r.Context(), db, originClass)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if rows == nil {
+			rows = []supportCount{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"counts": rows})
+	}
 }
 
 func establishHandler(db *bun.DB) http.HandlerFunc {

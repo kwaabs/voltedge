@@ -55,5 +55,41 @@ func analysisTools() []Tool {
 			RequiredPerm: auth.PermAnalysisRun,
 			Handler:      powerflow.RunFaultLocationJSON,
 		},
+		{
+			Name: "allocate_load",
+			Description: "Load allocation: distribute a MEASURED feeder-head load (from SCADA, or an operator's " +
+				"reading) across the consumer leaves downstream of a start feature, so the per-transformer loads " +
+				"reflect reality instead of the model's as-designed demand_kw. Enumerates the downstream service " +
+				"points / transformers and shares the measured kW (and kVAR, given or derived from power_factor) " +
+				"across them by a weight 'basis': 'kva' (default -- each leaf's as-designed apparent power, the " +
+				"classic allocate-by-connected-capacity, falling back to customers when a feeder has no kVA data), " +
+				"'customers' (customers_served), or 'as_designed' (existing demand_kw). Returns the per-leaf " +
+				"allocated kW/kVAR, each leaf's weight and customers, and the model-vs-measured scale_factor " +
+				"(measured / Σ as-designed demand_kw) -- a feeder running at 1.2x its modelled load reads 1.2. " +
+				"'start' is the feeder head / source. Read-only; respects analysis:run.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"start":{
+						"type":"object",
+						"description":"The feeder head / source feature to allocate from.",
+						"properties":{
+							"feature_class":{"type":"string","description":"The start feature's class code."},
+							"feature_id":{"type":"string","description":"The start feature's id (uuid)."}
+						},
+						"required":["feature_class","feature_id"],
+						"additionalProperties":false
+					},
+					"measured_kw":{"type":"number","description":"The measured real power at the feeder head, in kW (>= 0)."},
+					"measured_kvar":{"type":"number","description":"Optional measured reactive power (kVAR); if omitted, derived from power_factor (default unity, 0 kVAR)."},
+					"power_factor":{"type":"number","description":"Optional power factor in (0,1] used to derive kVAR when measured_kvar is absent."},
+					"basis":{"type":"string","enum":["kva","customers","as_designed"],"description":"Weight basis for the share; default 'kva'."}
+				},
+				"required":["start","measured_kw"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermAnalysisRun,
+			Handler:      powerflow.RunLoadAllocationJSON,
+		},
 	}
 }

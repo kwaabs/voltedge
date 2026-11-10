@@ -100,6 +100,35 @@ type ReliabilityIndices struct {
 	SAIFINormalized   float64 `json:"saifi_normalized"`
 	MEDApplicable     bool    `json:"med_applicable"`
 	MEDNote           string  `json:"med_note,omitempty"`
+
+	// MAIFI -- momentary interruptions (maifi.go), computed from the device-operation
+	// log rather than the sustained interruption fact table. MAIFI groups a rapid
+	// re-strike sequence into one event; MAIFIEvent (MAIFI_E) counts each interrupting
+	// operation. MomentaryMode echoes which definition was used ("protective" |
+	// "pure_duration") and SustainedThresholdMinutes the cutoff. MAIFIApplicable is
+	// false when the operation log is absent or the report is circuit-scoped (MAIFI is
+	// whole-system only for now); the figures are then zero and MAIFINote says why.
+	MAIFI                          float64 `json:"maifi"`
+	MAIFIEvent                     float64 `json:"maifi_e"`
+	MomentaryEvents                int     `json:"momentary_events"`
+	MomentaryCustomerInterruptions int     `json:"momentary_customer_interruptions"`
+	MomentaryDevices               int     `json:"momentary_devices"`
+	SustainedThresholdMinutes      float64 `json:"sustained_threshold_minutes"`
+	MomentaryMode                  string  `json:"momentary_mode"`
+	MAIFIApplicable                bool    `json:"maifi_applicable"`
+	MAIFINote                      string  `json:"maifi_note,omitempty"`
+
+	// Worst-served-customer indices (worstserved.go) -- the lens the system averages
+	// hide. CEMI_n = customers with MORE THAN CEMIThreshold sustained interruptions / N;
+	// CELID = customers whose total interruption time exceeds CELIDHours / N. WorstServed
+	// is the ranked service points behind them. Over the same window / N as the indices.
+	CEMIThreshold  int                `json:"cemi_threshold"`
+	CEMI           float64            `json:"cemi"`
+	CEMICustomers  int                `json:"cemi_customers"`
+	CELIDHours     float64            `json:"celid_hours"`
+	CELID          float64            `json:"celid"`
+	CELIDCustomers int                `json:"celid_customers"`
+	WorstServed    []WorstServedPoint `json:"worst_served,omitempty"`
 }
 
 // FaultCauseContribution is one fault-cause bucket's share of the window's
@@ -134,6 +163,20 @@ type IndicesParams struct {
 	// on both sides of each index. Requires SERVICE_POINT to carry circuit_id
 	// (Phase 37 Slice 2 circuit-membership seed + a recompile).
 	CircuitID *string
+
+	// SustainedThresholdMin is the momentary/sustained cutoff for MAIFI (minutes);
+	// nil uses DefaultSustainedThresholdMin (IEEE 1366's 5 minutes). MomentaryPureDuration,
+	// when true, counts ANY interrupt->restore within the threshold as momentary
+	// (pure-duration); the default (nil/false) requires an auto-protection op
+	// (trip/reclose) so routine manual switching does not inflate MAIFI.
+	SustainedThresholdMin *float64
+	MomentaryPureDuration *bool
+
+	// CEMIThreshold is the CEMI count threshold n (customers with MORE THAN n sustained
+	// interruptions); nil uses DefaultCEMIThreshold. CELIDHours is the CELID total-
+	// duration threshold in hours; nil uses DefaultCELIDHours.
+	CEMIThreshold *int
+	CELIDHours    *float64
 }
 
 // ReliabilityIndicesReport computes the system reliability indices over the
@@ -159,6 +202,32 @@ func ReliabilityIndicesReport(ctx context.Context, db bun.IDB, p IndicesParams) 
 	}
 	if avgLoadKW < 0 {
 		return nil, invalidf("avg_load_kw must not be negative, got %v", avgLoadKW)
+	}
+
+	// MAIFI momentary/sustained threshold + definition (maifi.go).
+	sustainedMin := DefaultSustainedThresholdMin
+	if p.SustainedThresholdMin != nil {
+		sustainedMin = *p.SustainedThresholdMin
+	}
+	if sustainedMin <= 0 {
+		return nil, invalidf("sustained_threshold_min must be positive, got %v", sustainedMin)
+	}
+	pureDuration := p.MomentaryPureDuration != nil && *p.MomentaryPureDuration
+
+	// CEMI / CELID worst-served thresholds (worstserved.go).
+	cemiN := DefaultCEMIThreshold
+	if p.CEMIThreshold != nil {
+		cemiN = *p.CEMIThreshold
+	}
+	if cemiN < 0 {
+		return nil, invalidf("cemi_threshold must not be negative, got %d", cemiN)
+	}
+	celidHours := DefaultCELIDHours
+	if p.CELIDHours != nil {
+		celidHours = *p.CELIDHours
+	}
+	if celidHours < 0 {
+		return nil, invalidf("celid_hours must not be negative, got %v", celidHours)
 	}
 
 	// Optional per-circuit scope. When a circuit is given, both the interrupted
@@ -329,6 +398,51 @@ FROM clipped`, aggCircuitJoin)
 		if err := attachFaultCauseBreakdown(ctx, db, out, aggCircuitJoin, aggArgs); err != nil {
 			return nil, err
 		}
+	}
+
+	// MAIFI (momentaries, maifi.go). Computed from the device-operation log rather
+	// than the interruption fact table, so it is probed fail-soft like the faults
+	// and circuit guards above. Per-circuit scope is not yet supported (reclosers
+	// carry no circuit membership), so a scoped report reports MAIFI not-applicable
+	// instead of silently mixing a whole-system momentary count into a feeder report.
+	out.SustainedThresholdMinutes = sustainedMin
+	out.MomentaryMode = "protective"
+	if pureDuration {
+		out.MomentaryMode = "pure_duration"
+	}
+	switch {
+	case scoped:
+		out.MAIFINote = "per-circuit MAIFI is not yet supported (reclosers carry no circuit membership) -- run a whole-system report for MAIFI"
+	default:
+		var hasOpsTable bool
+		if err := db.NewRaw(`SELECT to_regclass('ops.operations') IS NOT NULL`).Scan(ctx, &hasOpsTable); err != nil {
+			return nil, fmt.Errorf("oms: checking for ops.operations: %w", err)
+		}
+		if !hasOpsTable {
+			out.MAIFINote = "device-operation log (ops.operations, migration 0147) not installed -- MAIFI unavailable"
+			break
+		}
+		m, err := computeMAIFI(ctx, db, from, to, time.Duration(sustainedMin*float64(time.Minute)), !pureDuration, totalCustomers)
+		if err != nil {
+			return nil, err
+		}
+		out.MAIFI = m.MAIFI
+		out.MAIFIEvent = m.MAIFIEvent
+		out.MomentaryEvents = m.MomentaryEvents
+		out.MomentaryCustomerInterruptions = m.CustomerInterruptions
+		out.MomentaryDevices = m.Devices
+		out.MAIFIApplicable = true
+		if m.MomentaryEvents == 0 {
+			out.MAIFINote = "no momentary interruptions logged in the window (device-operation feeds: crew entry now, SCADA/relay later)"
+		}
+	}
+
+	// Worst-served-customer indices (CEMI/CELID + the ranked list, worstserved.go),
+	// over the same window / circuit scope / denominator N as the system indices.
+	out.CEMIThreshold = cemiN
+	out.CELIDHours = celidHours
+	if err := attachWorstServed(ctx, db, out, aggCircuitJoin, aggArgs, cemiN, celidHours*60.0); err != nil {
+		return nil, err
 	}
 
 	return out, nil

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon foreground: the VoltEdge bolt mark (same path as launch_logo.xml),
+     white, scaled from its native 24x24 artwork and centred inside the 108x108
+     adaptive canvas so it sits within the ~66dp safe zone the launcher mask keeps
+     visible. The green comes from the <background> layer (ic_launcher_background). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="12"
+        android:pivotY="12"
+        android:scaleX="3.3"
+        android:scaleY="3.3"
+        android:translateX="42"
+        android:translateY="42">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M11,21h-1l1,-7H7.5c-0.58,0 -0.57,-0.32 -0.38,-0.66c0.19,-0.34 0.05,-0.08 0.07,-0.12C8.48,10.94 10.42,7.54 13,3h1l-1,7h3.5c0.49,0 0.56,0.33 0.47,0.51l-0.07,0.15C12.96,17.55 11,21 11,21z" />
+    </group>
+</vector>

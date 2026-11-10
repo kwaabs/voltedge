@@ -33,8 +33,99 @@ type FeatureRelationship struct {
 	OriginFeatureID           string    `bun:"origin_feature_id"`
 	DestinationFeatureClassID string    `bun:"destination_feature_class_id"`
 	DestinationFeatureID      string    `bun:"destination_feature_id"`
-	EstablishedAt             time.Time `bun:"established_at,nullzero"`
-	EstablishedBy             *string   `bun:"established_by"`
+	EstablishedAt             time.Time      `bun:"established_at,nullzero"`
+	EstablishedBy             *string        `bun:"established_by"`
+	Attributes                map[string]any `bun:"attributes,nullzero,type:jsonb"`
+}
+
+// supportKind is the relationship kind for a physical mount -- "X supports Y",
+// e.g. a POLE supporting a street light, a pole transformer or a meter. It is the
+// one kind that means "rides this structure at its location".
+const supportKind = "spatial_support"
+
+// supportCount is one support structure: its id, its on-map position (lon/lat,
+// WGS84) and how many POINT features it carries. The position lets the map draw a
+// count badge directly over the structure in a dedicated overlay (above the
+// highlight layer), rather than injecting it into the feature-tile style.
+type supportCount struct {
+	FeatureID string  `bun:"feature_id" json:"feature_id"`
+	Count     int     `bun:"count" json:"count"`
+	Lon       float64 `bun:"lon" json:"lon"`
+	Lat       float64 `bun:"lat" json:"lat"`
+}
+
+// supportStructureCounts returns, for every feature of structureClass that is the
+// support parent of at least one POINT attachment, its position and how many it
+// carries -- the data behind the map's "loaded pole" count badge. Deleted features
+// on either side are excluded (a detached/removed attachment stops counting). Only
+// loaded structures appear, so the payload is them, not every pole.
+//
+// POINT attachments only (attachment geometry_type = 'point'): the badge flags
+// features STACKED on the structure's own point (a lamp, a pole transformer --
+// invisible without the fan). A line/polygon attachment (an overhead conductor
+// carried by the pole) has its own visible geometry elsewhere, so it isn't a
+// hidden stack and shouldn't inflate the count.
+func supportStructureCounts(ctx context.Context, db bun.IDB, structureClass string) ([]supportCount, error) {
+	// The structure class's physical table -- needed to read its geometry for the
+	// badge position. Trusted server metadata (not request input), so interpolated.
+	var meta struct {
+		PhysicalTable sql.NullString `bun:"physical_table"`
+	}
+	err := db.NewSelect().
+		ColumnExpr("physical_table").
+		TableExpr("metadata.feature_classes").
+		Where("code = ?", structureClass).
+		Limit(1).
+		Scan(ctx, &meta)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []supportCount{}, nil
+		}
+		return nil, fmt.Errorf("relationship: looking up table for %s: %w", structureClass, err)
+	}
+	if !meta.PhysicalTable.Valid || meta.PhysicalTable.String == "" {
+		return []supportCount{}, nil // a non-geometric structure class carries no badge
+	}
+
+	// DIRECTION-AGNOSTIC: the structure (POLE) is the ORIGIN in the seeded
+	// "POLE supports X" classes, but a hand-authored link can be either way, and
+	// the panel's attachment list already counts both directions -- so the badge
+	// must too, or a stack shows in the list but not on the map. Each UNION arm
+	// takes the structure from one side and the POINT attachment from the other.
+	// The outer query counts per structure and joins its geometry for the badge
+	// position (geom is WGS84, same as every other feature read).
+	q := fmt.Sprintf(`
+SELECT c.feature_id, c.count,
+       ST_X(ST_Centroid(s.geom)) AS lon, ST_Y(ST_Centroid(s.geom)) AS lat
+FROM (
+  SELECT structure_id AS feature_id, count(*) AS count FROM (
+    SELECT fr.origin_feature_id AS structure_id
+    FROM runtime.feature_relationships fr
+    JOIN metadata.relationship_classes rc ON rc.id = fr.relationship_class_id
+    JOIN metadata.feature_classes sfc ON sfc.id = fr.origin_feature_class_id
+    JOIN metadata.feature_classes afc ON afc.id = fr.destination_feature_class_id
+    WHERE rc.kind = ? AND sfc.code = ? AND afc.geometry_type = 'point'
+      AND fr.origin_feature_id IN (SELECT feature_id FROM runtime.feature_registry WHERE deleted_at IS NULL)
+      AND fr.destination_feature_id IN (SELECT feature_id FROM runtime.feature_registry WHERE deleted_at IS NULL)
+    UNION ALL
+    SELECT fr.destination_feature_id AS structure_id
+    FROM runtime.feature_relationships fr
+    JOIN metadata.relationship_classes rc ON rc.id = fr.relationship_class_id
+    JOIN metadata.feature_classes sfc ON sfc.id = fr.destination_feature_class_id
+    JOIN metadata.feature_classes afc ON afc.id = fr.origin_feature_class_id
+    WHERE rc.kind = ? AND sfc.code = ? AND afc.geometry_type = 'point'
+      AND fr.origin_feature_id IN (SELECT feature_id FROM runtime.feature_registry WHERE deleted_at IS NULL)
+      AND fr.destination_feature_id IN (SELECT feature_id FROM runtime.feature_registry WHERE deleted_at IS NULL)
+  ) sub
+  GROUP BY structure_id
+) c
+JOIN %s s ON s.id = c.feature_id
+WHERE s.geom IS NOT NULL AND s.deleted_at IS NULL`, meta.PhysicalTable.String)
+	var rows []supportCount
+	if err := db.NewRaw(q, supportKind, structureClass, supportKind, structureClass).Scan(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("relationship: support counts for %s: %w", structureClass, err)
+	}
+	return rows, nil
 }
 
 // resolvedFeature is one side of an establish request after its feature
@@ -393,6 +484,7 @@ func formatRelationship(rel *FeatureRelationship, class *metadata.RelationshipCl
 		Origin:                origin.ref,
 		Destination:           destination.ref,
 		EstablishedAt:         rel.EstablishedAt,
+		Attributes:            rel.Attributes,
 	}
 }
 
@@ -440,6 +532,7 @@ func formatRelationships(ctx context.Context, db bun.IDB, rows []FeatureRelation
 				FeatureID:    r.DestinationFeatureID,
 			},
 			EstablishedAt: r.EstablishedAt,
+			Attributes:    r.Attributes,
 		})
 	}
 	return out, nil

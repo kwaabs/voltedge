@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/settings_repository.dart';
@@ -56,15 +57,175 @@ class FieldsyncClient {
       }),
     );
     _ensureOk(res);
-    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return _parseSession(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Parse a field-session envelope (login / SSO exchange / refresh all share it):
+  /// the access + refresh tokens, the access expiry, identity, permissions, and the
+  /// org-wide tracking policy. Mirrors fieldpack writeFieldSession.
+  FieldLoginResult _parseSession(Map<String, dynamic> body) {
+    final expRaw = body['access_expires_at'] as String?;
     return FieldLoginResult(
       token: body['token'] as String? ?? '',
+      refreshToken: body['refresh_token'] as String?,
+      accessExpiresAt:
+          (expRaw == null || expRaw.isEmpty) ? null : DateTime.tryParse(expRaw)?.toUtc(),
       email: body['email'] as String? ?? '',
       displayName: body['display_name'] as String? ?? '',
       permissions: (body['permissions'] as List? ?? const [])
           .map((p) => p.toString())
           .toList(),
+      fieldTrackingEnabled: body['field_tracking_enabled'] as bool? ?? true,
+      fieldTrackingDisclosureEnabled:
+          body['field_tracking_disclosure_enabled'] as bool? ?? true,
     );
+  }
+
+  /// GET /auth/sso-config -- where to START the SSO flow. SSO lives on cmd/server
+  /// (/auth/oidc/...), which may differ from this fieldsync origin; the server tells
+  /// us the base. Falls back to our own base URL (single-gateway deployments).
+  Future<String> ssoConfig() async {
+    final res = await _http.get(_uri('/auth/sso-config'));
+    _ensureOk(res);
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    final base = body['login_base'] as String?;
+    return (base == null || base.isEmpty) ? _settings.baseUrl : base;
+  }
+
+  /// GET `loginBase/auth/providers` -- the SSO buttons to offer (public). Returns an
+  /// empty list if the web origin has no providers configured (local-only login).
+  Future<List<SsoProvider>> fetchSsoProviders(String loginBase) async {
+    final res = await _http.get(Uri.parse('$loginBase/auth/providers'));
+    _ensureOk(res);
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return (body['providers'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map((p) => SsoProvider(
+              key: p['key'] as String? ?? '',
+              displayName: p['display_name'] as String? ?? '',
+            ))
+        .where((p) => p.key.isNotEmpty)
+        .toList();
+  }
+
+  /// The SSO providers to offer on the login screen: resolve the SSO origin, then
+  /// list its providers. Empty when SSO isn't configured (local-only login).
+  Future<List<SsoProvider>> ssoProviders() async {
+    final loginBase = await ssoConfig();
+    return fetchSsoProviders(loginBase);
+  }
+
+  /// Sign in with SSO: open the server-mediated OIDC flow in the SYSTEM browser
+  /// (Azure discourages embedded webviews), wait for the voltedge:// hand-off, and
+  /// redeem its one-time code for a field session. The IdP only ever sees the
+  /// server's registered callback; voltedge:// is our own app scheme, not registered
+  /// with the IdP.
+  Future<FieldLoginResult> signInWithSSO(String providerKey,
+      {String? deviceName}) async {
+    final loginBase = await ssoConfig();
+    final url = Uri.parse('$loginBase/auth/oidc/$providerKey/login').replace(
+      queryParameters: {
+        'field': '1',
+        if (deviceName != null && deviceName.trim().isNotEmpty)
+          'device_name': deviceName.trim(),
+      },
+    ).toString();
+    final callback = await FlutterWebAuth2.authenticate(
+      url: url,
+      callbackUrlScheme: 'voltedge',
+    );
+    final uri = Uri.parse(callback);
+    final error = uri.queryParameters['error'];
+    if (error != null && error.isNotEmpty) {
+      throw FieldsyncException(401, _ssoErrorMessage(error));
+    }
+    final code = uri.queryParameters['code'];
+    if (code == null || code.isEmpty) {
+      throw FieldsyncException(401, 'SSO sign-in did not complete.');
+    }
+    return exchangeSSO(code, deviceName: deviceName);
+  }
+
+  String _ssoErrorMessage(String code) {
+    switch (code) {
+      case 'no_field_access':
+        return 'This account does not have field-app access.';
+      case 'no_account':
+        return 'No VoltEdge account is linked to this sign-in.';
+      default:
+        return 'SSO sign-in failed. Please try again.';
+    }
+  }
+
+  /// POST /auth/field-sso/exchange -- redeem the one-time SSO code for a session.
+  Future<FieldLoginResult> exchangeSSO(String code, {String? deviceName}) async {
+    final res = await _http.post(
+      _uri('/auth/field-sso/exchange'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'code': code,
+        if (deviceName != null && deviceName.trim().isNotEmpty)
+          'device_name': deviceName.trim(),
+      }),
+    );
+    _ensureOk(res);
+    return _parseSession(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// POST /auth/field-refresh -- swap the stored refresh token for a fresh access
+  /// token and persist it (same refresh token back -- non-rotating). No-op when the
+  /// device holds a legacy non-expiring token (no refresh token).
+  Future<void> refreshSession() async {
+    final refresh = _settings.refreshToken;
+    if (refresh == null || refresh.isEmpty) return;
+    final res = await _http.post(
+      _uri('/auth/field-refresh'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'refresh_token': refresh}),
+    );
+    _ensureOk(res);
+    final session = _parseSession(jsonDecode(res.body) as Map<String, dynamic>);
+    await _settings.applyRefreshedSession(
+      token: session.token,
+      refreshToken: session.refreshToken,
+      accessExpiresAt: session.accessExpiresAt,
+    );
+    // The refresh response also carries the current tracking policy.
+    await _settings.applyFieldTrackingPolicy(
+      enabled: session.fieldTrackingEnabled,
+      disclosureEnabled: session.fieldTrackingDisclosureEnabled,
+    );
+  }
+
+  /// Refresh the access token if it's within a minute of expiry (or past it) and a
+  /// refresh token is held. Best-effort: on failure the stale token is left and the
+  /// next call 401s, prompting a re-login. Call before recurring authed work.
+  Future<void> ensureFreshAccess() async {
+    final exp = _settings.accessExpiresAt;
+    final refresh = _settings.refreshToken;
+    if (refresh == null || refresh.isEmpty || exp == null) return; // legacy token
+    if (DateTime.now().toUtc().isBefore(exp.subtract(const Duration(minutes: 1)))) {
+      return; // still fresh
+    }
+    try {
+      await refreshSession();
+    } catch (_) {
+      // leave it; the authed call will 401 and the UI prompts re-login.
+    }
+  }
+
+  /// POST /auth/field-logout -- revoke the refresh token on sign-out (best-effort).
+  Future<void> revokeRefreshToken(String refreshToken) async {
+    if (refreshToken.isEmpty) return;
+    try {
+      await _http.post(
+        _uri('/auth/field-logout'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh_token': refreshToken}),
+      );
+    } catch (_) {
+      // best-effort; the access token lapses on its own regardless.
+    }
   }
 
   /// GET /packs -- the caller's recent builds, newest first.
@@ -177,6 +338,7 @@ class FieldsyncClient {
   /// round-trip, so a push reconciles earlier in-flight ops for free.
   Future<SyncResponse> sync(List<OutboxOp> ops,
       {List<String> poll = const []}) async {
+    await ensureFreshAccess();
     final res = await _http.post(
       _uri('/sync'),
       headers: _headers(json: true),
@@ -195,7 +357,38 @@ class FieldsyncClient {
         .cast<Map<String, dynamic>>()
         .map(SyncOpStatus.fromJson)
         .toList();
+    // Refresh the org-wide tracking policy the server rode on the response, so a
+    // provisioned device picks up an admin's change without re-logging in.
+    await _applyTrackingPolicy(body);
     return SyncResponse(results: results, statuses: statuses);
+  }
+
+  /// GET /tracking-policy — pull the org-wide tracking policy on demand and apply it
+  /// (the device calls this on pack open, BEFORE deciding whether to record and
+  /// whether to disclose). The field token is non-expiring, so login is one-time;
+  /// this is how a device learns a policy an admin changed since it signed in. The
+  /// endpoint returns `{enabled,disclosure_enabled}` directly, so it's wrapped to
+  /// match the sync response shape _applyTrackingPolicy reads. Online-only; a throw
+  /// is the caller's cue to keep the cached flags (offline).
+  Future<void> refreshTrackingPolicy() async {
+    final res = await _http.get(_uri('/tracking-policy'), headers: _headers());
+    _ensureOk(res);
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    await _applyTrackingPolicy({'policy': body});
+  }
+
+  /// Apply the org-wide tracking policy if the server attached it (sync + status
+  /// responses carry `policy:{enabled,disclosure_enabled}`). Updates the shared
+  /// SettingsRepository — the same instance the UI reads — so the recorder gate and
+  /// the in-app disclosure reflect the current policy on the next rebuild / pack
+  /// open, with no re-login. Missing keys fail open (default on), matching the server.
+  Future<void> _applyTrackingPolicy(Map<String, dynamic> body) async {
+    final policy = body['policy'];
+    if (policy is! Map<String, dynamic>) return;
+    await _settings.applyFieldTrackingPolicy(
+      enabled: policy['enabled'] as bool? ?? true,
+      disclosureEnabled: policy['disclosure_enabled'] as bool? ?? true,
+    );
   }
 
   /// POST /field-tracks/breadcrumbs -- upload a batch of movement-trail points
@@ -224,6 +417,7 @@ class FieldsyncClient {
   /// concatenates. An op the server never captured simply isn't in the response, so
   /// the caller leaves it queued/in-flight to reconcile later.
   Future<List<SyncOpStatus>> syncStatus(List<String> opIds) async {
+    await ensureFreshAccess();
     final out = <SyncOpStatus>[];
     for (var i = 0; i < opIds.length; i += 500) {
       final chunk = opIds.sublist(i, math.min(i + 500, opIds.length));
@@ -235,6 +429,8 @@ class FieldsyncClient {
       out.addAll((body['statuses'] as List? ?? const [])
           .cast<Map<String, dynamic>>()
           .map(SyncOpStatus.fromJson));
+      // A status-only reconcile (nothing to push) still refreshes the policy.
+      await _applyTrackingPolicy(body);
     }
     return out;
   }

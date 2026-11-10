@@ -32,6 +32,7 @@ import { VoltageProfilePanel } from "@/components/map/voltage-profile-panel"
 import { ContingencyPanel } from "@/components/map/contingency-panel"
 import { HostingPanel } from "@/components/map/hosting-panel"
 import { EvHostingPanel } from "@/components/map/ev-hosting-panel"
+import { LoadAllocationPanel } from "@/components/map/load-allocation-panel"
 import { LoadGrowthPanel } from "@/components/map/load-growth-panel"
 import { MeshedLoadFlowPanel } from "@/components/map/meshed-load-flow-panel"
 import { NodalLoadFlowPanel } from "@/components/map/nodal-load-flow-panel"
@@ -314,15 +315,10 @@ export function MapPage() {
           {/* Map viewport -- flex-1 so the status bar below shares this column;
               both hide together when a diagram is maximized (this column is
               `hidden`), and in split view the bar spans only the map's width. */}
+          {/* Ambient edit-mode cue: the amber inset ring on the viewport, plus a
+              pulsing "Edit mode" chip in the status bar below (EditModeIndicator) —
+              the floating corner badge was moved there so it never overlaps the map. */}
           <div className={cn("relative min-h-0 flex-1", editing && "ring-2 ring-inset ring-amber-500")}>
-            {/* Ambient edit-mode cue (S1): a persistent badge so the mode is
-                unmistakable even when the toggle is scrolled out of view. Top-left
-                corner, clear of the top-right controls cluster. */}
-            {editing && (
-              <div className="pointer-events-none absolute top-3 left-3 z-10 rounded-full bg-amber-600 px-3 py-1 text-xs font-semibold text-white shadow-md">
-                Edit mode
-              </div>
-            )}
             {!mapSettings.isPending && (
               <VoltEdgeMap
                 initialCenter={
@@ -399,6 +395,7 @@ export function MapPage() {
       <HostingPanel />
       <EvHostingPanel />
       <LoadGrowthPanel />
+      <LoadAllocationPanel />
       <MeshedLoadFlowPanel />
       <NodalLoadFlowPanel />
       <AutoLoadFlowPanel />

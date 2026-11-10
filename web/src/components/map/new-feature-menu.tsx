@@ -13,8 +13,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useDuctOptions } from "@/hooks/use-ducts"
 import { type FeatureClassSummary, useFeatureClasses } from "@/hooks/use-feature-classes"
-import { usePackagedSubstationOptions } from "@/hooks/use-packaged-substations"
-import { useRMUOptions } from "@/hooks/use-rmus"
 import { cn } from "@/lib/utils"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
@@ -65,15 +63,15 @@ function groupByCategory(classes: FeatureClassSummary[]): ClassGroup[] {
  * drawingGeometryType.
  *
  * Plain single-feature placement only. The guided-assembly workflows
- * (Ring Main Unit, Cable duct, Bus coupler, Feeder tie) live in the
- * separate NewAssemblyMenu -- but RMU/duct classes are still filtered
- * OUT of this list here (drawing one plainly would skip its fan-out),
- * which is why this component still reads their options.
+ * (Assembly kits, Cable duct, Bus coupler, Feeder tie) live in the
+ * separate NewAssemblyMenu -- but duct classes are still filtered OUT of
+ * this list here (drawing one plainly would skip its fan-out), which is
+ * why this component still reads duct options. Kit anchors (POLE, RMU,
+ * PACKAGED_SUBSTATION, ...) stay in this list: a bare place is valid, and
+ * the "with its kit" affordance lives in NewAssemblyMenu.
  */
 export function NewFeatureMenu() {
   const { data: featureClasses } = useFeatureClasses()
-  const { data: rmuOptions } = useRMUOptions()
-  const { data: packagedOptions } = usePackagedSubstationOptions()
   const { data: ductOptions } = useDuctOptions()
   const startDrawing = useDrawStore((s) => s.startDrawing)
   const drawing = useDrawStore((s) => s.drawingFeatureClassCode)
@@ -88,32 +86,17 @@ export function NewFeatureMenu() {
   const menuOpen = useToolbarMenuStore((s) => s.open === "feature")
   const setMenuOpen = useToolbarMenuStore((s) => s.setOpen)
   const [query, setQuery] = useState("")
-  // RMU classes are placed through the dedicated "Ring Main Unit" section below
-  // (which POSTs /rmus to fan out the ways + internal bus), so keep them out of
-  // the generic list -- drawing one there would POST a bare RMU with no
-  // assembly. A class only counts as an RMU once it has a fan-out template
-  // (i.e. appears in the options), so an RMU class with no seeded template still
-  // shows in the generic list rather than vanishing entirely.
-  const rmuClassCodes = new Set((rmuOptions ?? []).map((o) => o.rmu_feature_class))
-  // Packaged-substation classes place through the dedicated "Packaged substation"
-  // section (which POSTs /packaged-substations to fan out the components + wiring),
-  // so keep them out of the generic list -- drawing one there would POST a bare unit
-  // with no assembly. Same data-driven gate as RMUs: a class only counts once it has
-  // a fan-out template (i.e. appears in the options), so one with no seeded template
-  // still shows in the generic list rather than vanishing entirely.
-  const packagedClassCodes = new Set((packagedOptions ?? []).map((o) => o.packaged_feature_class))
   // Cable-duct classes fan out DUCT_WAY children (Phase 44 Slice 4), so they're
-  // placed through the dedicated "Cable duct" section below (POSTs /ducts) and
-  // kept out of the generic list -- drawing one there would create a bare duct
-  // with no ways. Same data-driven gate as RMUs: a duct class only counts once it
-  // has a `contains DUCT_WAY` containment class (i.e. appears in the options).
+  // placed through the dedicated "Cable duct" section of NewAssemblyMenu (POSTs
+  // /ducts) and kept out of the generic list -- drawing one there would create a
+  // bare duct with no ways. Data-driven gate: a duct class only counts once it has
+  // a `contains DUCT_WAY` containment class (i.e. appears in the options).
+  // (RMU and PACKAGED_SUBSTATION are NOT excluded: they are ordinary kit anchors
+  // now the fan-out engines were consolidated, so a bare place is valid -- the kit
+  // affordance lives in NewAssemblyMenu, exactly like POLE / DIST_XFMR.)
   const ductClassCodes = new Set((ductOptions ?? []).map((o) => o.duct_feature_class))
   const drawableClasses = (featureClasses?.feature_classes ?? []).filter(
-    (fc) =>
-      isDrawGeometryType(fc.geometry_type) &&
-      !rmuClassCodes.has(fc.code) &&
-      !packagedClassCodes.has(fc.code) &&
-      !ductClassCodes.has(fc.code),
+    (fc) => isDrawGeometryType(fc.geometry_type) && !ductClassCodes.has(fc.code),
   )
   // Search filter -- match on class name or code, so a code-savvy user can type
   // "MV_" and a plain user can type "busbar". Narrows what's grouped/shown; the

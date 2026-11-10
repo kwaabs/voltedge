@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQueries, useQuery } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
 
@@ -62,5 +62,17 @@ export function useFeature(featureClassCode: string | undefined, featureId: stri
     queryKey: ["feature", featureClassCode, featureId],
     queryFn: () => apiFetch<FeatureRecord>(`/features/${featureClassCode}/${featureId}`),
     enabled: Boolean(featureClassCode && featureId),
+  })
+}
+
+/** Fetch several features at once, results index-aligned to `refs`. Shares the
+ * ["feature", class, id] cache with useFeature, so a feature already loaded singly
+ * is reused. */
+export function useFeatures(refs: { featureClassCode: string; featureId: string }[]) {
+  return useQueries({
+    queries: refs.map((r) => ({
+      queryKey: ["feature", r.featureClassCode, r.featureId],
+      queryFn: () => apiFetch<FeatureRecord>(`/features/${r.featureClassCode}/${r.featureId}`),
+    })),
   })
 }

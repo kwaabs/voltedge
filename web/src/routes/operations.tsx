@@ -5,6 +5,7 @@ import { LogOperationDialog, OP_SOURCES, OP_TYPES } from "@/components/map/log-o
 import { DeviceDetailPanel } from "@/components/layout/device-detail-panel"
 import { OperationsTabs } from "@/components/layout/operations-tabs"
 import { inputClass } from "@/components/map/field-utils"
+import { OpBadge, OpLegend } from "@/components/map/op-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePermission } from "@/hooks/use-auth"
@@ -22,26 +23,6 @@ function formatWhen(iso: string): string {
 
 function humanize(s: string): string {
   return s.replace(/_/g, " ")
-}
-
-/** A small coloured chip for an op_type, so a trip/lockout reads at a glance. */
-const OP_BADGE: Record<string, string> = {
-  trip: "bg-destructive/10 text-destructive",
-  lockout: "bg-destructive/15 text-destructive",
-  reclose: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  open: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  close: "bg-green-600/10 text-green-700 dark:text-green-400",
-  earth: "bg-muted text-muted-foreground",
-  alarm: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  other: "bg-muted text-muted-foreground",
-}
-
-function OpBadge({ type }: { type: string }) {
-  return (
-    <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium capitalize", OP_BADGE[type] ?? "bg-muted text-muted-foreground")}>
-      {humanize(type)}
-    </span>
-  )
 }
 
 /** The device identity cell, clickable to open the device's detail panel on the
@@ -200,6 +181,7 @@ export function OperationsPage() {
           </CardHeader>
 
           <CardContent>
+            {view !== "abnormal" && <OpLegend className="mb-3 border-b pb-3" />}
             {view === "timeline" ? (
               ops.isPending ? (
                 <div className="text-muted-foreground flex items-center gap-2 text-sm">

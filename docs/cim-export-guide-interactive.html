@@ -284,7 +284,7 @@ pre.code{overflow-x:auto;max-width:100%}
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>CIM Export</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · What</a><a href="#c2">2 · Model</a><a href="#c3">3 · Mapping</a><a href="#c4">4 · Topology</a><a href="#c5">5 · Export</a><a href="#c6">6 · Gaps</a><a href="#c7">7 · Standard</a><a href="#c8">8 · Consume</a><a href="#c9">9 · Validate</a><a href="#c10">10 · Cookbook</a>
+      <a href="#c1">1 · What</a><a href="#c2">2 · Model</a><a href="#c3">3 · Mapping</a><a href="#c4">4 · Topology</a><a href="#c5">5 · Export</a><a href="#c6">6 · Gaps</a><a href="#c7">7 · Standard</a><a href="#c8">8 · Consume</a><a href="#c9">9 · Validate</a><a href="#c10">10 · Cookbook</a><a href="#c11">11 · Incremental</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -299,7 +299,7 @@ pre.code{overflow-x:auto;max-width:100%}
 </header>
 
 <div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
-<p><b>Planners and network engineers</b> who need the model in a power-flow or planning tool; <b>GIS and asset administrators</b> who maintain the mapping; and <b>integrators</b> who receive the file. The full manual (<code>cim-export-guide.md</code>) holds every table, SQL recipe and appendix; this edition keeps all ten chapters and makes each idea something you can poke.</p>
+<p><b>Planners and network engineers</b> who need the model in a power-flow or planning tool; <b>GIS and asset administrators</b> who maintain the mapping; and <b>integrators</b> who receive the file. The full manual (<code>cim-export-guide.md</code>) holds every table, SQL recipe and appendix; this edition keeps all eleven chapters and makes each idea something you can poke.</p>
 <p>Three honest limits up front, because they decide whether the file suits your tool: units are <b>SI base units</b> (volts, VA, metres, ohms); there is <b>no load, set-point or switch-position data</b> beyond <code>normalOpen</code>; and the file is a <b>single CDPSM-style document</b>, not a CGMES EQ/TP/SSH/SV split. Chapter 6 lists eighteen such limits with workarounds, Chapter 8 shows how to bridge them.</p></div>
 
 <h3 style="margin-top:28px">The cast &amp; the running example</h3>
@@ -614,7 +614,7 @@ pre.code{overflow-x:auto;max-width:100%}
   <div class="tip">Exit codes matter in a pipeline: errors (<code>E-…</code>) fail the run, warnings (<code>W-…</code>) do not unless <code>--strict</code>. <code>W-OPEN</code> on a fresh export is normal — every feeder end and every unconnected switch terminal is a legitimate single-terminal node. Compare it with your own list of intentional ends.</div>
 
   <h3>9.1 Diffing two exports</h3>
-  <p>Because equipment and terminal ids are stable (Chapter 2), a diff between yesterday’s and today’s export shows real change. Strip the volatile header (<code>Model.created</code>, the <code>FullModel</code> id), then <code>diff</code>. Node ids will differ wherever connectivity changed — expected. The encoder is deterministic: same data and same mapping give the same bytes except for that header, which the test suite asserts.</p>
+  <p>Because equipment and terminal ids are stable (Chapter 2) <b>and the <code>FullModel</code> mRID is now a content hash of the model — stable whenever the network is unchanged</b>, a diff between two exports shows real change. Only <code>Model.created</code> (the honest job timestamp) differs between two runs of identical data; strip that one line and the bytes are identical, which the test suite asserts. Node ids will differ wherever connectivity changed — expected. 💡 For a <em>machine-readable</em> delta — statements to add and remove, not a text diff — don’t hand-roll it: use a CIM <b>difference model</b> (<a href="#c11">Chapter 11</a>).</p>
   <div class="widget" id="w23">
     <div class="w-head"><span class="eyebrow">Interactive · 23</span><h4>What changed between two exports?</h4></div>
     <div class="w-bar"><label class="lab">Today’s edit</label><select id="df-e"><option value="none">nothing</option><option value="rename">rename TX-Feeder7-014</option><option value="kva">change rating to 500 kVA</option><option value="cut">remove the LV→service connection</option></select></div>
@@ -655,6 +655,79 @@ pre.code{overflow-x:auto;max-width:100%}
   <div id="qz"></div>
 </section>
 </div>
+
+<!-- ============ CH11 ============ -->
+<section class="ch" id="c11">
+  <div class="ch-head"><div class="ch-num">11</div><h2>Incremental exchange — difference models &amp; sync targets</h2><p>Send the first load whole, then send only what moved — on a schedule, with a push when it’s ready.</p></div>
+  <p>Everything so far produces a <b>full model</b> — the whole network in one file. That is right for an <em>initial</em> load into another system. But once that system holds your model, re-sending the whole thing every time is wasteful and makes “what actually changed?” the consumer’s problem. CIM’s answer is the <b>difference model</b> (<code>dm:DifferenceModel</code>): a file carrying only the changes — statements to add (<code>forwardDifferences</code>) and statements to remove (<code>reverseDifferences</code>). This chapter is how VoltEdge produces those, on a schedule, and signals the consumer. Tom (integration engineer) owns the far end; Ada (admin) sets it up here.</p>
+
+  <h3>11.1 The approach — diff two full models, don’t track changes</h3>
+  <p>VoltEdge computes a difference by <b>encoding the current full model and diffing it, at the RDF-statement level, against a stored baseline</b> (the last full model this consumer received). It does <em>not</em> watch edits and accumulate a running delta. That choice is deliberate, and it is why the determinism work behind Chapter 5 matters:</p>
+  <ul>
+    <li>The encoder is <b>reused unchanged</b> — the current model is produced exactly as a normal export, then parsed back to statements and compared.</li>
+    <li>It is <b>self-healing</b>: every run compares two <em>complete</em> models, so nothing can silently drift. A hard-deleted connection, a missed edit — all caught on the next run by construction. A change-tracking (CDC) engine would re-implement the mapping in delta form and has to get every cross-feature effect right (a rewired switch moves <code>ConnectivityNode</code>s); one bug there and the consumer’s model diverges with no signal. For a system-of-record feed, correctness-by-construction wins.</li>
+    <li>It only works because <b>object mRIDs are stable</b> (Chapter 2) and <b>output is deterministic</b> (the content-hashed model id + ordered elements, Chapter 5). A changed transformer rating becomes “remove the old <code>ratedS</code> statement, add the new one” on the <em>same</em> subject — not delete-and-recreate.</li>
+  </ul>
+
+  <h3>11.2 Sync targets — the named consumers</h3>
+  <p>A <b>sync target</b> is one external consumer with its own baseline. 🔒 <span class="perm">metadata:write</span> to configure.</p>
+  <ol>
+    <li><b>Admin → CIM sync targets → New target.</b> Give it a name (the consumer), pick its <b>feature classes</b>, optionally a <b>bounding box</b> and <b>territories</b> (none = whole scope), a <b>CIM profile</b> (Chapter 3; blank = default) and a <b>target SRID</b> (Chapter 5’s reprojection, optional).</li>
+    <li>⚠️ A sync target always exports <b>published-only</b> — private, never-published drafts are excluded, so the consumer gets a stable, authoritative model rather than anyone’s in-progress edits. This is independent of your personal draft visibility.</li>
+    <li><b>Run</b> it. The run is an ordinary export job — same queue, same jobs panel, same download — only the artifact differs.</li>
+  </ol>
+
+  <h3>11.3 The baseline — full on the first run, a difference after</h3>
+  <p>Each target remembers the <b>baseline</b>: the object key + identity of the full model it last received, stored in a <em>separate</em> object-store bucket (<code>voltedge-cim-baselines</code>) so the export retention sweep (Chapter 5) never deletes it.</p>
+  <ul>
+    <li><b>First run (no baseline):</b> the artifact is a <b>full model</b> — the initial load. The baseline is then recorded.</li>
+    <li><b>Every run after:</b> VoltEdge builds the current full model, fetches the baseline, diffs them, and the artifact is a <b>difference model</b>. On success — <em>only after the artifact is confirmed delivered</em> — the baseline advances. If delivery fails, the old baseline stays, so the next run re-emits the same delta (safe to re-apply) rather than skipping it.</li>
+    <li>Editing a target’s <b>scope</b> clears its baseline: a diff against a model built over a different scope would be nonsense, so the next run is a fresh full load.</li>
+  </ul>
+
+  <h3>11.4 Reading a difference model</h3>
+  <p>A difference model is small — it quotes only what moved. Say Dana re-rates TX-Feeder7-014 from 315 kVA to 500 kVA and Ada runs the target. The artifact:</p>
+  <pre class="code" style="font-size:12.5px">&lt;rdf:RDF xmlns:rdf="…" xmlns:cim="…" xmlns:md="…"
+         xmlns:dm="http://iec.ch/TC57/61970-552/DifferenceModel/1#"&gt;
+  &lt;dm:DifferenceModel rdf:about="urn:uuid:…"&gt;        &lt;!-- id = hash of the delta --&gt;
+    &lt;md:Model.created&gt;2026-11-06T…Z&lt;/md:Model.created&gt;
+    &lt;dm:reverseDifferences rdf:parseType="Statements"&gt;
+      &lt;rdf:Description rdf:about="#_&lt;ptend-mRID&gt;"&gt;
+        &lt;cim:PowerTransformerEnd.ratedS&gt;315000&lt;/cim:PowerTransformerEnd.ratedS&gt;
+      &lt;/rdf:Description&gt;
+    &lt;/dm:reverseDifferences&gt;
+    &lt;dm:forwardDifferences rdf:parseType="Statements"&gt;
+      &lt;rdf:Description rdf:about="#_&lt;ptend-mRID&gt;"&gt;
+        &lt;cim:PowerTransformerEnd.ratedS&gt;500000&lt;/cim:PowerTransformerEnd.ratedS&gt;
+      &lt;/rdf:Description&gt;
+    &lt;/dm:forwardDifferences&gt;
+  &lt;/dm:DifferenceModel&gt;
+&lt;/rdf:RDF&gt;</pre>
+  <ul>
+    <li>Statements are grouped by subject under <code>rdf:Description rdf:about="#_&lt;mRID&gt;"</code>.</li>
+    <li>The <b>same mRID</b> carries the old and new value — that is the stable-identity payoff.</li>
+    <li>A <b>new</b> object appears only under <code>forwardDifferences</code> (all its statements), a <b>deleted</b> one only under <code>reverseDifferences</code>. An <b>unchanged</b> object — and the whole scaffold, which has content-derived ids — appears in neither.</li>
+    <li>The <code>DifferenceModel</code>’s own <code>rdf:about</code> is a hash of the delta, so the same change produces the same difference identity.</li>
+  </ul>
+  <div class="tip"><b>▶ To consume it:</b> apply <code>reverseDifferences</code> (remove those statements), then <code>forwardDifferences</code> (add these), matching objects by mRID. Run two unchanged exports and both difference sets are <b>empty</b> — nothing to apply, and proof the pipeline is sound. (Chapter 9’s diff widget shows the same idea on the raw file.)</div>
+
+  <h3>11.5 Scheduling — run it without clicking</h3>
+  <p>A target’s <b>Auto-run</b> can be <code>Hourly</code> / <code>Daily</code> / <code>Weekly</code> (or <code>Manual</code>). The export worker’s maintenance loop enqueues a run when a scheduled target’s last <em>successful</em> run is older than its cadence and nothing is already in flight (so a slow run never stacks). A scheduled run is attributed to the target’s creator. Tune the check interval with <code>EXPORT_SYNC_SCHEDULE_INTERVAL</code> (default 5 min; <code>0</code> disables scheduling).</p>
+  <div class="caution">💡 Pick the cadence the consumer actually needs. There is deliberately <b>no “skip when nothing changed” optimisation</b>: a safe skip would need a complete “did anything in scope change?” signal, and none exists — a <em>revoked</em> connection is a hard delete with no timestamp, yet it changes the topology, so a naive watermark would silently drift the consumer. The self-healing full diff is cheap for the bounded scopes a target covers, so <b>cadence is the cost lever</b>, not a gate.</div>
+
+  <h3>11.6 Push delivery — the <code>export.ready</code> webhook</h3>
+  <p>Rather than have the consumer poll, VoltEdge can <b>push a notification</b> when a sync export finishes, over the outbound-webhooks pipeline (see the Integrations Guide). Subscribe an endpoint to the <code>export.ready</code> event type (<b>Admin → Webhooks</b>), and each completed sync export POSTs a signed envelope whose <code>data</code> carries the job id, the target, the kind (<code>full</code>/<code>difference</code>), the add/remove counts, the byte size, and a <b>time-limited presigned <code>download_url</code></b> the consumer fetches with no VoltEdge session. ⚠️ That URL expires (<code>EXPORT_URL_TTL</code>); the <code>job_id</code> is the stable reference, so a consumer should pull promptly.</p>
+
+  <h3>11.7 What this does and doesn’t change</h3>
+  <div class="tbl"><table>
+    <tr><td><b>Engine</b></td><td>the <em>same</em> encoder + mapping (Chapters 3–4); a difference is a post-pass</td></tr>
+    <tr><td><b>Profile / scope</b></td><td>a target’s own (published-only); same <code>cim_profile</code> / <code>target_srid</code></td></tr>
+    <tr><td><b>Identity</b></td><td>object mRIDs and the model-id hash from Chapter 5 are the whole basis</td></tr>
+    <tr><td><b>Delivery</b></td><td>file (download) + optional webhook push; same jobs / queue / retention</td></tr>
+    <tr><td><b>Not built</b></td><td>a CDC / running-delta engine; a change-skip gate (see above)</td></tr>
+  </table></div>
+  <p class="muted" style="font-size:13.5px">API surface: <code>GET/POST /export/sync-targets</code>, <code>GET/PATCH/DELETE /export/sync-targets/{id}</code>, <code>POST /export/sync-targets/{id}/run</code> (<span class="perm">metadata:read</span> / <span class="perm">metadata:write</span>; a Run rides the export gate). The full manual’s Chapter 11 and Appendix B hold the complete reference.</p>
+</section>
 
 <footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · CIM Export — interactive edition. Every widget runs the real Oakwood fixture through a JavaScript port of the encoder held entirely in your browser; nothing here talks to a server. The full manual (<code>cim-export-guide.md</code>) has every appendix, the complete sample file and the SQL recipes.</p></footer>
 

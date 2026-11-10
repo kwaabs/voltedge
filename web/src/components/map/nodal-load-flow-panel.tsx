@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Search, X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import type { FeatureRecord } from "@/hooks/use-feature"
@@ -473,21 +474,27 @@ export function NodalLoadFlowPanel() {
                   return (
                     <tr
                       key={key}
-                      onClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
+                      onClick={() => useSelectionStore.getState().locate(node.feature_class, node.feature_id, { focus: true })}
+                      onDoubleClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
                       className={cn(
-                        "hover:bg-accent cursor-pointer border-b last:border-b-0",
+                        "hover:bg-accent cursor-pointer border-b last:border-b-0 select-none",
                         overloaded && "bg-destructive/10 text-destructive hover:bg-destructive/15",
                       )}
                       title={overloaded ? "Exceeds this element's own rating" : undefined}
                     >
                       <td className="px-3 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span>{classNameFor(node.feature_class)}</span>
-                          {(node.role === "slack" || node.role === "pv") && (
-                            <span className="text-muted-foreground rounded border px-1 text-[10px] uppercase">{node.role}</span>
-                          )}
+                        <div className="flex items-start gap-1">
+                          <FeatureInfoButton featureClass={node.feature_class} featureId={node.feature_id} className="-mt-0.5" />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span>{classNameFor(node.feature_class)}</span>
+                              {(node.role === "slack" || node.role === "pv") && (
+                                <span className="text-muted-foreground rounded border px-1 text-[10px] uppercase">{node.role}</span>
+                              )}
+                            </div>
+                            <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
+                          </div>
                         </div>
-                        <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
                       </td>
                       <td className="px-3 py-1.5">{details[key]?.name || "—"}</td>
                       <td className="text-muted-foreground px-3 py-1.5">{details[key]?.circuit || "—"}</td>
@@ -521,13 +528,19 @@ export function NodalLoadFlowPanel() {
                   result.barriers.map((b) => (
                     <tr
                       key={`${b.feature_class}:${b.feature_id}`}
-                      onClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
-                      className="bg-muted/50 text-muted-foreground hover:bg-muted cursor-pointer border-b last:border-b-0"
+                      onClick={() => useSelectionStore.getState().locate(b.feature_class, b.feature_id, { focus: true })}
+                      onDoubleClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
+                      className="bg-muted/50 text-muted-foreground hover:bg-muted select-none cursor-pointer border-b last:border-b-0"
                       title="Nodal load flow stopped here (open device)"
                     >
                       <td className="px-3 py-1.5">
-                        <div>{classNameFor(b.feature_class)}</div>
-                        <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
+                        <div className="flex items-start gap-1">
+                          <FeatureInfoButton featureClass={b.feature_class} featureId={b.feature_id} className="-mt-0.5" />
+                          <div className="min-w-0">
+                            <div>{classNameFor(b.feature_class)}</div>
+                            <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-3 py-1.5">{details[`${b.feature_class}:${b.feature_id}`]?.name || "—"}</td>
                       <td className="px-3 py-1.5" colSpan={5}>

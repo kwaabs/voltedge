@@ -201,23 +201,37 @@ func omsTools() []Tool {
 		{
 			Name: "oms_reliability_indices",
 			Description: "Compute the IEEE 1366 reliability indices (SAIDI/SAIFI/CAIDI and " +
-				"estimated ENS) over the confirmed interruption history -- the same read the " +
-				"REST GET /indices route returns (the reliability report). All arguments are " +
+				"estimated ENS for sustained outages, plus MAIFI for momentary interruptions) " +
+				"over the confirmed interruption and device-operation history -- the same read " +
+				"the REST GET /indices route returns (the reliability report). All arguments are " +
 				"optional: from/to (RFC3339) narrow the analysis window (default the trailing " +
 				"12 months), avg_load_kw overrides the per-customer demand assumption behind " +
 				"the estimated ENS, and circuit_id scopes the whole report to one circuit's " +
-				"service points (per-feeder indices). The report also includes by_fault_cause: " +
-				"a decomposition of SAIDI/SAIFI into per-fault-cause contributions (equipment " +
-				"failure, lightning, vegetation, ...) whose buckets sum back to the system " +
-				"figures -- the fault-caused reliability rollup; absent when the faults module " +
-				"is not installed (fault_breakdown_available=false).",
+				"service points (per-feeder indices; MAIFI is whole-system only). MAIFI comes " +
+				"from the device-operation log: sustained_threshold_min sets the momentary/" +
+				"sustained cutoff (default 5), and momentary_mode ('protective' default, or " +
+				"'pure_duration') selects whether only auto-protection ops or any brief " +
+				"interrupt->restore count; maifi_applicable is false (with maifi_note) when the " +
+				"operation log is absent or the report is circuit-scoped. The report also " +
+				"includes by_fault_cause: a decomposition of SAIDI/SAIFI into per-fault-cause " +
+				"contributions (equipment failure, lightning, vegetation, ...) whose buckets sum " +
+				"back to the system figures -- the fault-caused reliability rollup; absent when " +
+				"the faults module is not installed (fault_breakdown_available=false). It also " +
+				"returns the WORST-SERVED indices the averages hide: CEMI (customers with more than " +
+				"cemi_threshold sustained interruptions / N; default threshold 4), CELID (customers " +
+				"whose total interruption time exceeds celid_hours / N; default 24), and worst_served " +
+				"-- the ranked service points (most interruptions, then most minutes).",
 			InputSchema: json.RawMessage(`{
 				"type":"object",
 				"properties":{
 					"from":{"type":"string","description":"Window start (RFC3339 timestamp); defaults to 12 months before 'to'."},
 					"to":{"type":"string","description":"Window end (RFC3339 timestamp); defaults to now."},
 					"avg_load_kw":{"type":"number","description":"Assumed average per-customer demand (kW) behind the estimated ENS; defaults to 1.0."},
-					"circuit_id":{"type":"string","description":"Scope the report to one circuit's service points (uuid); omit for a whole-system report."}
+					"circuit_id":{"type":"string","description":"Scope the report to one circuit's service points (uuid); omit for a whole-system report. MAIFI is whole-system only."},
+					"sustained_threshold_min":{"type":"number","description":"Momentary/sustained cutoff for MAIFI, in minutes; defaults to 5 (IEEE 1366)."},
+					"momentary_mode":{"type":"string","enum":["protective","pure_duration"],"description":"MAIFI momentary definition: 'protective' (default; requires a trip/reclose) or 'pure_duration' (any interrupt->restore within the threshold)."},
+					"cemi_threshold":{"type":"integer","description":"CEMI count threshold n: customers with MORE THAN n sustained interruptions. Default 4."},
+					"celid_hours":{"type":"number","description":"CELID total-duration threshold in hours: customers whose total interruption time exceeds this. Default 24."}
 				},
 				"additionalProperties":false
 			}`),
@@ -824,6 +838,27 @@ func omsTools() []Tool {
 			RequiredPerm: auth.PermOMSWrite,
 			Handler:      toolOMSSetIncidentETR,
 		},
+		{
+			Name: "oms_suggest_incident_etr",
+			Description: "Suggest a data-driven estimated time of restoration for an incident (the same read the " +
+				"REST GET /oms/incidents/{id}/etr/suggest route returns). Computes the median restoration time of " +
+				"similar past outages -- cause-specific where there is enough history, else system-wide -- and " +
+				"returns suggested_etr plus the evidence (basis, sample_size, median_duration_minutes, " +
+				"longer_than_typical). A planned incident suggests its booked end. applicable is false (with a note) " +
+				"when the incident is closed or there is too little history. This is READ-ONLY: it proposes a figure, " +
+				"it does not set it -- use oms_set_incident_etr to apply one.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The incident (uuid) to suggest an ETR for."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			Annotations:  &Annotations{Title: "Suggest incident ETR", ReadOnlyHint: &trueHint, DestructiveHint: &falseHint, IdempotentHint: &trueHint, OpenWorldHint: &falseHint},
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSSuggestIncidentETR,
+		},
 	}
 }
 
@@ -963,10 +998,14 @@ func toolOMSGetSwitchingOrder(ctx context.Context, db bun.IDB, args json.RawMess
 
 func toolOMSReliabilityIndices(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {
-		From      *time.Time `json:"from"`
-		To        *time.Time `json:"to"`
-		AvgLoadKW *float64   `json:"avg_load_kw"`
-		CircuitID *string    `json:"circuit_id"`
+		From                  *time.Time `json:"from"`
+		To                    *time.Time `json:"to"`
+		AvgLoadKW             *float64   `json:"avg_load_kw"`
+		CircuitID             *string    `json:"circuit_id"`
+		SustainedThresholdMin *float64   `json:"sustained_threshold_min"`
+		MomentaryMode         *string    `json:"momentary_mode"`
+		CEMIThreshold         *int       `json:"cemi_threshold"`
+		CELIDHours            *float64   `json:"celid_hours"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
@@ -974,12 +1013,28 @@ func toolOMSReliabilityIndices(ctx context.Context, db bun.IDB, args json.RawMes
 	// Params carry no json tags; map the parsed request onto them explicitly.
 	// The engine fills defaults for an omitted window and load figure, so all
 	// fields are optional here.
-	return oms.ReliabilityIndicesReport(ctx, db, oms.IndicesParams{
-		From:      in.From,
-		To:        in.To,
-		AvgLoadKW: in.AvgLoadKW,
-		CircuitID: in.CircuitID,
-	})
+	p := oms.IndicesParams{
+		From:                  in.From,
+		To:                    in.To,
+		AvgLoadKW:             in.AvgLoadKW,
+		CircuitID:             in.CircuitID,
+		SustainedThresholdMin: in.SustainedThresholdMin,
+		CEMIThreshold:         in.CEMIThreshold,
+		CELIDHours:            in.CELIDHours,
+	}
+	switch {
+	case in.MomentaryMode == nil:
+		// leave default (protective)
+	case *in.MomentaryMode == "pure_duration":
+		b := true
+		p.MomentaryPureDuration = &b
+	case *in.MomentaryMode == "protective":
+		b := false
+		p.MomentaryPureDuration = &b
+	default:
+		return nil, fmt.Errorf("invalid momentary_mode %q: want 'protective' or 'pure_duration'", *in.MomentaryMode)
+	}
+	return oms.ReliabilityIndicesReport(ctx, db, p)
 }
 
 func toolOMSListOutageCauses(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
@@ -1125,6 +1180,19 @@ func toolOMSSetIncidentETR(ctx context.Context, db bun.IDB, args json.RawMessage
 		return nil, err
 	}
 	return oms.SetIncidentETR(ctx, sdb, in.ID, in.ETR)
+}
+
+func toolOMSSuggestIncidentETR(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	return oms.SuggestETR(ctx, db, in.ID)
 }
 
 // --- write handlers ---
@@ -1410,7 +1478,9 @@ func toolOMSSetSwitchingStepExecuted(ctx context.Context, db bun.IDB, args json.
 	if err != nil {
 		return nil, err
 	}
-	return oms.SetStepExecuted(ctx, sdb, in.StepID, executed)
+	// force=false: an agent never bypasses the sequence / pre-state interlocks --
+	// overriding a blocked switching step is a human operator's judgement call.
+	return oms.SetStepExecuted(ctx, sdb, in.StepID, executed, false)
 }
 
 func toolOMSCancelSwitchingOrder(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

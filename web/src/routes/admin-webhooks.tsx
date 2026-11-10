@@ -768,8 +768,9 @@ function OutboundFields({
         />
         <p className="text-muted-foreground text-xs">
           One event type per line (e.g. <span className="font-mono">oms.incident.raised</span>,{" "}
-          <span className="font-mono">wam.workorder.completed</span>, <span className="font-mono">feature.created</span>
-          ). Leave blank to receive <span className="font-medium">every</span> event.
+          <span className="font-mono">wam.workorder.completed</span>, <span className="font-mono">feature.created</span>,{" "}
+          <span className="font-mono">export.ready</span> for CIM sync exports). Leave blank to receive{" "}
+          <span className="font-medium">every</span> event.
         </p>
       </div>
 

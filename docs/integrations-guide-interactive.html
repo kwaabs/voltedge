@@ -160,7 +160,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>Integrations</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · Overview</a><a href="#c2">2 · Catalog</a><a href="#c3">3 · Links</a><a href="#c4">4 · References</a><a href="#c5">5 · Live fetch</a><a href="#c6">6 · Webhooks</a><a href="#c6b">6¾ · Protection</a><a href="#c7">7 · Mapping</a><a href="#c8">8 · Correlate</a><a href="#c9">9 · Pull &amp; out</a><a href="#c10">10 · Agent/MCP</a><a href="#c11">11 · Security</a><a href="#c12">12 · Check</a>
+      <a href="#c1">1 · Overview</a><a href="#c2">2 · Catalog</a><a href="#c3">3 · Links</a><a href="#c4">4 · References</a><a href="#c5">5 · Live fetch</a><a href="#c6">6 · Webhooks</a><a href="#c6b">6¾ · Protection</a><a href="#c6c">6⅘ · Field ops</a><a href="#c7">7 · Mapping</a><a href="#c8">8 · Correlate</a><a href="#c9">9 · Pull &amp; out</a><a href="#c10">10 · Agent/MCP</a><a href="#c11">11 · Security</a><a href="#c12">12 · Check</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -344,8 +344,9 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
         <tr><td><code>reading</code></td><td>A reading modelled as a feature row</td></tr>
         <tr><td><code>work</code></td><td>The WAM engine — VoltEdge-<b>owned</b> work orders</td></tr>
         <tr><td><code>fault</code></td><td>The Faults engine</td></tr>
-        <tr><td><code>operation</code></td><td>The device-operations log</td></tr>
-        <tr><td><code>outage</code></td><td>The OMS — <b>raises VoltEdge's own incident</b> from a SCADA/AMI signal</td></tr>
+        <tr><td><code>operation</code></td><td>The device-operations log — an alarm-worthy op also raises an operator alarm (ch. 6⅘)</td></tr>
+        <tr><td><code>outage</code></td><td>The OMS — <b>raises VoltEdge's own incident</b> from a SCADA/AMI signal (ch. 6⅘)</td></tr>
+        <tr><td><code>alarm</code></td><td>The operator <b>alarm annunciator</b> — raise/clear a SCADA alarm point that isn't an operation (ch. 6⅘)</td></tr>
         <tr><td><code>protection</code></td><td>The protection-settings register — <b>relay / overcurrent settings</b> from an external relay DB (ch. 6¾)</td></tr>
         <tr><td><code>incident</code></td><td>The OMS — read-only <b>mirror</b> of an external incident</td></tr>
         <tr><td><code>workorder</code></td><td>The WAM — read-only <b>mirror</b> of an external work order</td></tr>
@@ -397,6 +398,61 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   </div>
   <div class="en-b"><span class="tag en">Provenance</span><p>Every register row records the <b>source</b> of its last write. An <b>ingested</b> write stamps <code>source =</code> the endpoint's System code (falling back to the endpoint id); a <b>register-UI</b> edit stamps <code>source = "manual"</code>. Because an upsert is last-writer-wins, <code>source</code> reflects <em>who touched it last</em> — correct an ingested setting by hand and it flips back to <code>manual</code>. The register screen badges any non-<code>manual</code> source, so a feed-driven row is visible at a glance.</p></div>
   <div class="tip"><b>tip</b> On <b>Admin → Webhooks → New</b>, pick <b>Target: Protection settings</b>, a service user with <span class="perm">features:write</span>, and — if changes name devices by <code>device_external_id</code> — the <b>External system code</b> (the optional input now shown for the device-resolving targets <code>operation</code>, <code>outage</code> and <code>protection</code>). A system that already holds VoltEdge's own ids can skip the webhook and write the register directly: <code>PUT /protection/settings/{class}/{id}</code> (<span class="perm">features:write</span>). See the <b>Switching &amp; Protection</b> guide for the register itself.</div>
+</section>
+
+<!-- 6⅘ -->
+<section class="ch" id="c6c">
+  <div class="ch-head"><div class="ch-num">6⅘</div><h2>Operations, outages &amp; alarms from the field</h2><p>Three targets turn a SCADA / AMI / CIS signal into an operational record — so the control room sees reality from telemetry, not a phone call.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span><p>These three share the device/service-point correlation of chapter 8: a thing is named by VoltEdge's own ids <b>or</b> by an external id resolved through <code>external_ref</code> + the endpoint's <b>System code</b>. All take <code>op:"upsert"</code> only (a field signal is never webhook-deleted) — except <code>alarm</code>, which adds <code>op:"clear"</code> for return-to-normal.</p></div>
+
+  <h4 style="margin:14px 0 4px"><code>operation</code> — the device-operation log (and an alarm)</h4>
+  <div class="twocol">
+    <div>
+      <p style="font-size:14px">A device <b>operated</b>: a trip, lockout, reclose, open, close, earth. Recorded as one row in the append-only operation log (the history behind MAIFI and the operations board) through the same path a crew log takes. <code>external_id</code> is the event's <b>dedup key</b> — a re-delivered SCADA batch records nothing the second time.</p>
+      <div class="en-b" style="margin-top:10px"><span class="tag en">Also raises an alarm</span><p>An alarm-worthy op feeds the annunciator for <em>every</em> source, in the op's own transaction: <code>lockout</code> (high), <code>earth</code> (safety), <code>alarm</code> (medium) or <code>trip</code> (low) raises an operator alarm that stays until acknowledged. Routine <code>reclose</code>/<code>open</code>/<code>close</code> raise nothing.</p></div>
+    </div>
+    <div>
+      <div class="jsonbox">{
+  <span class="k">"op"</span>: <span class="s">"upsert"</span>,
+  <span class="k">"external_id"</span>: <span class="s">"SIG-88123"</span>,  <span class="p">// event dedup key</span>
+  <span class="k">"op_type"</span>: <span class="s">"lockout"</span>,
+  <span class="k">"source"</span>: <span class="s">"scada"</span>,
+  <span class="k">"device_external_id"</span>: <span class="s">"FDR7-REC-03"</span>,
+  <span class="k">"occurred_at"</span>: <span class="s">"2026-11-06T14:03:00Z"</span>,
+  <span class="k">"cause"</span>: <span class="s">"overcurrent"</span>
+}</div>
+    </div>
+  </div>
+
+  <h4 style="margin:16px 0 4px"><code>outage</code> — a customer outage from the field</h4>
+  <p style="font-size:14px">The OMS counterpart to call-driven prediction. One target, three <code>kind</code>s:</p>
+  <div class="tbl"><table>
+    <tr><th><code>kind</code></th><th>Does</th><th>Result</th></tr>
+    <tr><td><code>device_trip</code></td><td><b>Raises (or returns the open) incident</b> blamed on the device, created <b>confirmed</b> with its downstream cone <b>frozen as interruptions</b> (the SAIDI clock starts). Idempotent per open-incident-per-device.</td><td>an <b>incident</b></td></tr>
+    <tr><td><code>last_gasp</code></td><td>A meter's dying power-down frame → a <b>machine trouble call</b> (<code>caller_ref = AMI:last-gasp</code>) for the dark service point. Deduped on an open AMI call per SP.</td><td>a <b>trouble call</b></td></tr>
+    <tr><td><code>customer_report</code></td><td>An IVR/CIS outage report → a <b>trouble call</b> carrying the premise id + callback number (so the restoration callback queue can reach them). Idempotent on <code>caller_ref</code>.</td><td>a <b>trouble call</b></td></tr>
+  </table></div>
+  <div class="tip" style="margin-top:10px"><b>tip</b> The distinction that matters: <code>device_trip</code> <b>raises an incident directly</b>; <code>last_gasp</code>/<code>customer_report</code> log <b>calls</b> that <code>POST /incidents/predict</code> later clusters. An incident enters the reliability indices only when <b>confirmed</b> — which <code>device_trip</code> is, immediately.</div>
+
+  <h4 style="margin:16px 0 4px"><code>alarm</code> — an alarm point straight to the annunciator</h4>
+  <div class="twocol">
+    <div>
+      <p style="font-size:14px">Not every SCADA alarm is a device operation: a measurement <b>limit violation</b>, a <b>comms failure</b>, a station <b>status alarm</b>. The <code>alarm</code> target raises these directly onto the operator annunciator. Each point is keyed by <code>external_id</code> <b>per system</b>, so a re-raise updates one row and the sender clears it with <code>op:"clear"</code> (idempotent). <code>severity</code> is <code>critical</code>/<code>high</code>/<code>medium</code>/<code>low</code> (default medium); the device is <b>optional</b> — a comms/system alarm need name none.</p>
+    </div>
+    <div>
+      <div class="jsonbox">{
+  <span class="k">"op"</span>: <span class="s">"raise"</span>,   <span class="p">// or "clear"</span>
+  <span class="k">"external_id"</span>: <span class="s">"LIMIT-FDR7-V-01"</span>,
+  <span class="k">"severity"</span>: <span class="s">"high"</span>,
+  <span class="k">"category"</span>: <span class="s">"voltage"</span>,
+  <span class="k">"message"</span>: <span class="s">"Feeder 7 undervoltage 0.91 pu"</span>,
+  <span class="k">"device_external_id"</span>: <span class="s">"FDR7-CB7"</span>
+}</div>
+    </div>
+  </div>
+  <div class="en-b" style="margin-top:10px"><span class="tag en">Operation vs alarm</span><p>Post a trip/lockout to <code>operation</code> (it logs the op <em>and</em> raises an alarm); post a non-operation condition to <code>alarm</code>. The annunciator's own off-normal-configuration alarms are raised internally and need no feed.</p></div>
+
+  <div class="tip" style="margin-top:14px"><b>tip</b> A vendor that posts its own shape is bridged with the <b>mapping spec</b> (chapter 7). Mapping a SCADA <code>state</code> through an exhaustive table (<code>LOCKOUT → device_trip</code>) also <b>filters</b>: an unlisted state resolves <code>kind</code> to nothing, the field is omitted, and the adapter rejects a change with no <code>kind</code> — routine state chatter never raises an outage. The same payload can target <code>operation</code> or <code>alarm</code> on another endpoint by re-authoring the fields.</div>
 </section>
 
 <!-- 7 -->

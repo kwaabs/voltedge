@@ -51,6 +51,11 @@ interface SelectionState {
   // not a boolean, so two consecutive focus requests for the same
   // feature (the same row clicked twice) still both re-trigger the pan.
   focusToken: number
+  // Bumped when `locate` is called with `focus: true` -- the "zoom to this row"
+  // control on a study/trace result row: it highlights the feature (located halo)
+  // AND flies the map to it, WITHOUT opening its attribute panel, so the results
+  // stay on screen. A counter, not a boolean, so zooming the same row twice re-pans.
+  locatedFocusToken: number
   select: (featureClassCode: string, featureId: string, options?: { focus?: boolean }) => void
   // Re-trigger a pan/zoom to the currently-selected feature without changing
   // the selection -- the status-bar "zoom to feature" control, for when a panel
@@ -58,7 +63,9 @@ interface SelectionState {
   // feature whose geometry wasn't in view). No-op when nothing is selected.
   focusSelected: () => void
   // Highlight a counterpart on the map without opening its panel (see `located`).
-  locate: (featureClassCode: string, featureId: string) => void
+  // With `focus: true`, also fly the map to it (the per-row "zoom" control) -- still
+  // without opening its panel, unlike `select`.
+  locate: (featureClassCode: string, featureId: string, options?: { focus?: boolean }) => void
   // Drop the peek halo without touching `selected` -- used when the panel's tab
   // that cast it (feature-panel.tsx's Terminals/Relationships list) unmounts.
   clearLocated: () => void
@@ -78,6 +85,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
   candidates: null,
   candidatesPosition: null,
   focusToken: 0,
+  locatedFocusToken: 0,
   select: (featureClassCode, featureId, options) =>
     set((state) => ({
       selected: { featureClassCode, featureId },
@@ -89,7 +97,11 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       focusToken: options?.focus ? state.focusToken + 1 : state.focusToken,
     })),
   focusSelected: () => set((state) => (state.selected ? { focusToken: state.focusToken + 1 } : state)),
-  locate: (featureClassCode, featureId) => set({ located: { featureClassCode, featureId } }),
+  locate: (featureClassCode, featureId, options) =>
+    set((state) => ({
+      located: { featureClassCode, featureId },
+      locatedFocusToken: options?.focus ? state.locatedFocusToken + 1 : state.locatedFocusToken,
+    })),
   clearLocated: () => set({ located: null }),
   showCandidates: (candidates, position, options) =>
     set((state) => ({

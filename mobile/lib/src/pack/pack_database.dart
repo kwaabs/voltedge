@@ -602,8 +602,8 @@ class PackDatabase {
       SELECT
         CASE WHEN r.origin_id = ? THEN r.destination_class ELSE r.origin_class END AS other_class,
         CASE WHEN r.origin_id = ? THEN r.destination_id    ELSE r.origin_id    END AS other_id,
-        r.relationship_class_id AS rel_class,
-        f.name AS other_name
+        f.name  AS other_name,
+        f.attrs AS other_attrs
       FROM relationships r
       LEFT JOIN features f
         ON f.id = (CASE WHEN r.origin_id = ? THEN r.destination_id ELSE r.origin_id END)
@@ -618,11 +618,31 @@ class PackDatabase {
           featureClass: (r['other_class'] as String?) ?? '',
           featureId: (r['other_id'] as String?) ?? '',
           name: r['other_name'] as String?,
-          detail: (r['rel_class'] as String?)?.isNotEmpty == true
-              ? 'class ${r['rel_class']}'
-              : null,
+          // The neighbour's voltage / circuit is what a field crew wants on a
+          // "Carries" row ("11KV · FDR-7A"), far more than the relationship-class
+          // uuid we used to show. Null for a neighbour that carries neither.
+          detail: _voltageCircuitDetail(r['other_attrs'] as String?),
         ),
     ];
+  }
+
+  /// A short "11KV · FDR-7A"-style label from a neighbour's attributes (its
+  /// voltage_class and/or circuit_ref), for the Carries / relationships list.
+  /// Null when neither is present (e.g. a mounted lamp or a bare structure).
+  static String? _voltageCircuitDetail(String? attrsJson) {
+    if (attrsJson == null || attrsJson.isEmpty) return null;
+    try {
+      final m = jsonDecode(attrsJson);
+      if (m is! Map) return null;
+      final parts = <String>[];
+      final v = m['voltage_class'];
+      if (v is String && v.isNotEmpty) parts.add(v);
+      final c = m['circuit_ref'];
+      if (c is String && c.isNotEmpty) parts.add(c);
+      return parts.isEmpty ? null : parts.join(' · ');
+    } catch (_) {
+      return null;
+    }
   }
 
   /// The active field definitions for a class, from the packed `metadata.fields`

@@ -3,6 +3,7 @@ import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { NOMINAL_VOLTAGE_HINT, resolveNominalVoltage, useDeriveVoltageDefault } from "@/components/map/analysis-voltage"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -288,19 +289,25 @@ export function VoltageProfilePanel() {
                   return (
                     <tr
                       key={key}
-                      onClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
+                      onClick={() => useSelectionStore.getState().locate(node.feature_class, node.feature_id, { focus: true })}
+                      onDoubleClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
                       className={cn(
-                        "hover:bg-accent cursor-pointer border-b last:border-b-0",
+                        "hover:bg-accent cursor-pointer border-b last:border-b-0 select-none",
                         violated && "bg-destructive/10 text-destructive hover:bg-destructive/15",
                       )}
                       title={violated ? "Outside the acceptable voltage band" : undefined}
                     >
                       <td className="px-3 py-1.5">
-                        <div>{classNameFor(node.feature_class)}</div>
-                        <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
-                        {(node.circuit_ref || node.circuit_id) && (
-                          <div className="text-muted-foreground text-xs">{node.circuit_ref || shortId(node.circuit_id!)}</div>
-                        )}
+                        <div className="flex items-start gap-1">
+                          <FeatureInfoButton featureClass={node.feature_class} featureId={node.feature_id} className="-mt-0.5" />
+                          <div className="min-w-0">
+                            <div>{classNameFor(node.feature_class)}</div>
+                            <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
+                            {(node.circuit_ref || node.circuit_id) && (
+                              <div className="text-muted-foreground text-xs">{node.circuit_ref || shortId(node.circuit_id!)}</div>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="text-muted-foreground px-3 py-1.5 text-xs whitespace-nowrap">
                         {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
@@ -321,13 +328,19 @@ export function VoltageProfilePanel() {
                   result.barriers.map((b) => (
                     <tr
                       key={`${b.feature_class}:${b.feature_id}`}
-                      onClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
-                      className="bg-muted/50 text-muted-foreground hover:bg-muted cursor-pointer border-b last:border-b-0"
+                      onClick={() => useSelectionStore.getState().locate(b.feature_class, b.feature_id, { focus: true })}
+                      onDoubleClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
+                      className="bg-muted/50 text-muted-foreground hover:bg-muted select-none cursor-pointer border-b last:border-b-0"
                       title="Sweep stopped here (open device)"
                     >
                       <td className="px-3 py-1.5">
-                        <div>{classNameFor(b.feature_class)}</div>
-                        <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
+                        <div className="flex items-start gap-1">
+                          <FeatureInfoButton featureClass={b.feature_class} featureId={b.feature_id} className="-mt-0.5" />
+                          <div className="min-w-0">
+                            <div>{classNameFor(b.feature_class)}</div>
+                            <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-3 py-1.5" colSpan={4}>
                         Stopped here (open device)

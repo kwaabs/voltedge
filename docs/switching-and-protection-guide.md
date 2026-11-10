@@ -1,5 +1,7 @@
 # Switching & Protection
 
+_Last updated: 2026-11-06_
+
 **Written for:** a network modeller, control engineer or protection engineer representing switchgear and protection in VoltEdge — what each device *is*, how its state reconfigures the live network, and how the protection devices grade against each other.
 
 This guide is the companion to the interactive **Switching & Protection** guide (Interactive guides — `switching-and-protection-guide-interactive.html`, which runs ports of the real trace, grading and restoration rules in your browser). It leans on two other manuals rather than repeating them: **Feeders, Sections & Subnetworks** for the sectioning backbone, and **Engineering Studies** for the fault, coordination and arc-flash *math*. It is written in two layers:
@@ -58,7 +60,7 @@ This guide is the companion to the interactive **Switching & Protection** guide 
 
 **What's inside**
 
-- **Part A — Switching:** §1 the devices (+ *how to place a switch*, *split a line*, field and wiring reference, data-entry mistakes) · §2 the state axes (+ *how to open/close*, normal vs current state, OMS switching orders, *the Abnormal report*, *authoring a planned switching program*) · §3 what opening a device does — barriers, the de-energised cone, isolate (+ *how to isolate*), sections vs. zones, and what the Live view does *not* tell you · §4 ties, couplers, RMUs (+ *how-tos*, wiring directions, rejection reasons).
+- **Part A — Switching:** §1 the devices (+ *how to place a switch*, *split a line*, field and wiring reference, data-entry mistakes) · §2 the state axes (+ *how to open/close*, normal vs current state, OMS switching orders, *the Abnormal report*, *authoring a planned switching program*, **§2.1 switching-order governance** — validate / approve / issue / the execution interlocks) · §3 what opening a device does — barriers, the de-energised cone, isolate (+ *how to isolate*), sections vs. zones, and what the Live view does *not* tell you · §4 ties, couplers, RMUs (+ *how-tos*, wiring directions, rejection reasons).
 - **Part B — Protection:** §5 the devices (+ *how to wire a relay to a breaker*, CT/VT sanity) · §6 TCC curves (+ constants, interpolation, *how to set a curve*, *how to load a curve*, **§6.4 the protection-settings register**) · §7 coordination (+ *how to run a study*, a full grading study for Feeder 7, mis-coordination case studies, reclose sequences, sectionalizer counting, fuse-saving vs fuse-blowing **with the automated check**, **§7.10 sweeping the whole feeder**) · §8 fault & arc-flash (cross-reference with numbers).
 - **Part C — Together:** §9 the trip → switch → reconfigure loop (+ *how to see what's de-energised*, a worked restoration with the three views of "dead") · §10 what the model does **not** do · §11 troubleshooting · Appendix — domains, formulas, quick reference, recipes, **Corrections**.
 
@@ -208,7 +210,7 @@ The model does not *alarm* on the abnormal rows — nothing pages or notifies �
 
 **Who sets state.** Both state columns are ordinary attributes edited through the generic write path (REST `PATCH /features/...`, the map's attribute editor, or the `update_feature` MCP tool). The **OMS module** flips `device_state` programmatically as crew execute a switching order: executing an **open** step sets `OPEN`, executing a **close** step sets `CLOSED`, and un-ticking a step restores the opposite — each inside the same transaction that ticks the step, written through `crud.UpdateFeature` so it is validated and history-logged (`api/internal/oms/switching.go:317-378`).
 
-A generated switching order (`POST /oms/incidents/{id}/switching-orders`, `oms:write`) always has **five steps**: isolate — *open* the blamed device, *verify* the downstream supplies are de-energised, *earth* at the nearest upstream isolation point (`MV_SWITCH`, `MV_ISOLATOR`, `MV_RECLOSER`, `MV_BREAKER` — `switching.go:41`); restore — *note* "remove earths", *close* the device. Only the `open`/`close` steps move a device; `verify`, `earth` and `note` change nothing. Order status follows the ticks: `draft` → `issued` → `in_progress` (first tick) → `completed` (last tick); `cancelled` keeps the steps for the record.
+A generated switching order (`POST /oms/incidents/{id}/switching-orders`, `oms:write`) always has **five steps**: isolate — *open* the blamed device, *verify* the downstream supplies are de-energised, *earth* at the nearest upstream isolation point (`MV_SWITCH`, `MV_ISOLATOR`, `MV_RECLOSER`, `MV_BREAKER` — `switching.go:41`); restore — *note* "remove earths", *close* the device. Only the `open`/`close` steps move a device; `verify`, `earth` and `note` change nothing. Order status runs through the **governed** lifecycle — `draft` → `approved` → `issued` → `in_progress` (first tick) → `completed` (last tick), `cancelled` from any non-terminal state — and is advanced by the governed actions below (validate / approve / issue / execute), **not** by a free-text status edit. `cancelled` keeps the steps for the record. The governance layer is detailed in **§2.1**.
 
 > **How to — open or close a device** 🔒 `features:write`
 > 1. Select the switch/breaker on the map → **Edit** (pencil, panel header) → **Attributes** tab.
@@ -219,17 +221,55 @@ A generated switching order (`POST /oms/incidents/{id}/switching-orders`, `oms:w
 >
 > 💡 To take an asset *out of service* (not just switch it open), edit **`operational_state`** to `ISOLATED` instead — it blocks traces the same way but records that the asset itself is unavailable, and it's governed by the state machine above.
 
-**Switching orders without an incident — planned switching (∑).** The order above is *generated from an incident*. For **planned** work — a maintenance isolation, a construction cut-over — Priya authors a **standalone switching program** that is tied to no incident. It reuses the very same `oms.switching_orders` / `oms.switching_steps` tables (migration `0186` made `incident_id` nullable and added a booked window + purpose), so a planned program executes, logs and interlocks *identically* to an incident order — the only difference is `incident_id IS NULL`. A program lives on **Operations → Switching** (route `/switching`): read it with `oms:read`, build it with `oms:write`. You can start it **empty** and write each step, or **seed** it with the standard open → verify → earth → close steps for a chosen device (the same `buildIsolateRestoreDrafts` the incident generator uses — `api/internal/oms/switching.go`), then add / edit / delete / reorder steps freely. Issuing it moves `draft → issued`; ticking a step off flips the device's `device_state` and writes the operation to the log, exactly as §2's incident order does.
+**Switching orders without an incident — planned switching (∑).** The order above is *generated from an incident*. For **planned** work — a maintenance isolation, a construction cut-over — Priya authors a **standalone switching program** that is tied to no incident. It reuses the very same `oms.switching_orders` / `oms.switching_steps` tables (migration `0186` made `incident_id` nullable and added a booked window + purpose), so a planned program executes, logs and interlocks *identically* to an incident order — the only difference is `incident_id IS NULL`. A program lives on **Operations → Switching** (route `/switching`): read it with `oms:read`, build it with `oms:write`. You can start it **empty** and write each step, or **seed** it with the standard open → verify → earth → close steps for a chosen device (the same `buildIsolateRestoreDrafts` the incident generator uses — `api/internal/oms/switching.go`), then add / edit / delete / reorder steps freely. It runs through the same governed lifecycle (`draft → approved → issued → …`): you **validate** it, **approve** it, then **issue** it before the field executes a single step, and ticking a step off flips the device's `device_state` and writes the operation to the log, exactly as §2's incident order does. The governance is spelled out in **§2.1**.
 
 > **How to — author a planned switching program** 🔒 `oms:write`
 > 1. Left sidebar → **Operations** → the **Switching** tab (or go to `/switching`). Click **➕ New program**.
 > 2. Give it a **title** (e.g. *"Feeder 7 — replace FSW-12"*) and, optionally, a **planned window** and **purpose**. To pre-fill the isolate/restore steps, pick a **target device** (search by name) — leave it blank for an empty program. **Create.**
 > 3. The program opens in the right pane. **➕ Add step** for each operation (pick the **phase** *isolate*/*restore*, the **action** *open*/*close*/*earth*/*verify*/*note*, write the **instruction**, and name the **device** for an open/close step); use **↑ / ↓** to reorder and the pencil / trash to edit or remove a step. (`POST /oms/switching-orders/{id}/steps`, `…/reorder`, `PATCH`/`DELETE /oms/switching-steps/{id}`.)
-> 4. When the program is agreed, **Issue** it (`draft → issued` — `PATCH /oms/switching-orders/{id}`). In the field, **tick each step** as it's done: an open/close tick flips the device live (and logs the operation); un-tick to revert. **Cancel** keeps the steps for the record.
+> 4. When the program is agreed, **Validate** it (the dry-run study), **Approve** it (the authorisation gate), then **Issue** it (`approved → issued`) — the steps become executable only once issued. In the field, **tick each step** as it's done: an open/close tick flips the device live (and logs the operation); un-tick to revert. **Cancel** keeps the steps for the record. (The `PATCH /oms/switching-orders/{id}` edits the order's title/window/steps; it **no longer sets status** — that moves through the governed actions. See **§2.1**.)
 >
 > ⚠️ **An open/close step must name the device it operates** — the server refuses one without (*"an open step must name the device it operates"*); a `verify`/`note` step carries none. And the builder edits **only** standalone programs — an incident-backed order is still generated and driven through its incident, not here (editing one in the builder is refused).
 >
-> 💡 A planned program is the place to **pre-stage a transfer**: author *open REC-7 · open Way A · open FSW-12 · close T-79* ahead of the work, issue it, and the crew ticks it off on the day — the same device flips, log entries and §3 cone updates you'd get piecemeal, now as one reviewable sheet.
+> 💡 A planned program is the place to **pre-stage a transfer**: author *open REC-7 · open Way A · open FSW-12 · close T-79* ahead of the work, validate and approve it, issue it, and the crew ticks it off on the day — the same device flips, log entries and §3 cone updates you'd get piecemeal, now as one reviewable sheet.
+
+### 2.1 Switching-order governance — validate, approve, issue, interlocks
+
+A switching order — incident-generated (§2) *or* planned (above) — no longer changes status by a free-text edit. It is driven through a **governed lifecycle** by four actions, each a guarded transition, so **the plan a crew executes is always the exact plan that was authorised**.
+
+**The lifecycle (∑).** `draft → approved → issued → in_progress → completed`, with `cancelled` reachable from **any** non-terminal state:
+
+```
+  draft ──approve──▶ approved ──issue──▶ issued ──first step──▶ in_progress ──last step──▶ completed
+    ▲                   │
+    └── edit a step ────┘                    (cancel from any non-terminal state)
+```
+
+**Validate — the dry-run study (▶/∑).** `GET /oms/switching-orders/{id}/validate` 🔒 `oms:read`. Read-only — it **mutates nothing**. It walks the steps **in order** over a **simulated** device state (seeded from the live network, then advanced one step at a time) and returns a findings list. For every `open`/`close` step it checks three things:
+
+1. the named **device exists** and actually models a switchable `device_state`;
+2. the device is in the **expected pre-state** in the simulation — an **open** step expects it `CLOSED`, a **close** step expects it `OPEN` (a mismatch means the network isn't where the order assumes, or an earlier step is wrong);
+3. **no safety tag / clearance** blocks operating it.
+
+A step whose device is **already in its target state** is a **warning** (the step is redundant). A **pre-state mismatch**, a **missing device**, or a **safety block** is an **error**. The response is `{order_id, ready, findings:[{step_no, severity:"error"|"warning", code, message}]}`; **`ready = true` only when there are no error findings**.
+
+> **▶** Run **Validate** before you ask for approval. A pre-state mismatch usually means the field has moved since you wrote the order, or two steps are out of sequence — fix the plan, don't try to push past it.
+
+**Approve — the authorisation gate (∑).** `POST /oms/switching-orders/{id}/approve` 🔒 `oms:write` (`draft → approved`). Approve **runs the validation first and refuses if it has any blocking error** — you cannot authorise an order the study says won't execute. On success it stamps **`approved_at` / `approved_by`** (migration `0199` added these columns). This is the **ADMS authorisation gate**: an approved order carries a record of who signed it off and when.
+
+**Issue — release for execution (▶).** `POST /oms/switching-orders/{id}/issue` 🔒 `oms:write` (`approved → issued`). Issuing hands the order to the field; **only an issued (or already in-progress) order can have its steps executed**.
+
+**The three execution interlocks (∑).** Executing a step (`POST /oms/switching-steps/{id}/execute`) is now gated by three checks, **on top of** the existing safety-tag / clearance gate:
+
+1. **Order state** — the order must be **issued** or **in_progress** (you cannot execute steps on a `draft` or merely-`approved` order).
+2. **In sequence** — every earlier `step_no` must already be executed; you cannot skip ahead.
+3. **Pre-state** — the device must be in the expected pre-state (an **open** step needs it `CLOSED`, a **close** step needs it `OPEN`) — the same check the validation study makes, now enforced live.
+
+**The supervised force override (▶).** A step blocked by the **sequence** or **pre-state** interlock can be forced through with a `{"force": true}` body on the execute call. Force bypasses **only** those two checks, and it is recorded as *"forced past interlock: …"* on the device-operation log entry, so every override is auditable.
+
+> ⚠️ **Force never bypasses the safety-tag / clearance gate.** A danger or out-of-service tag stays a **hard block** whatever you pass — `force` cannot operate a tagged device. Force is a deliberate, supervised operator action; the in-app assistant / MCP tool **never** forces.
+
+**Edit reverts approval (∑).** Editing an **approved** order's steps drops it straight back to **draft** — it must be re-validated and re-approved before it can be issued again, so an executed plan is always exactly the one that was approved. An **issued or in-progress** order is **locked** from step edits: to change the plan, **cancel** it and author a fresh one.
 
 ---
 
@@ -341,12 +381,12 @@ Permissions: **tie** and **coupler** 🔒 `features:write` + `connectivity:commi
 > 3. The form shows **two bus pickers** (`bus_a`, `bus_b`; different features) → **Save.** It's wired `bus A.T2 → breaker.T1` and `breaker.T2 → bus B.T1` and stamped `switch_function = BUS_COUPLER` (you may pass `BUS_SECTION` instead).
 > 4. Downstream there's no coupler-specific code — a coupler is just a breaker, so trace/isolate/coordination treat it as one.
 
-> **How to — build a ring main unit** (`POST /rmus`)
-> 1. **Assemblies** → **Ring Main Unit** → pick the config: `2W_1T` (*2 ring + 1 transformer*) or `2W_2T` (*2 ring + 2 transformer*). `rmu_config` is required.
+> **How to — build a ring main unit** (`POST /assemblies`)
+> 1. **Assemblies** → **Assembly kits** → pick the ring-main-unit kit: `2W_1T` (*2 ring + 1 transformer*) or `2W_2T` (*2 ring + 2 transformer*). The kit supplies `rmu_config` on the anchor.
 > 2. Place the RMU point → confirm name/subtype → **Save.**
-> 3. The fan-out creates the `RMU` container, its internal `MV_BUSBAR`, and its `MV_SWITCH` ways (3 for `2W_1T`, 4 for `2W_2T`: two ring ways at the ends, then the tee ways below the bus — `seed/rmu_templates.sql:96-104`), wiring each way's load side (T2) to the shared internal bus. Each way also gets a geometry-less `MV_CONDUCTOR` drop on its cable side. Opening one tee way isolates only its transformer while the ring keeps feeding through the others. Fused (transformer) ways are stamped `is_fused = true`. *(RMU-5 in our example.)*
+> 3. The fan-out creates the `RMU` container, its internal `MV_BUSBAR`, and its `MV_SWITCH` ways (3 for `2W_1T`, 4 for `2W_2T`: two ring ways at the ends, then the tee ways below the bus — `seed/consolidated_assembly_templates.sql`), wiring each way's load side (T2) to the shared internal bus. Each way also gets a geometry-less `MV_CONDUCTOR` drop on its cable side. Opening one tee way isolates only its transformer while the ring keeps feeding through the others. Fused (transformer) ways are stamped `is_fused = true`. *(RMU-5 in our example.)*
 
-> **∑** Under the hood these POST to `api/internal/tie`, `api/internal/coupler` and `api/internal/rmu`; each composes `crud.CreateFeature` + `connectivity.EstablishConnection` calls in one transaction against the same switch/busbar rules you'd use by hand.
+> **∑** Under the hood the tie and coupler POST to `api/internal/tie` and `api/internal/coupler`; the RMU (like every kit) POSTs to `api/internal/assembly` — the RMU and packaged-substation fan-out engines were consolidated into it. Each composes `crud.CreateFeature` + `connectivity.EstablishConnection` calls in one transaction against the same switch/busbar rules you'd use by hand.
 
 **What the fan-outs reject (all `400`).** Tie: no geometry; either feeder blank; both feeders the same feature; a feeder pick that no network rule authorises. Coupler: either bus blank; both buses the same; no rule. RMU: no `rmu_config`, or a config with no template, or no geometry. Rule misses surface as the connectivity error, with the wiring step named (*"wiring feeder_a … → MV_SWITCH.T1"*).
 
@@ -930,7 +970,7 @@ task seed-protection-network      # a gradeable chain: SUB-SOURCE → BRK-1 (+RL
 | Fault level / making duty | `POST /analysis/fault-current` |
 | Incident energy | `POST /analysis/arc-flash` (experimental) |
 | What can the other feeder pick up — and with how much headroom? | `POST /analysis/contingency` |
-| Place a tie / coupler / RMU | `POST /ties`, `/couplers`, `/rmus` |
+| Place a tie / coupler / RMU | `POST /ties`, `/couplers`, `/assemblies` (RMU is a kit) |
 | Generate / tick an **incident** switching order | `POST /oms/incidents/{id}/switching-orders`, `POST /oms/switching-steps/{id}/execute` (`oms:write`) |
 | Author / edit a **planned** switching program | `POST /oms/planned-switching`, `…/{id}/steps`, `…/reorder` (`oms:write`) |
 | Record a device's **protection settings** | `PUT /protection/settings/{class}/{id}` (`features:write`); resolve a GUID: `GET /protection/resolve?feature_id=…` |

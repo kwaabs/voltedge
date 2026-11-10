@@ -13,12 +13,13 @@ const labelClass = "text-xs font-medium"
 // The required fields a pole-mounted street light needs at create (the rest are
 // nullable load fields the crew fills later). Rendered as domain dropdowns from
 // the STREET_LIGHT schema so the values always match the live catalog.
-const REQUIRED_FIELDS = ["phase", "luminaire_type", "condition_rating"] as const
+const REQUIRED_FIELDS = ["phase", "luminaire_type", "condition_rating", "supply_mode"] as const
 
 function fieldLabel(name: string): string {
   if (name === "luminaire_type") return "Luminaire type"
   if (name === "condition_rating") return "Condition"
   if (name === "phase") return "Phase"
+  if (name === "supply_mode") return "Power source"
   return name
 }
 
@@ -48,7 +49,9 @@ export function AttachStreetLightDialog({
 
   // One value per required field, seeded from the field's default_value.
   const [values, setValues] = useState<Record<string, string>>({})
-  const valueFor = (f: FieldSchema) => values[f.name] ?? f.default_value ?? ""
+  // supply_mode defaults to GRID (a grid-fed lamp) when unset, so the common case
+  // needs no choice and only a solar lamp is a deliberate pick.
+  const valueFor = (f: FieldSchema) => values[f.name] ?? f.default_value ?? (f.name === "supply_mode" ? "GRID" : "")
 
   const canSave = fields.length > 0 && fields.every((f) => valueFor(f) !== "") && !attach.isPending
 

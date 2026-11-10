@@ -169,7 +169,33 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/storage-dispatch", enforceStudy(db, "storage_dispatch", storageDispatchHandler(db)))
 	r.Post("/vvo", enforceStudy(db, "vvo", vvoHandler(db)))
 	r.Post("/load-growth", enforceStudy(db, "load_growth", loadGrowthHandler(db)))
+	// /load-allocation is a derived operational tool (distribute a measured feeder-head
+	// load over the model's leaves), not a per-class menu study, so -- like
+	// /fault-location and /arc-flash -- it skips the studies gate and relies on the
+	// /analysis mount's permission.
+	r.Post("/load-allocation", loadAllocationHandler(db))
 	return r
+}
+
+// loadAllocationHandler is POST /analysis/load-allocation: distribute a measured
+// feeder-head load across the downstream consumer leaves by a weight basis
+// (allocation.go) -- the ADMS load-estimation step that makes per-transformer loads
+// reflect measured reality rather than the as-designed `demand_kw`.
+func loadAllocationHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req loadAllocationRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runLoadAllocation(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
 }
 
 // loadGrowthHandler is POST /analysis/load-growth: the load-growth forecast study

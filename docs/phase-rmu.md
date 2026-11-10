@@ -1,5 +1,13 @@
 # Phase RMU — Ring Main Unit as an assembly of switched ways
 
+> **Superseded (2026-11): build record only.** The dedicated RMU engine described
+> below (`api/internal/rmu`, `POST /rmus`, `metadata.rmu_templates`) was consolidated
+> into the generic assembly engine. An RMU is now an ordinary `assembly_templates`
+> kit placed via `POST /assemblies`; the recipes live in
+> `seed/consolidated_assembly_templates.sql`. The RMU *class* and its behaviour are
+> unchanged — only the placement plumbing moved. See the Feature Catalog + the CIM/
+> everyday-operations guides for the current picture.
+
 ## Problem
 
 A Ring Main Unit (RMU) is a single map-placed unit, but electrically it is

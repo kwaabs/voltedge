@@ -2,11 +2,11 @@ import { Fragment } from "react"
 import { FileText, Loader2, MapPin, X } from "lucide-react"
 import { useNavigate } from "react-router"
 
+import { OpBadge } from "@/components/map/op-badge"
 import { Button } from "@/components/ui/button"
 import { type Attachment, fetchAttachmentUrl, useAttachments } from "@/hooks/use-attachments"
 import { useFeature } from "@/hooks/use-feature"
 import { useDeviceOperations } from "@/hooks/use-operations"
-import { cn } from "@/lib/utils"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -25,17 +25,6 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
-}
-
-const OP_BADGE: Record<string, string> = {
-  trip: "bg-destructive/10 text-destructive",
-  lockout: "bg-destructive/15 text-destructive",
-  reclose: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  open: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  close: "bg-green-600/10 text-green-700 dark:text-green-400",
-  earth: "bg-muted text-muted-foreground",
-  alarm: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  other: "bg-muted text-muted-foreground",
 }
 
 /**
@@ -194,14 +183,7 @@ export function DeviceDetailPanel({
             {operations.map((op) => (
               <li key={op.id} className="border-border/60 rounded border p-1.5 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span
-                    className={cn(
-                      "rounded px-1.5 py-0.5 text-[11px] font-medium capitalize",
-                      OP_BADGE[op.op_type] ?? "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {humanize(op.op_type)}
-                  </span>
+                  <OpBadge type={op.op_type} className="text-[11px]" />
                   <span className="text-muted-foreground">{formatWhen(op.occurred_at)}</span>
                 </div>
                 <div className="text-muted-foreground mt-0.5 capitalize">

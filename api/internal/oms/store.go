@@ -242,6 +242,39 @@ LIMIT 1`
 	return GetTroubleCall(ctx, db, id)
 }
 
+// CloseTroubleCall ends an OPEN call that doesn't belong on the board -- a false
+// alarm / customer-back (status=cleared) or a test/duplicate/mistake
+// (status=cancelled) -- without routing it through an incident. Only an open call
+// can be closed here: a call already linked to an incident (associated) follows
+// that incident's lifecycle and clears when it restores, and a call that's already
+// terminal is a no-op error. Pure status change (no closed_at column), plus a
+// timeline event.
+func CloseTroubleCall(ctx context.Context, db bun.IDB, id, status string) (*TroubleCall, error) {
+	if status != CallStatusCleared && status != CallStatusCancelled {
+		return nil, invalidf("a trouble call can be closed as 'cleared' or 'cancelled', not %q", status)
+	}
+	call, err := GetTroubleCall(ctx, db, id)
+	if err != nil {
+		return nil, err
+	}
+	switch call.Status {
+	case CallStatusCancelled, CallStatusCleared:
+		return nil, invalidf("trouble call %q is already %s", id, call.Status)
+	case CallStatusAssociated:
+		return nil, invalidf("trouble call %q is linked to an incident; it clears when that incident is restored", id)
+	}
+	if _, err := db.NewUpdate().Model((*TroubleCall)(nil)).
+		Set("status = ?", status).
+		Set("updated_at = now()").
+		Where("id = ?", id).Exec(ctx); err != nil {
+		return nil, fmt.Errorf("oms: closing trouble call %s: %w", id, err)
+	}
+	if err := recordEvent(ctx, db, EntityCall, id, EventCallClosed, noteOf(status)); err != nil {
+		return nil, err
+	}
+	return GetTroubleCall(ctx, db, id)
+}
+
 // ---------------------------------------------------------------------------
 // Incidents
 // ---------------------------------------------------------------------------

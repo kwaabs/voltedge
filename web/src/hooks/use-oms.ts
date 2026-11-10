@@ -158,10 +158,47 @@ export interface ReliabilityIndices {
   ens_kwh: number
   ens_estimated: boolean
   avg_load_kw: number
+  /** MAIFI (momentary interruptions, IEEE 1366) from the device-operation log.
+   * `maifi` groups a re-strike sequence into one event; `maifi_e` counts each
+   * interrupting operation. `maifi_applicable` is false when the operation log is
+   * absent or the report is circuit-scoped (MAIFI is whole-system only); the
+   * figures are then zero and `maifi_note` says why. `momentary_mode` is the
+   * definition used ("protective" | "pure_duration"). */
+  maifi: number
+  maifi_e: number
+  momentary_events: number
+  momentary_customer_interruptions: number
+  momentary_devices: number
+  sustained_threshold_minutes: number
+  momentary_mode: string
+  maifi_applicable: boolean
+  maifi_note?: string
+  /** Worst-served-customer indices (IEEE 1366). `cemi` = fraction of customers with
+   * more than `cemi_threshold` sustained interruptions; `celid` = fraction whose total
+   * interruption time exceeds `celid_hours`. `worst_served` is the ranked service
+   * points behind them. Over the same window / denominator as the system indices. */
+  cemi_threshold: number
+  cemi: number
+  cemi_customers: number
+  celid_hours: number
+  celid: number
+  celid_customers: number
+  worst_served?: WorstServedPoint[]
   /** Per-fault-cause decomposition of SAIDI/SAIFI (buckets sum to the totals).
    * Omitted when the faults module is not installed; see fault_breakdown_available. */
   by_fault_cause?: FaultCauseContribution[]
   fault_breakdown_available: boolean
+}
+
+/** One service point's own interruption record over the window — how often it went
+ * out and for how long — the "who is worst served" detail behind CEMI/CELID. */
+export interface WorstServedPoint {
+  feature_class: string
+  feature_id: string
+  customers: number
+  interruptions: number
+  total_minutes: number
+  max_minutes: number
 }
 
 /** One fault-cause bucket's share of the window's unreliability, over the same
@@ -264,7 +301,7 @@ export function useIncidentsForMap(enabled = true) {
   })
 }
 
-export type SwitchingOrderStatus = "draft" | "issued" | "in_progress" | "completed" | "cancelled"
+export type SwitchingOrderStatus = "draft" | "approved" | "issued" | "in_progress" | "completed" | "cancelled"
 export type StepPhase = "isolate" | "restore"
 export type StepAction = "open" | "close" | "earth" | "verify" | "note"
 
@@ -296,6 +333,9 @@ export interface SwitchingOrder {
   planned_start: string | null
   planned_end: string | null
   notes: string | null
+  /** Set once the order has been approved (the ADMS gate before it can be issued). */
+  approved_at: string | null
+  approved_by: string | null
   created_at: string
   updated_at: string
   steps: SwitchingStep[]
@@ -303,6 +343,23 @@ export interface SwitchingOrder {
 
 interface SwitchingOrdersResponse {
   switching_orders: SwitchingOrder[]
+}
+
+/** One finding from the switching-order validation study. `severity` "error" blocks
+ * approval; "warning" is advisory. Mirrors oms.ValidationFinding. */
+export interface SwitchingValidationFinding {
+  step_id?: string
+  step_no?: number
+  severity: "error" | "warning"
+  code: string
+  message: string
+}
+
+/** The dry-run study result: whether the order is ready to approve, and the findings. */
+export interface SwitchingValidation {
+  order_id: string
+  ready: boolean
+  findings: SwitchingValidationFinding[]
 }
 
 // --- FLISR restoration (back-feed suggestion) ------------------------------
@@ -464,7 +521,9 @@ export function useOutageCauses() {
 
 /** The incident board. `openOnly` narrows to unrestored incidents; `territoryId`
  * scopes to that territory's subtree (region catches its districts). */
-export function useIncidents(opts: { status?: IncidentStatus; openOnly?: boolean; territoryId?: string } = {}) {
+export function useIncidents(
+  opts: { status?: IncidentStatus; openOnly?: boolean; territoryId?: string; enabled?: boolean } = {},
+) {
   const params = new URLSearchParams()
   if (opts.status) params.set("status", opts.status)
   if (opts.openOnly) params.set("open", "true")
@@ -473,6 +532,7 @@ export function useIncidents(opts: { status?: IncidentStatus; openOnly?: boolean
   return useQuery({
     queryKey: [...OMS_KEY, "incidents", opts.status ?? "all", opts.openOnly ?? false, opts.territoryId ?? ""],
     queryFn: () => apiFetch<IncidentsResponse>(`/oms/incidents${query}`),
+    enabled: opts.enabled ?? true,
     staleTime: 15_000,
   })
 }
@@ -483,16 +543,35 @@ export function useIncidents(opts: { status?: IncidentStatus; openOnly?: boolean
  * Undefined params fall back to the server defaults (trailing 12 months, 1 kW,
  * whole system). */
 export function useReliabilityIndices(
-  opts: { from?: string; to?: string; avgLoadKw?: number; circuitId?: string } = {},
+  opts: {
+    from?: string
+    to?: string
+    avgLoadKw?: number
+    circuitId?: string
+    sustainedThresholdMin?: number
+    momentaryMode?: "protective" | "pure_duration"
+  } = {},
 ) {
   const params = new URLSearchParams()
   if (opts.from) params.set("from", opts.from)
   if (opts.to) params.set("to", opts.to)
   if (opts.avgLoadKw != null) params.set("avg_load_kw", String(opts.avgLoadKw))
   if (opts.circuitId) params.set("circuit_id", opts.circuitId)
+  if (opts.sustainedThresholdMin != null)
+    params.set("sustained_threshold_min", String(opts.sustainedThresholdMin))
+  if (opts.momentaryMode) params.set("momentary_mode", opts.momentaryMode)
   const query = params.toString() ? `?${params.toString()}` : ""
   return useQuery({
-    queryKey: [...OMS_KEY, "indices", opts.from ?? "", opts.to ?? "", opts.avgLoadKw ?? "", opts.circuitId ?? ""],
+    queryKey: [
+      ...OMS_KEY,
+      "indices",
+      opts.from ?? "",
+      opts.to ?? "",
+      opts.avgLoadKw ?? "",
+      opts.circuitId ?? "",
+      opts.sustainedThresholdMin ?? "",
+      opts.momentaryMode ?? "",
+    ],
     queryFn: () => apiFetch<ReliabilityIndices>(`/oms/indices${query}`),
     staleTime: 30_000,
   })
@@ -861,6 +940,30 @@ export function useSetIncidentETR() {
   )
 }
 
+/** A data-driven ETR proposal: the median restoration time of similar past
+ * outages (cause-specific where there is enough history, else system-wide), with
+ * the evidence behind it. `applicable` is false (see `note`) for a closed incident
+ * or when history is too thin; a planned incident suggests its booked end. */
+export interface ETRSuggestion {
+  incident_id: string
+  suggested_etr: string | null
+  basis: string
+  cause_code?: string | null
+  sample_size: number
+  median_duration_minutes: number
+  longer_than_typical: boolean
+  applicable: boolean
+  note?: string
+}
+
+/** Fetch an ETR suggestion on demand (a read, triggered by the operator clicking
+ * "Suggest"); it proposes a figure but does not set it. */
+export function useSuggestIncidentETR() {
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<ETRSuggestion>(`/oms/incidents/${id}/etr/suggest`),
+  })
+}
+
 // --- Mutations -------------------------------------------------------------
 // All gated by oms:write on the server; the page self-gates the controls. Each
 // invalidates the whole /oms cache, since a prediction/lifecycle step touches
@@ -904,6 +1007,14 @@ export interface AssociateTroubleCallBody {
 export function useAssociateTroubleCall() {
   return useOmsMutation<{ id: string; body: AssociateTroubleCallBody }>(({ id, body }) =>
     apiFetch(`/oms/trouble-calls/${id}/associate`, { method: "POST", body: JSON.stringify(body) }),
+  )
+}
+
+/** Close an OPEN trouble call without an incident: "cleared" (false alarm /
+ * customer back) or "cancelled" (test / duplicate / mistake). */
+export function useCloseTroubleCall() {
+  return useOmsMutation<{ id: string; status: "cleared" | "cancelled" }>(({ id, status }) =>
+    apiFetch(`/oms/trouble-calls/${id}/close`, { method: "POST", body: JSON.stringify({ status }) }),
   )
 }
 
@@ -1008,12 +1119,14 @@ export function useGenerateRestorationOrder() {
   )
 }
 
-/** Mark a switching step done (executed=true) or outstanding again. */
+/** Mark a switching step done (executed=true) or outstanding again. `force` bypasses
+ * the sequence / expected-pre-state interlocks (never the safety-tag gate), recording
+ * the override on the operation. */
 export function useExecuteStep() {
-  return useOmsMutation<{ stepId: string; executed: boolean }>(({ stepId, executed }) =>
+  return useOmsMutation<{ stepId: string; executed: boolean; force?: boolean }>(({ stepId, executed, force }) =>
     apiFetch(`/oms/switching-steps/${stepId}/execute`, {
       method: "POST",
-      body: JSON.stringify({ executed }),
+      body: JSON.stringify({ executed, force: force ?? false }),
     }),
   )
 }
@@ -1022,6 +1135,32 @@ export function useExecuteStep() {
 export function useCancelSwitchingOrder() {
   return useOmsMutation<{ orderId: string }>(({ orderId }) =>
     apiFetch(`/oms/switching-orders/${orderId}/cancel`, { method: "POST" }),
+  )
+}
+
+/** Run the dry-run validation study over an order (read-only; sequence, device
+ * pre-state, safety). The switching UI calls it before approving. */
+export function useValidateSwitchingOrder(orderId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "switching-validate", orderId],
+    queryFn: () => apiFetch<SwitchingValidation>(`/oms/switching-orders/${orderId}/validate`),
+    enabled: enabled && !!orderId,
+    staleTime: 5_000,
+  })
+}
+
+/** Approve (authorise) a draft switching order — the ADMS gate. Fails if validation
+ * has blocking errors. */
+export function useApproveSwitchingOrder() {
+  return useOmsMutation<{ orderId: string }>(({ orderId }) =>
+    apiFetch(`/oms/switching-orders/${orderId}/approve`, { method: "POST" }),
+  )
+}
+
+/** Issue an approved switching order for execution (approved → issued). */
+export function useIssueSwitchingOrder() {
+  return useOmsMutation<{ orderId: string }>(({ orderId }) =>
+    apiFetch(`/oms/switching-orders/${orderId}/issue`, { method: "POST" }),
   )
 }
 

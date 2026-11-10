@@ -84,6 +84,28 @@ export function useDeviceTags(deviceClass?: string, deviceId?: string) {
   })
 }
 
+/** Every active safety tag network-wide (no device filter) -- the operations
+ * overlay keyed by (device_class, device_id). `enabled` gates the fetch so the
+ * overlay costs nothing when toggled off. */
+export function useActiveTags(enabled = true) {
+  return useQuery({
+    queryKey: [...SAFETY_KEY, "tags", "all"],
+    queryFn: () => apiFetch<{ tags: SafetyTag[] }>(`/safety/tags?active=true`),
+    enabled,
+    staleTime: 10_000,
+  })
+}
+
+/** Every active applied ground network-wide (no feature filter). */
+export function useActiveGrounds(enabled = true) {
+  return useQuery({
+    queryKey: [...SAFETY_KEY, "grounds", "all"],
+    queryFn: () => apiFetch<{ grounds: SafetyGround[] }>(`/safety/grounds?active=true`),
+    enabled,
+    staleTime: 10_000,
+  })
+}
+
 /** Active applied grounds on one feature. */
 export function useFeatureGrounds(featureClass?: string, featureId?: string) {
   return useQuery({

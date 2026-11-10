@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppTheme.seed brand green — the adaptive launcher icon's background, matching
+         the native splash (launch_background.xml) and the in-app SplashScreen. -->
+    <color name="ic_launcher_background">#00A878</color>
+</resources>

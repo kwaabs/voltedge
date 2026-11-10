@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 	"sort"
+	"strings"
 )
 
 // This file is Slice C: RBAC enforcement. The permission *catalog* is data
@@ -61,6 +62,7 @@ const (
 	PermTelemetryRead       = "telemetry:read"
 	PermTelemetryIngest     = "telemetry:ingest"
 	PermFieldTracksRead     = "field:tracks:read"
+	PermDBExplore           = "admin:db"
 )
 
 // RequirePermission gates a route (sub)tree by RBAC permission. A request
@@ -93,6 +95,44 @@ func RequirePermission(readPerm, writePerm string) func(http.Handler) http.Handl
 				return
 			}
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequirePermissionReadAny is RequirePermission with a read side satisfied by
+// ANY of several permissions -- for a mount two different roles legitimately
+// read through different lenses. The inspection-template catalog is the case:
+// an inspection recorder reads it with wam:read to pick a template on the Works
+// page, a template author reads it with metadata:write to edit it in Admin;
+// either should GET it. Without this the admin nav (gated metadata:write) and
+// the API GET (gated wam:read) disagree, and a metadata:write-only role (the
+// data-gis preset) sees the Admin page but 403s on open. Mutating methods still
+// require writePerm exactly, so authoring stays a single capability.
+func RequirePermissionReadAny(readPerms []string, writePerm string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, ok := UserFrom(r.Context())
+			if !ok {
+				writeError(w, unauthorized("authentication required"))
+				return
+			}
+
+			switch r.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
+				for _, p := range readPerms {
+					if user.Has(p) {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+				writeError(w, forbidden("you do not have the required permission ("+strings.Join(readPerms, " or ")+")"))
+			default:
+				if !user.Has(writePerm) {
+					writeError(w, forbidden("you do not have the required permission ("+writePerm+")"))
+					return
+				}
+				next.ServeHTTP(w, r)
+			}
 		})
 	}
 }

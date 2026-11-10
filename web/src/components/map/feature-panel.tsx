@@ -19,7 +19,6 @@ import {
   History,
   Info,
   LandPlot,
-  Lightbulb,
   Link2,
   Loader2,
   Lock,
@@ -38,9 +37,11 @@ import {
   Shuffle,
   SlidersHorizontal,
   Spline,
+  Scale,
   Sun,
   Crosshair,
   Thermometer,
+  TowerControl,
   Trash2,
   TrendingDown,
   TriangleAlert,
@@ -67,7 +68,8 @@ import { OperationsTab } from "@/components/map/feature-operations-tab"
 import { SafetyTab } from "@/components/map/feature-safety-tab"
 import { MeterHostChip, ServicePointMetersTab } from "@/components/map/feature-service-point-meters-tab"
 import { SpatialTab } from "@/components/map/feature-spatial-tab"
-import { StreetLightsTab } from "@/components/map/feature-street-lights-tab"
+import { PoleAttachmentsTab } from "@/components/map/feature-pole-attachments-tab"
+import { TowerElevationTab } from "@/components/map/tower-elevation"
 import { TagsTab } from "@/components/map/feature-tags-tab"
 import { WorksTab } from "@/components/map/feature-works-tab"
 import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
@@ -150,6 +152,7 @@ import { useVoltageProfileStore } from "@/stores/voltage-profile-store"
 import { useContingencyStore } from "@/stores/contingency-store"
 import { useHostingStore } from "@/stores/hosting-store"
 import { useEvHostingStore } from "@/stores/ev-hosting-store"
+import { useLoadAllocationStore } from "@/stores/load-allocation-store"
 import { useLoadGrowthStore } from "@/stores/load-growth-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
@@ -171,6 +174,7 @@ type TabId =
   | "safety"
   | "spatial"
   | "streetlights"
+  | "elevation"
   | "meters"
   | "tags"
   | "files"
@@ -188,7 +192,8 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "operations", label: "Operations", icon: Activity },
   { id: "safety", label: "Safety", icon: ShieldAlert },
   { id: "spatial", label: "Land use", icon: LandPlot },
-  { id: "streetlights", label: "Street lights", icon: Lightbulb },
+  { id: "streetlights", label: "On this pole", icon: Network },
+  { id: "elevation", label: "Elevation", icon: TowerControl },
   { id: "meters", label: "Meters", icon: Gauge },
   { id: "tags", label: "Tags", icon: QrCode },
   { id: "files", label: "Files", icon: Paperclip },
@@ -2093,7 +2098,7 @@ const DEFAULT_POSITION_CLASS = "bottom-10 right-4"
  * content, not so small the tab rail collapses. The panel is anchored
  * bottom-right (DEFAULT_POSITION_CLASS), so a larger default simply grows
  * it left and up out of that corner. */
-const DEFAULT_WIDTH = 560
+const DEFAULT_WIDTH = 570
 const DEFAULT_HEIGHT = 400
 const MIN_WIDTH = 288
 const MIN_HEIGHT = 180
@@ -2874,6 +2879,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
     useCoordinationStore.getState().clear()
@@ -2891,6 +2897,34 @@ export function FeaturePanel() {
     useStorageDispatchStore.getState().clear()
     useVvoStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the load-allocation panel (load-allocation-panel.tsx) for the selected
+  // feature as the feeder head. Like load-flow it only arms (the panel needs the
+  // measured kW first); its Run makes the POST /analysis/load-allocation. Clears the
+  // other mutually-exclusive workflows the same way they clear each other.
+  function armLoadAllocation() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
+    useLoadAllocationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Arms the fault-current panel (fault-current-panel.tsx) for the
@@ -2912,6 +2946,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useAmpacityStore.getState().clear()
     useCoordinationStore.getState().clear()
@@ -2941,6 +2976,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useCoordinationStore.getState().clear()
@@ -2971,6 +3007,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -2999,6 +3036,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3029,6 +3067,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3059,6 +3098,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3089,6 +3129,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3118,6 +3159,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3147,6 +3189,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3178,6 +3221,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3207,6 +3251,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3236,6 +3281,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3266,6 +3312,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3296,6 +3343,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3328,6 +3376,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3359,6 +3408,7 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useLoadAllocationStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
@@ -3438,8 +3488,42 @@ export function FeaturePanel() {
   // The header's mutating actions (Edit / Duplicate / Delete) show only in edit
   // mode; the view actions beside them (trace/analysis, view diagram) stay.
   const canEditFeatures = useEditing()
-  // A pole can carry lamps: it gets a "Street lights" tab (list + attach).
+  // A pole is a support structure: many things ride it (lamps, pole-mounted
+  // transformers/reclosers, meters), so it gets an "On this pole" tab listing
+  // every spatial_support attachment (plus the inline street-light attach).
   const isPole = selected?.featureClassCode === "POLE"
+  // A support structure (POLE or TOWER) gets an "Elevation" tab: a generated
+  // cross-section of the crossarms and the circuits it carries (double-circuit PoC).
+  const isSupportStructure = selected?.featureClassCode === "POLE" || selected?.featureClassCode === "TOWER"
+  // Feature-class catalog (cached, shared) — used to tell a line conductor from a
+  // point attachment when gating the Elevation tab below.
+  const { data: elevationFeatureClasses } = useFeatureClasses()
+  // Relationships for a support structure (POLE or TOWER): backs both the "On this
+  // pole" attachment count and the Elevation tab's "does it carry a conductor?"
+  // gate. Count on the "On this pole" tab = every spatial_support attachment (all
+  // kinds, matching the list — not the map badge's point-only count). Shares the
+  // list's cached query.
+  const structureRels = useRelationships(
+    isSupportStructure ? selected?.featureClassCode : undefined,
+    isSupportStructure ? selected?.featureId : undefined,
+  )
+  const structureSupportLinks = (structureRels.data?.relationships ?? []).filter((r) => r.kind === "spatial_support")
+  const poleAttachmentCount = structureSupportLinks.length
+  // How many line conductors (circuits, not point attachments like a lamp) does
+  // this structure carry? The Elevation cross-section is a MULTI-circuit view — a
+  // bare structure, or one carrying a single conductor (a trivial crossarm), gets
+  // no tab; it earns one only at two or more.
+  const structureLineClasses = new Set(
+    (elevationFeatureClasses?.feature_classes ?? []).filter((c) => c.geometry_type === "line").map((c) => c.code),
+  )
+  const conductorLinkCount = structureSupportLinks.filter((r) => {
+    const other =
+      r.origin.feature_class === selected?.featureClassCode && r.origin.feature_id === selected?.featureId
+        ? r.destination
+        : r.origin
+    return structureLineClasses.has(other.feature_class)
+  }).length
+  const carriesMultipleConductors = conductorLinkCount >= 2
   // A service point can host meters: it gets a "Meters" tab (list + attach).
   const isServicePoint = selected?.featureClassCode === "SERVICE_POINT"
   const [circuitSourceOpen, setCircuitSourceOpen] = useState(false)
@@ -3466,8 +3550,12 @@ export function FeaturePanel() {
       // shape -- including the land polygons (easement/parcel/corridor/vegetation),
       // which are network_role 'none', so it is NOT gated on a network role.
       (tab.id !== "spatial" || canReadFeatures) &&
-      // Street lights (pole-mounted lamps) only exist on a POLE -- list + attach.
+      // The "On this pole" attachment list only applies to a POLE.
       (tab.id !== "streetlights" || (isPole && canReadFeatures)) &&
+      // The Elevation cross-section applies to a support structure (POLE / TOWER)
+      // carrying two or more conductors — it's a multi-circuit view, so a bare or
+      // single-conductor structure gets no tab.
+      (tab.id !== "elevation" || (isSupportStructure && canReadFeatures && carriesMultipleConductors)) &&
       // Meters ride a SERVICE_POINT -- list + attach.
       (tab.id !== "meters" || (isServicePoint && canReadFeatures)) &&
       (tab.id !== "tags" || canReadTags),
@@ -4010,6 +4098,12 @@ export function FeaturePanel() {
                             Load-growth forecast…
                           </DropdownMenuItem>
                         )}
+                        {studyOK("load_flow") && (
+                          <DropdownMenuItem onSelect={armLoadAllocation}>
+                            <Scale className="size-4" />
+                            Load allocation…
+                          </DropdownMenuItem>
+                        )}
                         {studyOK("volt_var") && (
                           <DropdownMenuItem onSelect={armVoltVar}>
                             <Gauge className="size-4" />
@@ -4173,7 +4267,7 @@ export function FeaturePanel() {
 
       {!minimized && (
       <div className="flex min-h-0 flex-1">
-        <div className="scrollbar-thin bg-muted/40 flex w-32 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[oklch(0.45_0.10_252)]/10 dark:border-primary/10 p-1">
+        <div className="scrollbar-thin bg-muted/40 flex w-36 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[oklch(0.45_0.10_252)]/10 dark:border-primary/10 p-1">
           {visibleTabs.map((tab) => {
             // Terminals/Relationships unmount when the active tab
             // changes (see below) -- switching away mid-edit would
@@ -4204,6 +4298,11 @@ export function FeaturePanel() {
               >
                 <tab.icon className="size-3.5 shrink-0" />
                 {tab.label}
+                {tab.id === "streetlights" && poleAttachmentCount > 0 && (
+                  <span className="bg-muted-foreground/15 ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
+                    {poleAttachmentCount}
+                  </span>
+                )}
               </button>
             )
           })}
@@ -4229,7 +4328,8 @@ export function FeaturePanel() {
               {activeTab === "operations" && <OperationsTab />}
               {activeTab === "safety" && <SafetyTab />}
               {activeTab === "spatial" && <SpatialTab />}
-              {activeTab === "streetlights" && <StreetLightsTab />}
+              {activeTab === "streetlights" && <PoleAttachmentsTab />}
+              {activeTab === "elevation" && <TowerElevationTab />}
               {activeTab === "meters" && <ServicePointMetersTab />}
               {activeTab === "tags" && <TagsTab />}
               {activeTab === "files" && (

@@ -41,6 +41,11 @@ func Handler() http.HandlerFunc { return defaultHub.Handler() }
 // Publish delivers one event to the user's live connections, via the default hub.
 func Publish(userID, eventType string, data any) { defaultHub.Publish(userID, eventType, data) }
 
+// Broadcast delivers one event to EVERY live connection, via the default hub -- for
+// a shared control-room surface (the alarm annunciator) that every operator sees,
+// not a per-user notification.
+func Broadcast(eventType string, data any) { defaultHub.Broadcast(eventType, data) }
+
 // subscribe registers a connection for userID and returns it plus an unsubscribe
 // func (which the connection's handler must defer).
 func (h *Hub) subscribe(userID string) (chan []byte, func()) {
@@ -87,6 +92,27 @@ func (h *Hub) Publish(userID, eventType string, data any) {
 		select {
 		case ch <- payload:
 		default:
+		}
+	}
+}
+
+// Broadcast delivers one event to every live connection of every user. Non-blocking
+// (a full buffer drops the event, reconciled by the client's poll), same as Publish.
+// For a shared surface -- the alarm annunciator -- where every operator's view updates
+// on any change, rather than a message aimed at one user.
+func (h *Hub) Broadcast(eventType string, data any) {
+	payload, err := json.Marshal(map[string]any{"type": eventType, "data": data})
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, conns := range h.subs {
+		for ch := range conns {
+			select {
+			case ch <- payload:
+			default:
+			}
 		}
 	}
 }

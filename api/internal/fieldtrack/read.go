@@ -86,8 +86,10 @@ type TrackPoint struct {
 	RecordedAt time.Time `json:"recorded_at"`
 	Longitude  float64   `json:"longitude"`
 	Latitude   float64   `json:"latitude"`
-	AccuracyM  *float64  `json:"accuracy_m"`
-	SpeedMPS   *float64  `json:"speed_mps"`
+	// bun's name deriver yields "accuracym" (no underscore before a trailing
+	// single capital), so pin the column explicitly or the scan can't map it.
+	AccuracyM *float64 `bun:"accuracy_m" json:"accuracy_m"`
+	SpeedMPS  *float64 `json:"speed_mps"`
 }
 
 // Waypoint is one located edit projected to lon/lat, with the feature it changed.
@@ -99,7 +101,7 @@ type Waypoint struct {
 	RecordedAt   time.Time `json:"recorded_at"`
 	Longitude    float64   `json:"longitude"`
 	Latitude     float64   `json:"latitude"`
-	AccuracyM    *float64  `json:"accuracy_m"`
+	AccuracyM    *float64  `bun:"accuracy_m" json:"accuracy_m"`
 }
 
 // Trail is one session's full picture: the ordered breadcrumb line and the located

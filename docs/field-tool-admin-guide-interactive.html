@@ -277,7 +277,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>Field Admin</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · Pieces</a><a href="#c2">2 · Access</a><a href="#c3">3 · Packs</a><a href="#c4">4 · Scaling</a><a href="#c5">5 · Review</a><a href="#c6">6 · Shared packs</a><a href="#c7">7 · Troubleshooting</a>
+      <a href="#c1">1 · Pieces</a><a href="#c2">2 · Access</a><a href="#c3">3 · Packs</a><a href="#c4">4 · Scaling</a><a href="#c5">5 · Review</a><a href="#c6">6 · Field trails</a><a href="#c7">7 · Shared packs</a><a href="#c8">8 · Troubleshooting</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -323,6 +323,45 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
   <h3>2.1 Signing crews in</h3>
   <p>Crews sign in with <b>email + password</b> on the app’s <b>Connection</b> screen, which exchanges them for a long-lived device token behind the scenes — they never handle a token. A crew member needs a <b>user account</b> (created the normal way in the web app) and the permissions below. There is also a lower-level path — minting an API token directly (<code>task authadmin-mint-token EMAIL=… NAME=field-tablet</code>) and pasting it — but the email/password login is the normal route.</p>
 
+  <h3>2.1a Signing in with SSO (Microsoft / Azure)</h3>
+  <div class="tip"><b>Full reference</b> The dedicated <b>Field App Authentication &amp; SSO</b> guide (<code>field-sso-guide-interactive.html</code>) covers the flow hop-by-hop, the token model, deployment config, dev/device testing, troubleshooting and the security model — with its own interactive widgets. This is the admin summary.</div>
+  <p>If your org uses SSO, crews tap <b>Sign in with Microsoft</b> instead of a password — the <b>same Azure sign-in the web app uses</b>, same accounts, same directory. The password goes to <b>Microsoft, never to VoltEdge</b>; a “password incorrect” message is a Microsoft/account matter (reset it at <code>myaccount.microsoft.com</code>), not a VoltEdge one.</p>
+  <p>SSO <b>never auto-creates accounts</b>. To enrol a mobile-only SSO user, do two things: <b>(1)</b> create the user with <b>email = their Microsoft email</b> — they must match, that’s the link — and <b>(2)</b> give them a role with <span class="perm">field:login</span>. You set <b>no VoltEdge password</b>; the <b>first</b> Microsoft sign-in auto-links the identity. So a field SSO login passes <b>two gates, in order</b> — Microsoft <em>authenticates</em>, then VoltEdge <em>authorises</em>:</p>
+  <div class="widget" id="w2s">
+    <div class="w-head"><span class="eyebrow">Interactive · 2a</span><h4>Does this Microsoft sign-in get into the field app?</h4><span style="flex:1"></span><button class="btn" id="w2s-reset">Reset</button></div>
+    <div class="w-bar"><span class="lab">Microsoft says</span><div class="seg" id="w2s-ms"></div></div>
+    <div class="w-bar"><label class="tog"><input type="checkbox" id="w2s-acct" checked> VoltEdge account exists (matching email)</label><label class="tog"><input type="checkbox" id="w2s-perm" checked> has <code>field:login</code></label></div>
+    <div class="w-body"><div id="w2s-out"></div></div>
+  </div>
+  <script>
+  (function(){
+    var out=document.getElementById('w2s-out'); if(!out) return;
+    var seg=document.getElementById('w2s-ms');
+    var acct=document.getElementById('w2s-acct'), perm=document.getElementById('w2s-perm');
+    var MS=[['ok','password + MFA OK'],['pw','password wrong'],['mfa','MFA not completed']];
+    var ms='ok';
+    function drawSeg(){ seg.innerHTML=''; MS.forEach(function(s){ var b=document.createElement('button'); b.type='button'; b.textContent=s[1]; b.setAttribute('aria-pressed', ms===s[0]?'true':'false'); b.onclick=function(){ ms=s[0]; drawSeg(); render(); }; seg.appendChild(b); }); }
+    function render(){
+      var cls='bad', msg;
+      if(ms!=='ok'){ msg='<b>Microsoft rejected the sign-in</b> ('+(ms==='pw'?'password incorrect':'MFA not completed')+'). VoltEdge is never reached — the password never touches VoltEdge, so this is an account matter on the Microsoft side.'; }
+      else if(!acct.checked){ msg='Microsoft accepted, but <b>no VoltEdge account</b> exists for this email. <span class="no">“no VoltEdge account exists for this identity; ask an administrator to provision one.” → create the user with the matching email.</span>'; }
+      else if(!perm.checked){ msg='Account found, but it lacks <code>field:login</code>. <span class="no">“this account does not have field-app access.” → grant a field role.</span>'; }
+      else { cls='good'; msg='<b>Signed in.</b> The first login links the Microsoft identity to the account; the device receives an access + refresh token.'; }
+      out.innerHTML='<div class="fbox '+cls+'" style="padding:10px 12px">'+(cls==='good'?'✓ ':'✗ ')+msg+'</div>';
+    }
+    acct.onchange=render; perm.onchange=render;
+    document.getElementById('w2s-reset').onclick=function(){ ms='ok'; acct.checked=true; perm.checked=true; drawSeg(); render(); };
+    drawSeg(); render();
+  })();
+  </script>
+  <div class="tbl"><table>
+    <tr><th>Gate</th><th>Checks</th><th>Failure you’ll see</th></tr>
+    <tr><td><b>Microsoft</b></td><td>the password / MFA (Microsoft’s own)</td><td>“password incorrect” on the Microsoft page</td></tr>
+    <tr><td><b>VoltEdge</b></td><td>a user with that email <b>and</b> <code>field:login</code></td><td>“no VoltEdge account…” (not provisioned) or “no field-app access” (missing <code>field:login</code>)</td></tr>
+  </table></div>
+  <p><b>Tokens.</b> A password <em>or</em> SSO login mints a short-lived <b>access token</b> (~24h) plus a long-lived <b>refresh token</b> the device swaps automatically — crews don’t re-authenticate daily, and offline work is unaffected (the refresh outlives long offline stretches). Signing out revokes the refresh token; revoking the user cuts off both web and field.</p>
+  <p><b>Server setup (one-time).</b> The field app runs SSO against the <b>API</b> directly, so: register <code>&lt;api-origin&gt;/auth/oidc/azuread/callback</code> in Azure <b>alongside</b> your web redirect (keep both), set <code>FIELD_SSO_WEB_ORIGIN</code> to that API origin, and apply migration <b>0191</b>. Your web SSO config is untouched. If the button doesn’t appear, the app shows a diagnostic with the exact reason — it discovers providers at runtime from the API.</p>
+
   <h3>2.2 The permissions that gate the field tool</h3>
   <p>A crew member’s RBAC decides both <em>whether</em> they can use the field tool and <em>what their packs contain</em>. Crucially, these are <b>frozen into the pack when it is built</b>, from the requester’s RBAC at that moment. So if a pack is missing a work board or won’t let a crew connect features, check their permissions — then they must <b>rebuild</b> to pick up the change. Try it: build a pack, then change the permissions.</p>
   <div class="widget" id="w2">
@@ -356,12 +395,13 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <tr><td><code>admin:field-packs</code></td><td>Manage <b>everyone’s</b> packs (list / disable / delete) and administer shared cells</td></tr>
     <tr><td><code>sync:review</code></td><td><b>View</b> the sync-review queue</td></tr>
     <tr><td><code>sync:post</code></td><td><b>Act</b> on held edits (post / reject / resolve conflicts, set policy)</td></tr>
-    <tr><td><code>field:tracks:read</code></td><td><b>View</b> field workers’ movement trails and located edits (the Field trails map, Chapter 5)</td></tr>
+    <tr><td><code>field:tracks:read</code></td><td><b>View</b> field workers’ movement trails and located edits (the Field trails map, Chapter 6)</td></tr>
   </table></div>
   <p>The review surface is <b>method-aware</b>: reading it (<code>GET</code>) needs <code>sync:review</code>, every change needs <code>sync:post</code>. Switch to <b>Sam</b> in Chapter 5 to feel the difference.</p>
   <h4 style="margin-top:20px">Chapter summary</h4>
   <ul>
-    <li>Crews sign in with email + password; a device token is minted behind the scenes.</li>
+    <li>Crews sign in with email + password, or <b>Sign in with Microsoft</b> (SSO); a device access + refresh token is minted behind the scenes.</li>
+    <li>SSO never auto-creates accounts: enrol a mobile SSO user by creating the account (<b>matching email</b>) + granting <code>field:login</code>; the first Microsoft login links the identity.</li>
     <li>Pack contents are decided by the crew’s <code>*:read</code> permissions <b>at build time</b> and frozen; grant a permission, then <b>rebuild</b>.</li>
     <li><code>features:write</code> is what lets edits sync back; territory scope is re-enforced when the server applies each edit.</li>
     <li>Admin work needs <code>admin:field-packs</code> (packs, cells) and <code>sync:review</code> / <code>sync:post</code> (the QA queue).</li>
@@ -429,7 +469,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <li><b>Put PgBouncer in front of Postgres.</b> At high concurrency the single biggest limit is database connections; transaction pooling is effectively mandatory. (See the Production Deployment &amp; Scaling guide.)</li>
     <li><b>Raise the concurrencies and run replicas.</b> Both workers claim work with <code>FOR UPDATE SKIP LOCKED</code>, so you can run <b>several <code>cmd/fieldsync</code> replicas</b> safely; they share the build and sync queues. Size build concurrency to CPU cores (tippecanoe) and sync concurrency to your PgBouncer pool.</li>
     <li><b>If download and upload surges overlap</b> (staggered or round-the-clock shifts), consider a <b>read replica for pack builds</b> — the build is read-only and the heaviest DB consumer, so moving it off the primary protects the sync/edit path.</li>
-    <li><b>For a geographically clustered fleet</b>, the biggest lever is <b>not</b> building the same area many times. If 60 crews cover one depot, that is 60 identical builds. <b>Shared packs (Chapter 6)</b> pre-build a depot once as a <em>cell</em>, overnight, and every crew covering it picks up the same build.</li>
+    <li><b>For a geographically clustered fleet</b>, the biggest lever is <b>not</b> building the same area many times. If 60 crews cover one depot, that is 60 identical builds. <b>Shared packs (Chapter 7)</b> pre-build a depot once as a <em>cell</em>, overnight, and every crew covering it picks up the same build.</li>
   </ol>
 
   <h4>4.2a Worked sizing example</h4>
@@ -537,7 +577,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
 
   <h3>5.4 How held edits queue — one device, one lane <span class="tag en" style="vertical-align:middle">code-verified</span></h3>
   <p>Edits from one device always apply <b>in the order the device captured them</b>. The worker enforces this with a per-device single-flight rule: it will not hand out an edit while an <b>earlier</b> edit from the <b>same device</b> is still <em>active</em> — <code>received</code>, <code>applying</code> with a live lease, <b><code>pending_review</code></b>, or <b><code>conflict</code></b>.</p>
-  <div class="caution"><b>The consequence catches administrators out.</b> A held edit blocks every <em>later</em> edit from that device — <b>even edits to classes set to <code>auto</code></b>. If a crew’s first edit is on a <code>review</code> class and nobody posts it, their next ten edits (on any class) sit <code>received</code> behind it, and nothing from that tablet reaches the office. An unresolved conflict does the same. Run scenario ① in Interactive 9: the transformer and RMU edits never apply until the conductor edit is posted.</div>
+  <div class="caution"><b>The consequence catches administrators out.</b> A held edit blocks every <em>later</em> edit from that device — <b>even edits to classes set to <code>auto</code></b>. If a crew’s first edit is on a <code>review</code> class and nobody posts it, their next ten edits (on any class) sit <code>received</code> behind it, and nothing from that tablet reaches the office. An unresolved conflict does the same. Run scenario ① in Interactive 9, or step through the whole failure — block, reject, reclaim, drain — in the <b>guided run</b> below (<em>Break sync on purpose</em>).</div>
   <div class="tbl"><table>
     <tr><th>Edit status</th><th>Meaning</th><th>Blocks the device’s later edits?</th></tr>
     <tr><td><code>received</code></td><td>Captured, waiting for a worker</td><td>Yes (earlier and not yet applied)</td></tr>
@@ -560,12 +600,14 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <li>If the check itself errors, the worker logs it and <b>applies the edit anyway</b> — detection fails open, so don’t treat it as a hard lock on a contended class.</li>
   </ul>
 
-  <h3>Field trails — where the work was done</h3>
-  <p>The rest of this chapter reviews <b>what</b> a crew changed. The <b>field trail</b> reviews <b>where</b> they were while they did it — so you can answer the questions a desk review can’t: <em>were they actually at the site? how did they get there? where did they pass?</em></p>
-  <p><b>What the device records.</b> While a crew has a pack open, the app quietly records two things off the GPS, with <b>no action from the crew</b>: a <b>movement trail</b> (a breadcrumb every ~20&nbsp;m or 30&nbsp;s — the path they walked/drove) and a <b>located edit</b> on <b>every</b> save / update / delete / connect / relate (the exact spot they stood for that change). The located edits ride the <b>same durable sync channel as the edits themselves</b>, so a change made deep offline keeps its location; the trail uploads on the next sync. Recording is <b>foreground-only</b> — it runs while the app is open and uses <b>no background-location permission</b>, so a pocketed phone leaves a gap in the trail (the edits are still located).</p>
-  <p><b>Seeing it.</b> Open <b>Field trails</b> in the web app (<code>/field-tracks</code>), gated on <span class="perm">field:tracks:read</span>. Pick a <b>worker</b>, narrow by <b>date</b>, choose a <b>session</b>: the map draws the trail as a line (green start, blue end) with the located edits as pins — <b>amber</b> create/update, <b>red</b> delete, labelled by action. Each edit lists below the map; <b>Locate on map</b> jumps to that feature to cross-check the change against where it was made.</p>
-  <p><b>Access &amp; privacy.</b> <span class="perm">field:tracks:read</span> is a <b>supervisor</b> capability — granted to <code>admin</code> and <code>break-glass-admin</code> out of the box; grant it to your supervisor roles. A crew <b>records its own trail</b> under its ordinary <span class="perm">features:write</span> (no extra grant); <b>seeing another worker’s trail is the privileged act</b> this permission gates. The app shows crews <b>no in-app notice</b> that they’re recorded, so <b>tell your crews</b> fieldwork location is logged — some jurisdictions require disclosing staff location tracking.</p>
-  <p>The trail lives in <code>ops.field_track_points</code>; the located edits in <code>ops.field_action_waypoints</code> (one row per edit). <b>Known gaps today:</b> offline <b>WAM</b> and <b>fault</b> captures are not yet location-stamped (the GIS edits are), and the trail is foreground-only.</p>
+  <h3>Break sync on purpose — a guided run <span class="tag en" style="vertical-align:middle">code-verified</span></h3>
+  <p>One device, three edits. Step through it and watch the three things that confuse admins happen in order: a <b>held edit stalls the whole lane</b>, a <b>failed edit quarantines</b> with no retry, and a <b>crashed worker self-reclaims</b> — then the lane drains. Nothing here is a slow worker; each is its own fix.</p>
+  <div class="widget" id="w-sew">
+    <div class="w-head"><span class="eyebrow">Guided walkthrough</span><h4>Reject · reclaim · unblock</h4></div>
+    <div class="w-bar"><button class="btn pri" id="sew-next">Start</button><button class="btn" id="sew-reset">Reset</button><span id="sew-pos" class="muted" style="font-size:12.5px"></span></div>
+    <div class="w-body" id="sew-note" style="font-size:13.5px"></div>
+    <div class="w-body" id="sew-list" style="border-top:1px solid var(--line);padding:0"></div>
+  </div>
 
   <h4>Chapter summary</h4>
   <ul>
@@ -573,13 +615,42 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <li>Post releases a held edit; Reject quarantines it with a reason the crew sees; conflicts resolve as Apply anyway or Keep.</li>
     <li><b>One device, one lane:</b> a held edit or unresolved conflict blocks all of that device’s later edits.</li>
     <li>A conflict compares the live row’s last change with the pack snapshot the edit was made against — updates and deletes only, and only if the edit carries a stamp.</li>
-    <li><b>Field trails</b> (<code>/field-tracks</code>, <span class="perm">field:tracks:read</span>) review <b>where</b> work was done — the movement trail plus a located stamp on every edit.</li>
   </ul>
 </section>
 
 <!-- ============ CH6 ============ -->
 <section class="ch" id="c6">
-  <div class="ch-head"><div class="ch-num">06</div><h2>Pre-building shared packs</h2><p>Build an area once; let every crew that covers it pick up the same build.</p></div>
+  <div class="ch-head"><div class="ch-num">06</div><h2>Field trails — where the work was done</h2><p>The review queue shows <em>what</em> changed. The trail shows <em>where</em> the crew was while they changed it.</p></div>
+  <p>Chapters 2–5 are about <b>what</b> a crew changed. This one is about <b>where</b> they were while they did it — the question a desk review can’t answer: <em>were they actually at the site? how did they get there?</em> It’s a distinct capability, with its own page (<code>/field-tracks</code>), its own permission, and — because it logs <b>staff location</b> — its own compliance weight.</p>
+  <p><b>What the device records.</b> While a crew has a pack open, the app quietly records two things off the GPS, with <b>no action from the crew</b>: a <b>movement trail</b> (a breadcrumb every ~20&nbsp;m or 30&nbsp;s — the path they walked/drove) and a <b>located edit</b> on <b>every</b> change — a feature save / update / delete / connect / relate, <b>and</b> a WAM or fault capture (defect, inspection, fault event) — the exact spot they stood for that change. Located edits ride the <b>same durable sync channel as the edits themselves</b>, so a change made deep offline keeps its location; the trail uploads on the next sync. Recording is <b>foreground-only</b> — no background-location permission — so a pocketed phone leaves a gap in the trail (the edits are still located).</p>
+
+  <p>Drag the slider — or press Play — to replay a session. The trail draws as the crew moves, and each edit drops a located pin where they stood.</p>
+  <div class="widget" id="w-ft">
+    <div class="w-head"><span class="eyebrow">Guided walkthrough</span><h4>A field session — scrub the trail</h4></div>
+    <div class="w-bar"><button class="btn" id="ft-play">▶ Play</button><input type="range" id="ft-scrub" min="0" max="11" value="11" style="flex:1;min-width:160px"><span id="ft-clock" class="muted mono" style="font-size:12px"></span></div>
+    <div class="w-body" style="padding:12px">
+      <svg id="ft-svg" viewBox="0 0 400 210" style="width:100%;height:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px" role="img" aria-label="Field session trail"></svg>
+      <div id="ft-detail" style="margin-top:8px;font-size:13px;min-height:20px"></div>
+      <div class="muted" style="font-size:11.5px;margin-top:4px"><span style="color:var(--green,#16a34a)">●</span> start · <span style="color:var(--amber)">●</span> create/update · <span style="color:var(--red)">●</span> delete · <span style="color:var(--blue,#2563eb)">●</span> current position</div>
+    </div>
+  </div>
+
+  <p><b>Seeing it for real.</b> Open <b>Field trails</b> in the web app (<code>/field-tracks</code>), gated on <span class="perm">field:tracks:read</span>. Pick a <b>worker</b>, narrow by <b>date</b>, choose a <b>session</b>: the map draws exactly what the demo above sketches — the trail line and the located pins — and <b>Locate on map</b> jumps to the edited feature so you can cross-check the change against where it was made.</p>
+  <p><b>Access &amp; privacy.</b> <span class="perm">field:tracks:read</span> is a <b>supervisor</b> capability — granted to <code>admin</code> and <code>break-glass-admin</code> out of the box; grant it to your supervisor roles. A crew <b>records its own trail</b> under its ordinary <span class="perm">features:write</span> (no extra grant); <b>seeing another worker’s trail is the privileged act</b> this permission gates. The app shows crews <b>no in-app notice</b> that they’re recorded, so <b>tell your crews</b> fieldwork location is logged — some jurisdictions require disclosing staff location tracking.</p>
+  <p>The trail lives in <code>ops.field_track_points</code>; the located edits in <code>ops.field_action_waypoints</code> (one row per edit). <b>The one real caveat:</b> recording is <b>foreground-only</b> (no background-location permission), so a pocketed phone leaves gaps in the movement trail. WAM and fault captures <b>are</b> located now — stamped the same way GIS edits are, whenever the device has a GPS fix at capture.</p>
+
+  <h4>Chapter summary</h4>
+  <ul>
+    <li>The device records a <b>movement trail</b> (breadcrumbs) plus a <b>located edit</b> on every GIS change — automatically, foreground-only, over the durable sync channel.</li>
+    <li>Review it on <b>Field trails</b> (<code>/field-tracks</code>), gated on <span class="perm">field:tracks:read</span> — a <b>supervisor</b> capability.</li>
+    <li>It logs <b>staff location</b>: crews get no in-app notice, so disclose it where your jurisdiction requires.</li>
+    <li>WAM &amp; fault captures <b>are</b> located too (stamped like GIS edits, when a GPS fix exists). The real caveat is <b>foreground-only</b> recording — a pocketed phone leaves movement-trail gaps.</li>
+  </ul>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Pre-building shared packs</h2><p>Build an area once; let every crew that covers it pick up the same build.</p></div>
   <p>For a clustered fleet, the biggest waste is many crews each building the <b>same</b> area. Shared packs fix that: you pre-build an area <b>once</b> as a reusable <b>cell</b>, and every crew whose access covers it <b>picks up that single build</b> — instantly, no build wait — and reuses it for as long as the job runs. It is optional: where coverage is unpredictable (roaming crews into new ground), define no cells and crews keep self-serving their own packs. The two coexist.</p>
   <div class="tip"><b>How it’s managed today.</b> Cells and their usage are driven through the Field Packs <b>admin API</b> (<code>/field-packs/cells…</code> under <code>cmd/server</code>, gated on <span class="perm">admin:field-packs</span> + CSRF). A web UI for cells is planned; until then these are operator/API actions, so each widget below shows the request it stands for.</div>
 
@@ -704,8 +775,8 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
 </section>
 
 <!-- ============ CH7 ============ -->
-<section class="ch" id="c7">
-  <div class="ch-head"><div class="ch-num">07</div><h2>Troubleshooting &amp; quick reference</h2><p>Symptom first, then the live check against the simulations you built.</p></div>
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Troubleshooting &amp; quick reference</h2><p>Symptom first, then the live check against the simulations you built.</p></div>
   <p>Search a symptom or pick one. Each has the likely cause and the action; the five marked <span class="pill sec">live check</span> run against the state of the simulations above — the review queue, the pickup gate and the maintenance loop — so you can try the diagnosis after breaking something on purpose.</p>
   <div class="widget" id="w7">
     <div class="w-head"><span class="eyebrow">Interactive · 17</span><h4>Symptom explorer</h4></div>
@@ -756,7 +827,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
 </section>
 </div>
 
-<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Field Tool Admin — interactive edition. Every widget runs on a simulated Oakwood back-office held entirely in your browser; nothing here talks to a server and nothing here changes your real packs, queue or cells. The statuses, gate order, scheduler and retention rules mirror the field engine’s source. · <b>Last updated 2026-10-28</b></p></footer>
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Field Tool Admin — interactive edition. Every widget runs on a simulated Oakwood back-office held entirely in your browser; nothing here talks to a server and nothing here changes your real packs, queue or cells. The statuses, gate order, scheduler and retention rules mirror the field engine’s source. · <b>Last updated 2026-11-03</b></p></footer>
 
 </div>
 <script>
@@ -1004,6 +1075,58 @@ const RV=(function(){
   V.on(paint); paint(); onPersona(paint);
 })();
 
+/* ===== W-SEW: guided sync-error walkthrough (self-contained; does not touch RV) ===== */
+(function(){
+  const base=()=>[
+    {seq:1,feat:'MV-1',kind:'update',cls:'MV_CONDUCTOR',status:'received',msg:''},
+    {seq:2,feat:'TX-9',kind:'update',cls:'DIST_XFMR',status:'received',msg:''},
+    {seq:3,feat:'RMU-3',kind:'update',cls:'RMU',status:'received',msg:''}];
+  let ops=base(), i=-1;
+  const chip=s=>{ const m={received:'sec',applying:'sec',pending_review:'stale',applied:'fresh',rejected:'stale'}; const red=s==='rejected',amb=s==='applying'; return `<span class="pill ${m[s]||''}" style="${red?'background:var(--red-tint);color:var(--red);border:1px solid var(--red)':amb?'background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)':''}">${s}</span>`; };
+  const steps=[
+    ['<b>Kofi synced three edits</b> from one tablet. <code>MV_CONDUCTOR</code> is on <b>review</b>; <code>DIST_XFMR</code> and <code>RMU</code> are <b>auto</b>. Nothing has run yet — all three are <code>received</code>. Press <b>Next</b> to run the worker.', ()=>{}],
+    ['<b>Head-of-line blocking.</b> The worker holds #1 for review (<code>pending_review</code>). One device has <b>one lane</b>, so #2 and #3 park <code>received</code> <b>behind it — even though their classes are auto</b>. To the crew it looks like <em>nothing</em> synced. The fix is always the same: clear their <b>oldest</b> held edit.', o=>{ o[0].status='pending_review'; }],
+    ['<b>The reviewer posts #1 — but it fails to apply.</b> It breaks a connectivity rule (wrong conductor type for the span). An apply failure is <b>terminal</b>: the worker quarantines it as <code>rejected</code> with the error as its reason — <b>no retry</b> (the “poison-op” rule, so one bad edit can’t loop forever). It now stops blocking the lane; the crew re-does it from “needs attention”.', o=>{ o[0].status='rejected'; o[0].msg='rejected on apply: wrong conductor type for this span'; }],
+    ['<b>The lane frees.</b> With #1 cleared, the worker claims #2 and applies it, then claims #3 — but mid-apply the <b>worker crashes</b> and loses its lease. #3 is left <code>applying</code>. It is <b>not lost</b>.', o=>{ o[1].status='applied'; o[2].status='applying'; }],
+    ['<b>Self-healing reclaim.</b> #3’s lease lapses (~60&nbsp;s, <code>SYNC_JOB_LEASE</code>) and a healthy worker <b>reclaims</b> and applies it — no manual action, no lost edit. The tablet is fully drained.', o=>{ o[2].status='applied'; }],
+    ['<b>Done.</b> #2 and #3 applied; #1 is quarantined for the crew to fix. Three lessons: a held edit <b>blocks the whole device</b> (clear the oldest first) · an apply failure <b>quarantines with a reason</b> (read it, re-capture) · a crash <b>self-reclaims after the lease</b> (wait a minute). <b>Reset</b> to run it again.', ()=>{}]];
+  function render(){
+    const blockedBy=o=>{ if(o.status!=='received') return null; return ops.find(x=>x.seq<o.seq&&['received','applying','pending_review'].includes(x.status))||null; };
+    $('#sew-list').innerHTML=ops.map(o=>{ const b=blockedBy(o); return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 14px;border-top:1px solid var(--line2);font-size:13px"><span class="mono">#${o.seq}</span><span class="mono">${o.kind} ${o.feat}</span><span class="muted mono" style="font-size:11.5px">${o.cls}</span>${chip(o.status)}${b?`<span style="color:var(--amber);font-size:12px">⛔ blocked by #${b.seq}</span>`:''}${o.msg?`<div class="muted" style="flex-basis:100%;font-size:11.5px">${o.msg}</div>`:''}</div>`; }).join('');
+    $('#sew-note').innerHTML = i<0 ? 'Press <b>Start</b> to walk a sync failure end to end — no real packs or queue are touched.' : steps[i][0];
+    $('#sew-pos').textContent = i<0?'':`step ${i+1} / ${steps.length}`;
+    const nx=$('#sew-next'); nx.textContent = i<0?'Start':i>=steps.length-1?'Done':'Next'; nx.disabled = i>=steps.length-1;
+  }
+  $('#sew-next').onclick=()=>{ if(i>=steps.length-1) return; i++; steps[i][1](ops); render(); };
+  $('#sew-reset').onclick=()=>{ ops=base(); i=-1; render(); };
+  render();
+})();
+
+/* ===== W-FT: field-trail scrubber (self-contained) ===== */
+(function(){
+  const scr=$('#ft-scrub'); if(!scr) return;
+  const pts=[[30,180,0],[70,152,3],[96,120,6],[128,112,9],[158,134,13],[194,118,17],[224,96,21],[256,102,25],[290,80,30],[320,96,34],[350,72,39],[374,92,44]];
+  const edits={2:['create','SL-114','street light — new install logged'],5:['update','P-77','pole — condition rated Fair'],8:['delete','MV-12','old span — removed, replaced'],10:['update','TX-9','transformer — oil level noted']};
+  const svg=$('#ft-svg'), det=$('#ft-detail'), clk=$('#ft-clock'), play=$('#ft-play');
+  const hm=m=>String(6+Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+  let timer=null;
+  function render(){
+    const k=+scr.value;
+    const line=pts.slice(0,k+1).map(p=>p[0]+','+p[1]).join(' ');
+    let pins='', last=null;
+    Object.keys(edits).map(Number).sort((a,b)=>a-b).forEach(ii=>{ if(ii<=k){ const row=edits[ii],a=row[0],feat=row[1],note=row[2],p=pts[ii],red=a==='delete',cur=ii===k; pins+=`<circle cx="${p[0]}" cy="${p[1]}" r="${cur?7:5}" fill="${red?'var(--red)':'var(--amber)'}" stroke="#fff" stroke-width="1.5"></circle>`; last={a,feat,note,ii}; } });
+    const h=pts[k];
+    svg.innerHTML=`<polyline points="${line}" fill="none" stroke="var(--line2)" stroke-width="2.5"></polyline>`+
+      `<circle cx="${pts[0][0]}" cy="${pts[0][1]}" r="5" fill="var(--green,#16a34a)" stroke="#fff" stroke-width="1.5"></circle>`+pins+
+      `<circle cx="${h[0]}" cy="${h[1]}" r="5" fill="var(--blue,#2563eb)" stroke="#fff" stroke-width="1.5"></circle>`;
+    clk.textContent='⏱ '+hm(pts[k][2])+' · breadcrumb '+(k+1)+'/'+pts.length;
+    det.innerHTML = last ? `<b style="color:${last.a==='delete'?'var(--red)':'var(--amber)'}">●</b> <b>${hm(pts[last.ii][2])}</b> — <b>${last.a}</b> ${last.feat} <span class="muted">(${last.note})</span>` : '<span class="muted">Just movement so far — no edit yet.</span>';
+  }
+  scr.oninput=render;
+  play.onclick=()=>{ if(timer){ clearInterval(timer); timer=null; play.textContent='▶ Play'; return; } if(+scr.value>=+scr.max) scr.value=0; play.textContent='❚❚ Pause'; timer=setInterval(()=>{ if(+scr.value>=+scr.max){ clearInterval(timer); timer=null; play.textContent='▶ Play'; render(); return; } scr.value=+scr.value+1; render(); },650); };
+  render();
+})();
+
 /* ===== shared-packs store ===== */
 const FP=(function(){
   const S={enf:true,sub:[],on:f=>S.sub.push(f),emit:()=>S.sub.forEach(f=>f()),id:10,
@@ -1176,7 +1299,9 @@ const hAgo=h=>h==null?'—':h<1?'just now':h<48?Math.round(h)+' h ago':Math.roun
    ['Conflicts aren’t being detected on a class','Detection is per class and only checks update/delete edits that carry a snapshot stamp (§5.5). It also fails open if the check errors — don’t rely on it as a hard lock.',null,'§5.5'],
    ['A cell is listed on the device as “not yet available”','It’s active and covered but has no succeeded version. Build it, or wait for the schedule.',null,'Interactive 11'],
    ['A crew shows as “quiet” right after re-pulling','“Quiet” is per exact version. They haven’t yet synced anything made against the version they just picked up.',null,'Interactive 15'],
-   ['Sam can see the queue but the Post buttons are greyed','Reading the queue needs <code>sync:review</code>; every change needs <code>sync:post</code>. Grant it if Sam should act.',null,'Interactive 10']];
+   ['Sam can see the queue but the Post buttons are greyed','Reading the queue needs <code>sync:review</code>; every change needs <code>sync:post</code>. Grant it if Sam should act.',null,'Interactive 10'],
+   ['An edit has sat in <code>applying</code> for a while','A worker crashed or lost its lease mid-apply — the op isn’t lost. Its lease lapses (~60s, <code>SYNC_JOB_LEASE</code>) and another worker <b>reclaims</b> it automatically. Wait ~a minute; only investigate if it persists far past the lease (the sync worker pool is down).',null,'§5.4'],
+   ['An edit shows <code>superseded</code> — did the crew lose it?','No, and it isn’t an error: a <b>newer</b> edit to the same feature stepped in front, so the older one steps aside. The newest edit carries the change. Nothing to do.',null,'§5.4']];
   const live={
    hol:()=>{ const out=['Kofi','Ama'].map(d=>{ const held=RV.ops.filter(o=>o.dev===d&&(o.status==='pending_review'||o.status==='conflict')).sort((a,b)=>a.seq-b.seq)[0]; const stuck=held?RV.ops.filter(o=>o.dev===d&&o.seq>held.seq&&['received','pending_review','conflict'].includes(o.status)&&o!==held).length:0; return held?`<b>${d}</b>: oldest held edit is <b>#${held.seq}</b> (${held.status}, ${held.cls}) — <b>${stuck}</b> later edit${stuck===1?'':'s'} stuck behind it. Clear this one first.`:`<b>${d}</b>: no held edits — nothing is blocking this device.`; }); return out.join('<br>')+'<div class="muted" style="font-size:12px;margin-top:4px">Run scenario ① in Interactive 9 and press this again.</div>'; },
    gate:()=>FP.cells.map(c=>{ const crews=Object.keys(FP.crews); return `<b>${esc(c.name)}</b>${c.active?'':' (inactive)'}: `+crews.map(k=>{ const r=FP.covers(c,k); return `${k} ${r.ok?'✓':'✕ '+r.first}`; }).join(' · '); }).join('<br>'),

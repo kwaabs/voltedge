@@ -107,7 +107,11 @@ type sweptTree struct {
 // the weakly-meshed load flow (POST /analysis/meshed-load-flow) uses to solve
 // a radial base case it then closes by compensation (mesh.go). Every radial
 // caller passes nil and keeps the strict radial-only behaviour.
-func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV float64, closed map[node]bool, breaks *[]meshBreak) (*sweptTree, error) {
+// overrides (optional, load-allocation) forces specific nodes' own (P,Q) demand in
+// place of their as-designed demand_kw, keyed by feature id -- so a load flow can be
+// run against a MEASURED feeder load spread over the leaves rather than the model's
+// nameplate. Applied once, right after state resolution, before the sweep.
+func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV float64, closed map[node]bool, breaks *[]meshBreak, overrides map[string]demandOverride) (*sweptTree, error) {
 	if startRef.FeatureClass == "" || startRef.FeatureID == "" {
 		return nil, invalid("start.feature_class and start.feature_id are required")
 	}
@@ -137,6 +141,7 @@ func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV flo
 	if err != nil {
 		return nil, err
 	}
+	applyDemandOverrides(states, overrides)
 
 	backwardSweep(tr, states)
 
@@ -169,21 +174,57 @@ func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV flo
 // runLoadFlow is POST /analysis/load-flow: run the shared sweep and
 // format it into per-node voltage and per-branch loading.
 func runLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*loadFlowResponse, error) {
-	swept, err := runSweep(ctx, db, req.Start, req.NominalVoltageV, nil, nil)
+	// Optional load-allocation: spread a measured feeder-head load over the leaves and
+	// run the sweep against that instead of the model's as-designed demand_kw.
+	var overrides map[string]demandOverride
+	var allocResult *loadAllocationResult
+	if req.Allocation != nil {
+		ov, res, err := buildAllocationOverrides(ctx, db, req.Start, *req.Allocation)
+		if err != nil {
+			return nil, err
+		}
+		overrides, allocResult = ov, res
+	}
+
+	swept, err := runSweep(ctx, db, req.Start, req.NominalVoltageV, nil, nil, overrides)
 	if err != nil {
 		return nil, err
 	}
 
 	nodes, overloaded := formatResults(swept.tr, swept.states, swept.classCodes)
 
-	return &loadFlowResponse{
+	resp := &loadFlowResponse{
 		Start:           req.Start,
 		NominalVoltageV: swept.nominalV, // the base actually used (derived secondary at a transformer start)
 		Iterations:      sweepIterations,
 		Nodes:           nodes,
 		Barriers:        toFeatureRefs(swept.barrierHits, swept.classCodes),
 		Overloaded:      overloaded,
-	}, nil
+	}
+	if allocResult != nil {
+		// How many allocated leaves actually matched a swept node -- the allocation's
+		// leaf walk and the sweep tree can diverge at a barrier, so this is honest coverage.
+		applied := 0
+		for n := range swept.states {
+			if _, ok := overrides[n.featureID]; ok {
+				applied++
+			}
+		}
+		resp.Allocation = &allocationSummary{
+			MeasuredKW:      allocResult.MeasuredKW,
+			MeasuredKVAR:    allocResult.MeasuredKVAR,
+			Basis:           allocResult.Basis,
+			BasisFallback:   allocResult.BasisFallback,
+			ScaleFactor:     allocResult.ScaleFactor,
+			LeafCount:       allocResult.LeafCount,
+			AppliedNodes:    applied,
+			UnmatchedLeaves: allocResult.LeafCount - applied,
+		}
+		if resp.Allocation.UnmatchedLeaves > 0 {
+			resp.Allocation.Note = "some allocated leaves are not in the swept tree (e.g. behind an open device); their load was not applied to this flow"
+		}
+	}
+	return resp, nil
 }
 
 // resolveNodeStates loads every visited node's live feature row once

@@ -1,5 +1,13 @@
 # Phase 56 — Packaged (movable) substation
 
+> **Superseded (2026-11): build record only.** The dedicated packaged-substation
+> engine described below (`api/internal/packagedsub`, `POST /packaged-substations`,
+> `metadata.packaged_substation_templates`) was consolidated into the generic assembly
+> engine. A packaged substation is now an ordinary `assembly_templates` kit placed via
+> `POST /assemblies`; the COMPACT recipe lives in
+> `seed/consolidated_assembly_templates.sql`. The `PACKAGED_SUBSTATION` class and its
+> behaviour are unchanged — only the placement plumbing moved.
+
 **Requested 2026-09-14** ("a movable substation that has everything — could be permanent or temporary"). This is the open "Point 2 (packaged/container substations)" from Phase 45. A packaged substation (aka unit / compact / container / kiosk / skid / mobile secondary substation) is a factory-built enclosure that bundles, pre-wired, an MV switch + a distribution transformer + an LV board, and is placed and moved as ONE physical unit.
 
 ## Decisions (AskUserQuestion 2026-09-14)

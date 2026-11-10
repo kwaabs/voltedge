@@ -30,6 +30,13 @@ func IngestBreadcrumbsHandler(db *bun.DB) http.HandlerFunc {
 			writeErr(w, http.StatusUnauthorized, "missing or invalid bearer token")
 			return
 		}
+		// Org-wide tracking off: drop the trail. A backstop for a stale device that
+		// hasn't picked up the switch yet -- the device should already have stopped
+		// recording. Returns OK so the device clears its outbox rather than retrying.
+		if enabled, _ := TrackingEnabled(r.Context(), db); !enabled {
+			writeJSON(w, http.StatusOK, map[string]any{"accepted": 0, "tracking_disabled": true})
+			return
+		}
 		var req struct {
 			DeviceID string            `json:"device_id"`
 			Points   []BreadcrumbInput `json:"points"`
@@ -58,6 +65,66 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/sessions", listSessionsHandler(db))
 	r.Get("/sessions/{id}", getTrailHandler(db))
 	return r
+}
+
+// PolicyRoutes is the org-wide field-tracking switch (mounted behind a
+// method-aware gate: GET field:tracks:read to read it, PUT admin:field-packs to
+// set it -- viewing the policy is a supervisor act, flipping it a field-admin one):
+//
+//	GET /field-tracking/policy   {enabled}
+//	PUT /field-tracking/policy   {enabled} -> {enabled}
+func PolicyRoutes(db *bun.DB) chi.Router {
+	r := chi.NewRouter()
+	r.Get("/policy", getPolicyHandler(db))
+	r.Put("/policy", setPolicyHandler(db))
+	return r
+}
+
+func getPolicyHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		enabled, err := TrackingEnabled(r.Context(), db)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		disclosure, err := DisclosureEnabled(r.Context(), db)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "disclosure_enabled": disclosure})
+	}
+}
+
+// setPolicyHandler updates whichever of the two flags the body supplies (both are
+// optional pointers), then returns the resulting pair. Tracking = whether we record;
+// disclosure = whether the field app tells crews they're recorded.
+func setPolicyHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Enabled           *bool `json:"enabled,omitempty"`
+			DisclosureEnabled *bool `json:"disclosure_enabled,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, "request body is not valid JSON: "+err.Error())
+			return
+		}
+		if req.Enabled != nil {
+			if err := SetTrackingEnabled(r.Context(), db, *req.Enabled); err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		if req.DisclosureEnabled != nil {
+			if err := SetDisclosureEnabled(r.Context(), db, *req.DisclosureEnabled); err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		enabled, _ := TrackingEnabled(r.Context(), db)
+		disclosure, _ := DisclosureEnabled(r.Context(), db)
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "disclosure_enabled": disclosure})
+	}
 }
 
 func listWorkersHandler(db *bun.DB) http.HandlerFunc {

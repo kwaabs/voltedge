@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -322,23 +323,29 @@ function ContingencyRow({
   const problems = opt.violations.length + opt.overloaded.length
   return (
     <tr
-      onClick={() => useSelectionStore.getState().select(opt.tie.feature_class, opt.tie.feature_id, { focus: true })}
+      onClick={() => useSelectionStore.getState().locate(opt.tie.feature_class, opt.tie.feature_id, { focus: true })}
+      onDoubleClick={() => useSelectionStore.getState().select(opt.tie.feature_class, opt.tie.feature_id, { focus: true })}
       className={cn(
-        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0 select-none",
         opt.feasible && "bg-emerald-500/10 hover:bg-emerald-500/15",
         problems > 0 && "bg-destructive/10 hover:bg-destructive/15",
       )}
     >
       <td className="px-3 py-1.5">
-        <div className="flex items-center gap-1.5">
-          <span>{classNameFor(opt.tie.feature_class)}</span>
-          {opt.normal_state === "NORMALLY_OPEN" && (
-            <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-700" title="Declared normally-open point">
-              NOP
-            </span>
-          )}
+        <div className="flex items-start gap-1">
+          <FeatureInfoButton featureClass={opt.tie.feature_class} featureId={opt.tie.feature_id} className="-mt-0.5" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span>{classNameFor(opt.tie.feature_class)}</span>
+              {opt.normal_state === "NORMALLY_OPEN" && (
+                <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-700" title="Declared normally-open point">
+                  NOP
+                </span>
+              )}
+            </div>
+            <div className="text-muted-foreground font-mono text-xs">{shortId(opt.tie.feature_id)}</div>
+          </div>
         </div>
-        <div className="text-muted-foreground font-mono text-xs">{shortId(opt.tie.feature_id)}</div>
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap">
         {opt.restored_node_count > 0 ? (
@@ -379,7 +386,7 @@ function ContingencyRow({
                   e.stopPropagation()
                   useSelectionStore
                     .getState()
-                    .select(opt.limiting_element!.feature_class, opt.limiting_element!.feature_id, { focus: true })
+                    .locate(opt.limiting_element!.feature_class, opt.limiting_element!.feature_id, { focus: true })
                 }}
               >
                 {classNameFor(opt.limiting_element.feature_class)}

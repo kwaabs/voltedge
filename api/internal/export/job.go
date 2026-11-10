@@ -87,6 +87,13 @@ type ExportScope struct {
 	// requester's own id): only public features plus features authored by someone
 	// in this set are exported.
 	DraftAuthors []string `json:"draft_authors"`
+
+	// SyncTargetID, when set, marks this as an incremental CIM export for a named
+	// sync target (ops.cim_sync_targets): the runner produces the current full CIM
+	// model, diffs it against the target's stored baseline, and emits a CIM
+	// difference model (the first run with no baseline emits the full model). Only
+	// meaningful for Format=="cim". Rides the scope jsonb like the fields above.
+	SyncTargetID *string `json:"sync_target_id,omitempty"`
 }
 
 // enqueueExport inserts a queued geographic export job for requestedBy and

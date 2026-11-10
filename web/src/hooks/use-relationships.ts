@@ -16,6 +16,10 @@ export interface Relationship {
   origin: RelationshipEndpoint
   destination: RelationshipEndpoint
   established_at: string
+  // Optional free-form metadata about this specific link (absent for most). A
+  // spatial_support link carries the circuit's arrangement on the structure,
+  // { side: "L"|"R"|"C", level: number }, read by the tower/pole elevation.
+  attributes?: Record<string, unknown> | null
 }
 
 interface RelationshipsResponse {
@@ -36,5 +40,30 @@ export function useRelationships(featureClassCode: string | undefined, featureId
         `/relationships?feature_class=${encodeURIComponent(featureClassCode ?? "")}&feature_id=${encodeURIComponent(featureId ?? "")}`,
       ),
     enabled: Boolean(featureClassCode && featureId),
+  })
+}
+
+/** One loaded support structure: its id, map position (lon/lat, WGS84) and how
+ * many POINT features it carries. */
+export interface SupportCount {
+  feature_id: string
+  count: number
+  lon: number
+  lat: number
+}
+
+interface SupportCountsResponse {
+  counts: SupportCount[]
+}
+
+/** The loaded poles (those carrying ≥1 point attachment) with their position and
+ * count — feeds the map's "loaded pole" count-badge overlay. Loaded once, cached
+ * a minute; invalidated (queryKey `pole-attachment-counts`) when a pole attachment
+ * is added or removed. */
+export function usePoleAttachmentCounts() {
+  return useQuery({
+    queryKey: ["pole-attachment-counts"],
+    queryFn: () => apiFetch<SupportCountsResponse>("/relationships/support-counts?origin_class=POLE"),
+    staleTime: 60_000,
   })
 }

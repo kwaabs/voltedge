@@ -282,8 +282,8 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
       <tbody>
         <tr><td><b>Create</b></td><td>a program with a title and an optional booked window — <b>empty</b>, or <b>seeded from a target device</b> (pick a device and VoltEdge pre-fills the standard <b>open → verify → earth → close</b> program to isolate and restore it).</td></tr>
         <tr><td><b>Edit the steps</b></td><td>add, edit, delete, reorder (move up/down). Each step is a <b>phase</b> (isolate / restore), an <b>action</b> (open / close / earth / verify / note), an <b>instruction</b>, and — for an open/close — the <b>device</b>.</td></tr>
-        <tr><td><b>Issue</b></td><td>draft → issued, when it's ready for the field.</td></tr>
-        <tr><td><b>Run it</b></td><td>tick each step as the crew performs it. <b>open</b> sets the device <span class="badge open">OPEN</span>, <b>close</b> sets <span class="badge close">CLOSED</span>, un-ticking restores the opposite — each through the validated, history-logged, <b>safety-interlocked</b> path (a blocking tag refuses it), and each a logged operation. Status: draft → issued → in_progress → completed.</td></tr>
+        <tr><td><b>Validate, approve, issue</b></td><td>a <b>governed lifecycle</b>, not a free-text status edit. <b>Validate</b> runs a read-only dry-run study over the steps and reports problems; <b>Approve</b> is the authorisation gate (re-runs validation, refuses an order with blocking errors, stamps who approved it and when); <b>Issue</b> releases it to the field. The steps become executable only once the order is <b>issued</b>.</td></tr>
+        <tr><td><b>Run it</b></td><td>tick each step as the crew performs it. <b>open</b> sets the device <span class="badge open">OPEN</span>, <b>close</b> sets <span class="badge close">CLOSED</span>, un-ticking restores the opposite — each through the validated, history-logged, <b>safety-interlocked</b> path. Execution is gated by three interlocks on top of the safety tag: the order must be <b>issued</b>, the step must be <b>in sequence</b> (earlier steps first), and the device must be in the <b>expected pre-state</b> (an open step needs it CLOSED, a close step OPEN). A blocked step can be force-overridden (<code>{"force": true}</code>), which bypasses the sequence and pre-state checks <b>only</b> — <b>never</b> the safety-tag gate — and records the override. Each step is a logged operation. Status: draft → approved → issued → in_progress → completed.</td></tr>
       </tbody>
     </table></div>
 
@@ -295,12 +295,18 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
       barriers, isolation boundaries, and how an <i>incident</i> switching order is generated — lives in the
       <b>Switching &amp; Protection</b> guide. This tab is the operator's authoring-and-execution surface for it.</div>
 
-    <p class="muted" style="font-size:13.5px">Endpoints: <code>GET</code>/<code>POST /oms/planned-switching</code>,
-      <code>PATCH /oms/switching-orders/{id}</code> (retitle / issue),
-      <code>POST /oms/switching-orders/{id}/steps</code>, <code>POST /oms/switching-orders/{id}/reorder</code>,
-      <code>PATCH</code>/<code>DELETE /oms/switching-steps/{id}</code>, reusing the shared
-      <code>.../execute</code> and <code>.../cancel</code>
-      (<span class="mono">api/internal/oms/http.go:115–126</span>). View needs <code>oms:read</code>; build and run
+    <p class="muted" style="font-size:13.5px">Endpoints: <code>GET</code>/<code>POST /oms/planned-switching</code>;
+      author/edit the plan with <code>PATCH /oms/switching-orders/{id}</code> (retitle / window / steps — it <b>no
+      longer sets status</b>), <code>POST /oms/switching-orders/{id}/steps</code>,
+      <code>POST /oms/switching-orders/{id}/reorder</code>, <code>PATCH</code>/<code>DELETE /oms/switching-steps/{id}</code>.
+      The <b>governed lifecycle</b> (<code>draft → approved → issued → in_progress → completed</code>) moves through
+      dedicated actions: <code>GET /oms/switching-orders/{id}/validate</code> (read-only dry-run study),
+      <code>POST /oms/switching-orders/{id}/approve</code> (draft → approved; validates and stamps the approval),
+      <code>POST /oms/switching-orders/{id}/issue</code> (approved → issued), and the shared
+      <code>POST /oms/switching-steps/{id}/execute</code> — which enforces the issued-state, in-sequence and
+      expected-pre-state interlocks and accepts a <code>{"force": true}</code> body to override the sequence/pre-state
+      checks (never the safety-tag gate) — and <code>.../cancel</code>
+      (<span class="mono">api/internal/oms/http.go</span>). View needs <code>oms:read</code>; build and run
       need <code>oms:write</code>.</p>
   </section>
 
@@ -382,7 +388,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <footer>
     VoltEdge — Device Operations. The widgets run a faithful mock of the real model on sample data; nothing here
     writes to a live system. See the markdown <b>Device Operations</b> guide for the reference version.
-    <br>Last updated: 2026-10-30
+    <br>Last updated: 2026-11-06
   </footer>
 </div>
 

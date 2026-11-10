@@ -63,6 +63,24 @@ export interface LoadFlowResult {
   nodes: LoadFlowNodeResult[]
   barriers: TraceFeatureRef[]
   overloaded: TraceFeatureRef[]
+  /** Set only when the run carried an `allocation`: a measured feeder load was spread
+   * over the leaves (load allocation) instead of the model's as-designed demand. */
+  allocation?: LoadFlowAllocation
+}
+
+/** The applied load-allocation summary echoed on a load-flow result. `scale_factor`
+ * is measured ÷ Σ as-designed; `applied_nodes` / `unmatched_leaves` report how many
+ * allocated leaves matched a swept node (coverage). Mirrors powerflow.allocationSummary. */
+export interface LoadFlowAllocation {
+  measured_kw: number
+  measured_kvar: number
+  basis: string
+  basis_fallback?: string
+  scale_factor: number
+  leaf_count: number
+  applied_nodes: number
+  unmatched_leaves: number
+  note?: string
 }
 
 /**

@@ -138,7 +138,7 @@ type loopGeom struct {
 // compensation and format the same per-node result load-flow returns.
 func runMeshLoadFlow(ctx context.Context, db bun.IDB, req meshedLoadFlowRequest) (*meshedLoadFlowResponse, error) {
 	var breaks []meshBreak
-	swept, err := runSweep(ctx, db, req.Start, req.NominalVoltageV, nil, &breaks)
+	swept, err := runSweep(ctx, db, req.Start, req.NominalVoltageV, nil, &breaks, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -89,6 +89,19 @@ func Routes(db *bun.DB, store *ObjectStore) chi.Router {
 	r.Get("/jobs/{id}", getJobHandler(db))
 	r.Post("/jobs/{id}/cancel", cancelHandler(db))
 	r.Get("/jobs/{id}/download", downloadHandler(db, store))
+
+	// Named CIM sync targets (incremental difference-model export). Config, so
+	// gated at metadata:read/write (above the /export mount's features:read); the
+	// run action enqueues an ordinary CIM job whose status/download reuse /jobs.
+	r.Route("/sync-targets", func(sr chi.Router) {
+		sr.Use(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite))
+		sr.Get("/", listSyncTargetsHandler(db))
+		sr.Post("/", createSyncTargetHandler(db))
+		sr.Get("/{id}", getSyncTargetHandler(db))
+		sr.Patch("/{id}", updateSyncTargetHandler(db))
+		sr.Delete("/{id}", deleteSyncTargetHandler(db))
+		sr.Post("/{id}/run", runSyncTargetHandler(db))
+	})
 	return r
 }
 

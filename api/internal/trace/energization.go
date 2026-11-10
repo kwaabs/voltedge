@@ -34,6 +34,48 @@ func NetworkDeEnergized(ctx context.Context, db bun.IDB, refs []FeatureRef) ([]F
 		return []FeatureRef{}, nil
 	}
 
+	// 1. Fresh cache -> cheap set membership, no walk.
+	if out, fresh, err := cachedDeEnergized(ctx, db, refs); err == nil && fresh {
+		return out, nil
+	}
+	// 2. Stale / never computed -> recolor the network and store it, then read the cache.
+	if err := RecolorNetwork(ctx, db); err == nil {
+		if out, fresh, err := cachedDeEnergized(ctx, db, refs); err == nil && fresh {
+			return out, nil
+		}
+	}
+	// 3. Last resort (a cache write failed) -> compute live without storing, so a read
+	// never hard-fails on a cache problem.
+	return computeDeEnergizedLive(ctx, db, refs)
+}
+
+// computeDeEnergizedLive classifies refs by a fresh coloring without touching the
+// cache: source-rooted when sources are modelled (correct for meshed / back-fed
+// networks), else the dead-cone fallback. The on-demand path behind the cache.
+func computeDeEnergizedLive(ctx context.Context, db bun.IDB, refs []FeatureRef) ([]FeatureRef, error) {
+	energized, ok, err := EnergizedSet(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		out := make([]FeatureRef, 0)
+		for _, r := range refs {
+			if !energized[r.FeatureID] {
+				out = append(out, r)
+			}
+		}
+		return out, nil
+	}
+	return deEnergizedByOpenCones(ctx, db, refs)
+}
+
+// deEnergizedByOpenCones is the original, radial energisation model: union the
+// downstream dead cone of every currently-open device and report which of refs fall
+// in it. Kept as the fallback for a network that declares no source (EnergizedSet
+// can't root a flood without one). Conservative on a meshed network -- a cone back-fed
+// through a closed tie is still reported dead -- which is exactly why the source-rooted
+// path above supersedes it once sources are modelled.
+func deEnergizedByOpenCones(ctx context.Context, db bun.IDB, refs []FeatureRef) ([]FeatureRef, error) {
 	barriers, err := resolveDownstreamBarriers(ctx, db)
 	if err != nil {
 		return nil, err

@@ -187,6 +187,13 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
   /// client UUID); null when minting a brand-new feature.
   String? _editingCreateId;
 
+  /// When non-null, the current create is an "attach street light" to this pole:
+  /// the new STREET_LIGHT is placed at the pole's own point and, on save, a
+  /// spatial_support relationship (pole -> lamp) is queued. Offline we can't run
+  /// the server's auto-wire, so the lamp lands un-wired -- the web wires it.
+  String? _attachToPoleId;
+  String? _attachToPoleClass;
+
   // ---- Geometry (vertex) editor (Slice 10) ----------------------------------
   // Non-null [_editGeomId] means the geometry editor is open for that packed
   // feature: the map draws its vertices as draggable handles (plus midpoints +
@@ -294,7 +301,7 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
     if (granted && mounted) setState(() => _showUserLocation = true);
   }
 
-  void _open() {
+  Future<void> _open() async {
     try {
       final db = PackDatabase.open(widget.pack.dataPath);
       final manifest = db.manifest();
@@ -312,21 +319,50 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
           const <OverlayDraft>[]) {
         _draftRecords[d.id] = _recordFromDraft(d);
       }
+      // Keep the access token fresh (migration 0191: short-lived access + refresh),
+      // then refresh the org-wide tracking policy from the server BEFORE deciding
+      // whether to record (below) and whether to disclose (further down). A policy an
+      // admin changed after this device signed in would otherwise never arrive.
+      // Best-effort + online-only: on error/offline we keep the cached flags (the
+      // sync heartbeat also refreshes both).
+      try {
+        await ref.read(fieldsyncClientProvider).ensureFreshAccess();
+        await ref.read(fieldsyncClientProvider).refreshTrackingPolicy();
+      } catch (_) {}
+      if (!mounted) return;
       // Field breadcrumb audit trail (migration 0178): start recording this
       // session's movement trail and stamp every edit with the worker's position.
       // The recorder mints the session id; EditStore.actorLocation reads its latest
       // fix so each outbox op carries where the edit was made.
-      final recorder = FieldTrackRecorder(
-        sessionId: ref.read(fieldSessionIdProvider),
-        onBreadcrumb: edit.recordTrackPoint,
-      );
-      edit.actorLocation = recorder.actorLocation;
-      _startRecorder(recorder);
+      //
+      // Gated on the org-wide field-tracking switch (settings.fieldTrackingEnabled):
+      // when an organisation has turned tracking OFF, record nothing — no recorder,
+      // no breadcrumbs, and edit.actorLocation stays null so no op is location-
+      // stamped. The server enforces the same, so this is the privacy-respecting
+      // (and battery-saving) device half; the disclosure banner reflects the state.
+      if (ref.read(settingsRepositoryProvider).fieldTrackingEnabled) {
+        final recorder = FieldTrackRecorder(
+          sessionId: ref.read(fieldSessionIdProvider),
+          onBreadcrumb: edit.recordTrackPoint,
+        );
+        edit.actorLocation = recorder.actorLocation;
+        _startRecorder(recorder);
+      }
       setState(() {
         _db = db;
         _edit = edit;
         _bbox = _bboxFromManifest(manifest);
       });
+      // Actively disclose on pack open: when the org discloses AND we're actually
+      // recording, pop the "you are being recorded" notice once, so a crew is TOLD
+      // rather than left to notice the icon. Post-frame so the map is on screen
+      // first; `mounted`-guarded so a fast close can't show it on a dead context.
+      final settings = ref.read(settingsRepositoryProvider);
+      if (settings.fieldTrackingDisclosureEnabled && settings.fieldTrackingEnabled) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showTrackingDisclosure();
+        });
+      }
       // Reconcile any ops left in flight from a prior session (captured but their
       // apply outcome unknown) so a returning user sees applied/rejected without a
       // manual sync. Fire-and-forget; offline just leaves them in flight.
@@ -1155,6 +1191,10 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
         _draftGpsCapture = null;
         _selected = null; // the form takes the panel slot
         _editing = false;
+        // Re-editing an existing create is not an attach -- the relationship (if
+        // any) was queued when it was first created; don't re-queue it on save.
+        _attachToPoleId = null;
+        _attachToPoleClass = null;
       });
       return;
     }
@@ -1217,6 +1257,48 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
       _draftVertices.clear();
       _creatingForm = false;
       _editingCreateId = null;
+      _selected = null;
+      _editing = false;
+      _connections = const [];
+      _relationships = const [];
+      _connectFrom = null;
+      _connectFromTerminal = null;
+      _relateFrom = null;
+      _attachToPoleId = null;
+      _attachToPoleClass = null;
+    });
+  }
+
+  /// Attach a pole-mounted street light to [pole]. Street lights are geometry-
+  /// optional on the server (it auto-wires them to the pole on create), but that
+  /// compositing only runs server-side, so offline we place the lamp at the
+  /// pole's own point and queue a spatial_support relationship (pole -> lamp).
+  /// The lamp lands un-wired; the web runs the electrical attach. We reuse the
+  /// ordinary create form (class STREET_LIGHT) pre-seeded with the pole's point,
+  /// so the crew just fills attributes and saves -- no drawing step.
+  void _startAttachStreetLight(FeatureRecord pole) {
+    final db = _db;
+    if (db == null) return;
+    final meta = _classMetaFor('STREET_LIGHT');
+    if (meta == null) {
+      _snack("Street lights aren't in this field pack.");
+      return;
+    }
+    final at = _featurePoint(pole.id);
+    if (at == null) {
+      _snack('This pole has no location to mount a light on.');
+      return;
+    }
+    setState(() {
+      _createClass = meta;
+      _createSubtypes = db.subtypesFor(meta.code);
+      _draftPoint = at;
+      _draftGpsCapture = null;
+      _draftVertices.clear();
+      _creatingForm = true; // straight to the form; the geometry is the pole's
+      _editingCreateId = null;
+      _attachToPoleId = pole.id;
+      _attachToPoleClass = pole.featureClass;
       _selected = null;
       _editing = false;
       _connections = const [];
@@ -1537,6 +1619,8 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
       _creatingForm = false;
       _tracking = false;
       _editingCreateId = null;
+      _attachToPoleId = null;
+      _attachToPoleClass = null;
     });
   }
 
@@ -1581,7 +1665,25 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
       // null for a map-tap point or any traced line/polygon.
       gpsCapture: _createTracing ? null : _draftGpsCapture,
     );
+    // Attach flow: queue the pole -> lamp relationship so the carry is recorded
+    // offline. Kind comes from the pack's relationship_classes (a single
+    // spatial_support class for POLE -> STREET_LIGHT); null lets the server
+    // resolve it if the pack predates relationship_classes.
+    final poleId = _attachToPoleId;
+    final poleClass = _attachToPoleClass;
+    if (poleId != null && poleClass != null) {
+      final classes = _db?.relationshipClassesFor(poleClass, cls.code) ??
+          const <RelationshipClassDef>[];
+      await _edit!.createRelationship(
+        originClass: poleClass,
+        originId: poleId,
+        destinationClass: cls.code,
+        destinationId: id,
+        kind: classes.length == 1 ? classes.first.kind : null,
+      );
+    }
     if (!mounted) return;
+    final wasAttach = poleId != null;
     final rec = _createdRecordFor(id);
     _teardownTracking();
     setState(() {
@@ -1593,8 +1695,17 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
       _creatingForm = false;
       _tracking = false;
       _editingCreateId = null;
+      _attachToPoleId = null;
+      _attachToPoleClass = null;
     });
     if (rec != null) _select(rec);
+    // Be honest about the limit: the pole->lamp carry is recorded, but the LV
+    // auto-wire is a server-side composite that only runs through the web attach,
+    // not generic sync -- so the lamp syncs un-wired and must be wired on the web.
+    if (wasAttach) {
+      _snack('Street light added to the pole. It still needs wiring to the LV '
+          'on the web after you sync.');
+    }
   }
 
   FeatureRecord? _createdRecordFor(String id) {
@@ -1971,7 +2082,11 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
       initialSubtype: existing?.subtype,
       initialName: existing?.name,
       initialAttrs: existing?.attrs ?? const {},
-      saveLabel: _editingCreateId != null ? 'Save' : 'Create',
+      saveLabel: _attachToPoleId != null
+          ? 'Attach'
+          : _editingCreateId != null
+              ? 'Save'
+              : 'Create',
       onCreate: _saveCreate,
       onCancel: _cancelCreate,
       padding: padding,
@@ -2477,6 +2592,31 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
     );
   }
 
+  /// In-app disclosure of location recording (the field breadcrumb audit trail):
+  /// the crew taps the location icon to see whether they're being recorded and what
+  /// that means. Required so crews are told their location is logged — some
+  /// jurisdictions mandate disclosing staff-location tracking. Reflects the org-wide
+  /// switch: "on" explains the trail + edit stamps; "off" states nothing is recorded.
+  void _showTrackingDisclosure() {
+    final on = ref.read(settingsRepositoryProvider).fieldTrackingEnabled;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(on ? Icons.my_location : Icons.location_disabled),
+        title: Text(on ? 'Location recording is on' : 'Location recording is off'),
+        content: Text(on
+            ? 'While this app is open, VoltEdge records your movement trail and the spot where you make each edit, so your supervisor can review how the field work was done. It stops when you close the app and never runs in the background.'
+            : 'Your organisation has turned field tracking off, so nothing about your location is recorded — no movement trail, and no location saved on your edits.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // The badge folds feature edits + captured-but-unuploaded photos into one
@@ -2528,6 +2668,18 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
                         onPressed: _showPending,
                       ),
                     ),
+            ),
+          // Disclosure is shown only when we are ACTUALLY recording (tracking on)
+          // AND the org has disclosure on. If tracking is off there's nothing to
+          // disclose; if disclosure is off the org has chosen not to tell crews —
+          // either way the icon is hidden.
+          if (_db != null &&
+              ref.read(settingsRepositoryProvider).fieldTrackingEnabled &&
+              ref.read(settingsRepositoryProvider).fieldTrackingDisclosureEnabled)
+            IconButton(
+              icon: const Icon(Icons.my_location),
+              tooltip: 'Location recording',
+              onPressed: _showTrackingDisclosure,
             ),
           if (_db != null)
             IconButton(
@@ -3082,7 +3234,12 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_editingCreateId != null ? 'Edit $name' : 'New $name',
+                  Text(
+                      _attachToPoleId != null
+                          ? 'Attach $name'
+                          : _editingCreateId != null
+                              ? 'Edit $name'
+                              : 'New $name',
                       style: theme.textTheme.titleMedium,
                       overflow: TextOverflow.ellipsis),
                   Text(cls.code,
@@ -3176,6 +3333,15 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
                       icon: const Icon(Icons.hub_outlined),
                       tooltip: 'Connect to another feature',
                       onPressed: () => _startConnect(f),
+                    ),
+                  // A pole can carry a street light: a one-tap "attach" that
+                  // creates the lamp at the pole and records the carry offline
+                  // (the web runs the electrical auto-wire on sync).
+                  if (f.featureClass == 'POLE' && !_isDraft(f.id))
+                    IconButton(
+                      icon: const Icon(Icons.lightbulb_outline),
+                      tooltip: 'Attach street light',
+                      onPressed: () => _startAttachStreetLight(f),
                     ),
                   if (!_isDraft(f.id))
                     IconButton(

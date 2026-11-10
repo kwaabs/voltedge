@@ -1195,8 +1195,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
   <p><b>How it works.</b> Every item in the Assemblies menu <b>places a feature and then runs a multi-step server composite</b> — that’s the whole reason it’s a separate menu from plain <b>New feature</b>. The menu is organised into sections, and each section commits through its own dedicated endpoint:</p>
   <div class="tbl"><table>
     <tr><th>Assembly</th><th>What it does</th><th>Endpoint</th></tr>
-    <tr><td><b>Ring Main Unit</b></td><td>Places the RMU point, fans out its internal switches + transformer, wired in a star</td><td><code>POST /rmus</code></td></tr>
-    <tr><td><b>Packaged substation</b></td><td>Places the point, chains MV switch → transformer → LV board in series; you pick a config <em>and</em> a tenure (Permanent / Mobile)</td><td><code>POST /packaged-substations</code></td></tr>
+    <tr><td><b>Assembly kits</b></td><td>One menu for every place-one-get-a-wired-set recipe — ring main units (star: switches + transformer), packaged substations (chain: MV switch → transformer → LV board, with a config <em>and</em> a tenure), overhead &amp; pad-mount kits. Pick the kit; the server fans out the internal set and wires it</td><td><code>POST /assemblies</code></td></tr>
     <tr><td><b>Overhead &amp; pad-mount kits</b></td><td>Places an anchor (a pole or a pad-mount transformer) and fans out its kit — cutout, transformer, arrester, LV board — around it</td><td><code>POST /assemblies</code></td></tr>
     <tr><td><b>Cable duct</b></td><td>Draws the duct as a <b>line</b> and fans out the <code>DUCT_WAY</code> children its way-count sets</td><td><code>POST /ducts</code></td></tr>
     <tr><td><b>Bus coupler</b></td><td>Places the breaker as a point, then wires it <b>between two buses you pick</b></td><td><code>POST /couplers</code></td></tr>
@@ -2401,7 +2400,7 @@ function alertDlg(parent,title,html,yes,onYes,danger){ const old=parent.querySel
 
 /* ================= W8d assemblies ================= */
 (function(){
-  const A=[['rmu','Ring Main Unit','POST /rmus','Ring Main Unit — 2 switches + transformer'],['pkg','Packaged substation','POST /packaged-substations','Packaged substation'],['kit','Overhead & pad-mount kits','POST /assemblies','Pole with its kit / pad-mount kit'],['duct','Cable duct','POST /ducts','Cable duct'],['cpl','Bus coupler','POST /couplers','Bus coupler'],['tie','Feeder tie (NOP)','POST /ties','Feeder tie (NOP)']];
+  const A=[['rmu','Ring Main Unit','POST /assemblies','Ring Main Unit — 2 switches + transformer'],['pkg','Packaged substation','POST /assemblies','Packaged substation'],['kit','Overhead & pad-mount kits','POST /assemblies','Pole with its kit / pad-mount kit'],['duct','Cable duct','POST /ducts','Cable duct'],['cpl','Bus coupler','POST /couplers','Bus coupler'],['tie','Feeder tie (NOP)','POST /ties','Feeder tie (NOP)']];
   const O={rmu:{cfg:'2 switches + transformer'},pkg:{cfg:'Compact 500 kVA',ten:'Permanent'},kit:{anchor:'Pole with kit'},duct:{ways:4},cpl:{a:'BUS-A',b:'BUS-B'},tie:{a:'Feeder 7',b:'Feeder 8'}}; let cur='rmu';
   function menu(){ const q=($('#as-q').value||'').toLowerCase(); $('#as-menu').innerHTML=A.filter(a=>!q||(a[1]+a[3]).toLowerCase().includes(q)).map(a=>`<button data-k="${a[0]}" aria-pressed="${a[0]===cur}">${a[1]}</button>`).join('')||'<span class="muted" style="font-size:12.5px">No assembly matches.</span>'; }
   const sel=(id,opts,v)=>`<select class="fld" id="${id}" style="max-width:220px">${opts.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('')}</select>`;

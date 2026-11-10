@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
 import type { Bbox4326 } from "@/stores/map-view-store"
@@ -15,6 +15,18 @@ export interface OneLineNode {
   circuit_ref?: string
   rated_kva?: number
   demand_kw?: number
+  /** The container/assembly group (OneLineGroup id) this node belongs to, if any. */
+  group_id?: string
+  /** Symbology domain-field values (operations path) so the client resolves the same
+   * rule the map does -- an attribute-driven class can't match on subtype alone. */
+  attributes?: Record<string, unknown>
+}
+
+/** A fenceable grouping of nodes -- a container (substation/bay) or an assembly. */
+export interface OneLineGroup {
+  id: string
+  label: string
+  kind: "container" | "assembly"
 }
 
 /** A wire on the one-line -- a conductor (carries its class/id) or a plain link. */
@@ -28,11 +40,16 @@ export interface OneLineConnector {
    * Used to re-route the wire live when a node is dragged in the editor. */
   endpoints?: string[]
   path: [number, number][]
+  /** Symbology domain-field values (operations path) -- colours the wire by its real
+   * symbology rule (e.g. by voltage), not just its circuit ref. */
+  attributes?: Record<string, unknown>
 }
 
 export interface OneLinePayload {
   nodes: OneLineNode[]
   connectors: OneLineConnector[]
+  /** Container/assembly groupings to fence (operations one-line only). */
+  groups?: OneLineGroup[]
   truncated: boolean
   node_count: number
 }
@@ -50,6 +67,100 @@ export function circuitColor(ref: string | undefined): string | undefined {
   let h = 0
   for (let i = 0; i < ref.length; i++) h = (h * 31 + ref.charCodeAt(i)) >>> 0
   return CIRCUIT_COLORS[h % CIRCUIT_COLORS.length]
+}
+
+/**
+ * Fetches the live WHOLE-NETWORK one-line (GET /schematic/network-one-line) -- the
+ * ADMS operations schematic's source. The layout is recomputed from the current
+ * network each call (deterministic for a fixed network), so the operating picture is
+ * always current with no persisted diagram to keep in sync. SSE ("operations") +
+ * the short staleTime keep it live as devices operate.
+ */
+export function useNetworkOneLineLive(enabled = true) {
+  return useQuery({
+    queryKey: ["network-one-line-live"],
+    queryFn: () => apiFetch<OneLinePayload>("/schematic/network-one-line"),
+    enabled,
+    staleTime: 15_000,
+    placeholderData: (prev) => prev,
+  })
+}
+
+/** One operator position nudge for the live operations one-line (ops-owned layout,
+ * NOT a GIS diagram -- it only moves where a feature is drawn). */
+export interface OneLineOverride {
+  feature_class: string
+  feature_id: string
+  x: number
+  y: number
+}
+
+const OVERRIDES_KEY = ["oneline-overrides"]
+
+/** Every operator position nudge for the operations one-line. */
+export function useOneLineOverrides() {
+  return useQuery({
+    queryKey: OVERRIDES_KEY,
+    queryFn: () => apiFetch<{ overrides: OneLineOverride[] }>("/oneline-layout/overrides"),
+    staleTime: 30_000,
+  })
+}
+
+/** Save (or move) one feature's nudge. operations:write. */
+export function useSaveOneLineOverride() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (o: OneLineOverride) =>
+      apiFetch<OneLineOverride>("/oneline-layout/overrides", { method: "PUT", body: JSON.stringify(o) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: OVERRIDES_KEY }),
+  })
+}
+
+/** Clear every nudge -- reset the operations one-line to the pure computed layout. */
+export function useResetOneLineOverrides() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch<void>("/oneline-layout/overrides", { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: OVERRIDES_KEY }),
+  })
+}
+
+/** One operator-routed wire for the operations one-line: its INTERMEDIATE bend vertices.
+ * The renderer composes the path as [live start node, ...vertices, live end node], so the
+ * endpoints follow the nodes while the bends stick. */
+export interface OneLineWireOverride {
+  wire_key: string
+  vertices: [number, number][]
+}
+
+const WIRE_OVERRIDES_KEY = ["oneline-wire-overrides"]
+
+/** Every hand-routed wire for the operations one-line. */
+export function useOneLineWireOverrides() {
+  return useQuery({
+    queryKey: WIRE_OVERRIDES_KEY,
+    queryFn: () => apiFetch<{ wires: OneLineWireOverride[] }>("/oneline-layout/wires"),
+    staleTime: 30_000,
+  })
+}
+
+/** Save (or reset, when vertices is empty) one wire's bends. operations:write. */
+export function useSaveWireOverride() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (o: OneLineWireOverride) =>
+      apiFetch<OneLineWireOverride | void>("/oneline-layout/wires", { method: "PUT", body: JSON.stringify(o) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: WIRE_OVERRIDES_KEY }),
+  })
+}
+
+/** Clear every hand-routed wire -- straighten all wires back to the auto route. */
+export function useResetWireOverrides() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch<void>("/oneline-layout/wires", { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: WIRE_OVERRIDES_KEY }),
+  })
 }
 
 /** Where a one-line is built from: an explicit selection, or the current view. */

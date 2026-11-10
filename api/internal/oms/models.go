@@ -53,6 +53,7 @@ const (
 // and later restore it; a step is one operation in that program.
 const (
 	SwitchingStatusDraft      = "draft"
+	SwitchingStatusApproved   = "approved" // authorised (ADMS gate), ready to issue
 	SwitchingStatusIssued     = "issued"
 	SwitchingStatusInProgress = "in_progress"
 	SwitchingStatusCompleted  = "completed"
@@ -195,6 +196,8 @@ type SwitchingOrder struct {
 	PlannedStart *time.Time      `bun:"planned_start" json:"planned_start"`
 	PlannedEnd   *time.Time      `bun:"planned_end" json:"planned_end"`
 	Notes        *string         `bun:"notes" json:"notes"`
+	ApprovedAt   *time.Time      `bun:"approved_at" json:"approved_at"`
+	ApprovedBy   *string         `bun:"approved_by" json:"approved_by"`
 	CreatedAt    time.Time       `bun:"created_at" json:"created_at"`
 	UpdatedAt    time.Time       `bun:"updated_at" json:"updated_at"`
 	Steps        []SwitchingStep `bun:"rel:has-many,join:id=switching_order_id" json:"steps"`

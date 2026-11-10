@@ -1,5 +1,7 @@
 # Reliability & Indices
 
+_Last updated: 2026-11-06_
+
 **Written for:** engineers and analysts who report network reliability, and anyone who needs to know **exactly** what VoltEdge's SAIDI / SAIFI / CAIDI / ENS numbers mean — the formula as coded, the customer base behind them, and the things they deliberately do *not* do.
 
 This is the deep-dive behind **OMS — Outage Management** §8. OMS turns outages into frozen **interruption facts**; this guide is what the `GET /oms/indices` endpoint does with them. It's written in two layers:
@@ -139,12 +141,66 @@ The daily rows use the **same** clip, circuit-scope and unplanned/non-cancelled 
 
 ---
 
-## 9. What VoltEdge does *not* do (the honest limits)
+## 9. MAIFI — momentary interruptions
+
+SAIDI/SAIFI are about **sustained** outages — the ones an operator confirms into incidents. But a feeder that trips and recloses in four seconds never becomes an incident, so it leaves **no trace in `customer_interruptions`** at all. **MAIFI** (momentary average interruption frequency index) measures exactly those blinks, and VoltEdge computes it (`api/internal/oms/maifi.go`) from a **different source entirely**.
+
+> **∑ Grounding: a different fact table.** MAIFI is read from the **device-operation log** (`ops.operations`, `migrations/0147`), *not* `customer_interruptions`. Momentaries never become incidents, so there is nothing to read on the SAIDI side — the operation log (every recorded trip / reclose / open / close on a device) is the only place a blink is recorded.
+
+**What counts as one momentary.** A **momentary interruption event** is an interrupting device operation (a **trip/open**) that **returns to closed** (a **reclose/close**) within the sustained threshold, **with no lockout**. A rapid re-strike sequence — trip, reclose, trip, reclose — that all resolves within the threshold **collapses to one event**, not three, so a recloser's normal two- or three-shot sequence reads as a single customer-visible blink. If the device never comes back within the threshold (it locks out), it isn't a momentary — that's a sustained outage, and the SAIDI side owns it.
+
+**The formula.**
+
+```
+  MAIFI   = Σ (momentary events × customers downstream of the device) / N
+  MAIFI_E = Σ (each interrupting operation × customers downstream)     / N
+```
+
+- **MAIFI** groups a re-strike sequence into one event (the customer-experience figure).
+- **MAIFI_E** (returned as `maifi_e`) counts **each interrupting operation** rather than grouping — the event-level figure for engineers watching device wear.
+- **N** is the same system denominator as SAIDI/SAIFI (§2).
+- The **downstream customer count reuses the same `AffectedCustomers` trace** OMS uses to populate the affected set for a real incident — so "customers below this recloser" means the same thing it does everywhere else in OMS.
+
+**`momentary_mode` — don't let manual switching inflate it.** A query param with two settings:
+
+- **`protective`** (**DEFAULT**) — a momentary only counts when the session includes a **trip/reclose auto-protection** operation. Routine **manual switching** (an operator opening and reclosing a switch for work) is *not* a protection event, so it doesn't inflate MAIFI.
+- **`pure_duration`** — **any** interrupt → restore within the threshold counts, protection or not. Use this only when you deliberately want every open/close blink, manual included.
+
+**`sustained_threshold_minutes` — the momentary/sustained cutoff.** Default **5 minutes** (the IEEE 1366 convention). An interrupt that restores inside this window is a momentary; one that takes longer is a sustained outage. Set it with the `sustained_threshold_min` query param.
+
+> **▶ Run MAIFI** 🔒 `oms:read`
+> It rides on the same `GET /oms/indices` call — pass `momentary_mode=protective` (or `pure_duration`) and `sustained_threshold_min=5`. Read `maifi` and `maifi_e` alongside the sustained indices.
+
+**Honest limits — state these plainly:**
+
+- ⚠️ **The customer cone is traced over *current* topology, not frozen at operation time.** Unlike a confirmed incident's frozen `customers` count, MAIFI re-walks "who's downstream" from the device as the network is modelled **now** — so re-modelling the feeder later moves a historical MAIFI figure. It is an estimate against today's graph, not a frozen fact.
+- ⚠️ **MAIFI is only as complete as the operation log's feeds.** Today that's **crew entry**; SCADA / relay auto-population comes later. A window with no logged operations yields an empty MAIFI, and the response says so plainly via **`maifi_note`** rather than reporting a misleading zero.
+- ⚠️ **Per-circuit MAIFI is not supported.** Reclosers carry no circuit membership, so a **circuit-scoped** report (`?circuit_id=…`) sets **`maifi_applicable = false`** and returns no MAIFI — unlike CEMI/CELID (§10) and the sustained indices, which *do* scope to a circuit.
+- ⚠️ **MAIFI is not MED-normalised.** The major-event-day machinery (§8) applies to SAIDI/SAIFI only; a storm's blinks are *not* carved out of MAIFI.
+
+---
+
+## 10. CEMI / CELID — worst-served customers
+
+SAIDI and SAIFI are **system averages**, and an average hides the customer who has been off **nine times this year** while everyone around them barely noticed. **CEMI** and **CELID** are the "who is actually suffering" indices — the ones a regulator asks about when a specific customer complains. VoltEdge computes both (`api/internal/oms/worstserved.go`) over the **same `oms.customer_interruptions` fact table, window, unplanned filter and denominator N** as SAIDI/SAIFI — grouped by **service point** instead of summed flat.
+
+- **CEMI_n** (customers experiencing multiple interruptions) = (customers on service points with **more than `cemi_threshold`** sustained interruptions) / N. Default threshold **n = 4** (i.e. the fraction of the customer base that saw a 5th-or-more interruption in the window). Set it with the `cemi_threshold` query param.
+- **CELID** (customers experiencing long interruption durations) = (customers whose **total** interruption time over the window **exceeds `celid_hours`**) / N. Default **24 hours**. Set it with the `celid_hours` query param.
+- **`worst_served`** — the ranked **top-25 service points**, ordered by **most interruptions, then most total minutes**. Each entry carries `feature_class`, `feature_id`, `customers`, `interruptions`, `total_minutes` and `max_minutes`. This is the named list the system averages hide — the actual worst-served supplies, ready to hand to a planner.
+
+💡 **Per-circuit scope works here** (unlike MAIFI, §9): because CEMI/CELID read the **scoped `customer_interruptions` fact table**, a `?circuit_id=` report simply narrows the facts and the denominator the same way SAIDI does.
+
+> **▶ Run CEMI/CELID** 🔒 `oms:read`
+> Same `GET /oms/indices` call — pass `cemi_threshold=4` and `celid_hours=24` (or your regulator's values). Read `cemi`, `celid` and the `worst_served` list.
+
+---
+
+## 11. What VoltEdge does *not* do (the honest limits)
 
 Reliability reporting is a regulated area, so be precise about the boundaries:
 
 - **IEEE 1366 major-event-day exclusion — now implemented** (§8), with two documented simplifications: the threshold uses the **report window** rather than a strict five-year reference, and multi-day outages are attributed to their **start day**. The raw indices are still reported; the normalised ones sit beside them.
-- ⚠️ **No MAIFI** (momentary interruptions). Sustained outages only.
+- **MAIFI (momentary interruptions) — now implemented** (§9), computed from the device-operation log rather than the sustained interruption facts. See the new section for its own honest limits.
 - **CAIDI population quirk** — its numerator (minutes, includes carried-over) and divisor (customers, began-in-window) use slightly different populations for a window-straddling outage (§3).
 - **ENS is a flat-kW placeholder** (§6), always flagged estimated.
 - **Per-circuit excludes `PRIMARY` meters** on both sides (§2).
@@ -154,7 +210,7 @@ None of these are bugs — they're documented simplifications. The guide's job i
 
 ---
 
-## 10. How to run a report
+## 12. How to run a report
 
 > **▶ Run the indices** 🔒 `oms:read`
 > `GET /oms/indices?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z&avg_load_kw=2&circuit_id=…`
@@ -183,6 +239,22 @@ None of these are bugs — they're documented simplifications. The guide's job i
 | `avg_load_kw` | the per-customer figure used for ENS |
 | `by_fault_cause[]` | per-cause `{cause, fault_linked, customers_interrupted, interruption_events, customer_minutes, saifi, saidi}` |
 | `fault_breakdown_available` | `false` when the faults module isn't present |
+| `maifi` | momentary index — re-strike sequences grouped to one event (§9) |
+| `maifi_e` | event-level momentary index — each interrupting operation counted |
+| `momentary_events` | count of momentary interruption events in the window |
+| `momentary_customer_interruptions` | Σ (momentary events × downstream customers), the MAIFI numerator |
+| `momentary_devices` | count of devices that produced a momentary |
+| `sustained_threshold_minutes` | the momentary/sustained cutoff used (default 5) |
+| `momentary_mode` | `protective` (default) or `pure_duration` (§9) |
+| `maifi_applicable` | `false` for a circuit-scoped report (reclosers carry no circuit) |
+| `maifi_note` | why MAIFI is empty / not applicable (e.g. no logged operations) |
+| `cemi_threshold` | the interruption-count cutoff n used for CEMI (default 4) |
+| `cemi` | fraction of customers with more than `cemi_threshold` interruptions (§10) |
+| `cemi_customers` | customer count behind `cemi` |
+| `celid_hours` | the total-duration cutoff used for CELID (default 24) |
+| `celid` | fraction of customers whose total interruption time exceeds `celid_hours` |
+| `celid_customers` | customer count behind `celid` |
+| `worst_served[]` | ranked top-25 service points `{feature_class, feature_id, customers, interruptions, total_minutes, max_minutes}` |
 
 ### Formula sheet
 

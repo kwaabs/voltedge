@@ -1,5 +1,7 @@
 # Outage Operations — from the first call to the reliability report
 
+_Last updated: 2026-11-06_
+
 **Written for:** anyone who runs — or needs the big picture of — the whole outage loop: control-room operators, field crew, maintenance planners and reliability engineers. This is the **overview that ties three modules together**; each leg has a detailed guide of its own, named inline.
 
 VoltEdge splits outage work across three record modules, on purpose — but to an operator they're **one continuous loop**:
@@ -78,7 +80,7 @@ Follow the **Feeder 7** fault through every module. Each step names the guide an
 
 **1 · Calls come in** 🔒 `oms:write` *(Priya — OMS §3)*. Customers below REC-7 report `no_supply`. Priya logs each (`POST /oms/trouble-calls`) and **associates** them to their service points (`snap=true` resolves them from the pins).
 
-**2 · Predict** 🔒 `oms:write` *(Priya — OMS §3)*. Priya runs **Predict** (`POST /oms/incidents/predict`). Each dead SP walks upstream to the nearest **protective** device — past the un-protective fused switch and sectionaliser — to **REC-7**. The calls cluster into **one incident**, blamed on REC-7, with a rising **confidence** and an **affected** list of every supply below it (flagging a **critical** P1 facility on the tail).
+**2 · Predict** 🔒 `oms:write` *(Priya — OMS §3)*. Priya runs **Predict** (`POST /oms/incidents/predict`). Each dead SP walks upstream to the nearest **protective** device — past the un-protective fused switch and sectionaliser — to **REC-7**. The calls cluster into **one incident**, blamed on REC-7, with a rising **confidence** and an **affected** list of every supply below it (flagging a **critical** P1 facility on the tail). The incident also carries a **data-driven ETR** (estimated restoration time) suggestion — see **Reliability & Indices**.
 
 **3 · Record the cause — raise a fault** 🔒 `faults:write` *(Priya — Faults §6)*. From the incident, **Raise fault** (`POST /faults/from-incident/{id}`). The fault is born anchored to `incident_id`, inheriting REC-7 as the operating device. Priya fills in what she knows: `fault_type = earth`, `detected_by = scada`.
 
@@ -94,7 +96,7 @@ Follow the **Feeder 7** fault through every module. Each step names the guide an
 
 **9 · Restore & close** 🔒 `oms:write` *(Priya — OMS §8)*. Femi closes REC-7 (ticking the restore step flips it `CLOSED`); the live cone **collapses to empty**. Priya **restores** the incident (`POST …/restore`) — `restored_at` stamped, interruption windows closed. She then **closes the fault** (`cleared → closed`).
 
-**10 · Report** 🔒 `oms:read` *(Tom — OMS §8 / Reliability & Indices)*. At month-end Tom pulls `GET /oms/indices`: this outage's frozen interruptions feed **SAIDI/SAIFI**, and the `by_fault_cause` breakdown attributes it to the `dig_in` on the fault.
+**10 · Report** 🔒 `oms:read` *(Tom — OMS §8 / Reliability & Indices)*. At month-end Tom pulls `GET /oms/indices`: this outage's frozen interruptions feed **SAIDI/SAIFI**, and the `by_fault_cause` breakdown attributes it to the `dig_in` on the fault. The same call now also returns **MAIFI** (momentary interruptions, read from the device-operation log) and **CEMI/CELID** (the worst-served-customer indices) — see **Reliability & Indices** for both.
 
 ```
   CALL ─► PREDICT ─► [raise FAULT] ─► CONFIRM ─► SWITCHING(flip state) ─► RESTORE
@@ -129,7 +131,7 @@ The spine above is the big unplanned fault. Four common variants:
 
 - **A minor fault, no outage.** A fuse clears a single tee; only one transformer drops. There may be no trouble-call cluster worth an incident — just **log the fault** directly against the asset (Faults §5) and book a defect if the asset needs a fix. The loop runs **Faults → WAM**, skipping OMS.
 - **A planned outage.** No fault at all. Dana **schedules** a planned outage around a device (OMS §7: `scheduled → confirmed → restored`), generates the switching order, the crew executes it, supply restores. It feeds the reliability indices flagged as `planned`. The loop runs **OMS → (switching)**, no Faults, no WAM — unless the planned work *is* a repair booked earlier off a defect.
-- **A storm — many incidents at once.** Prediction clusters calls **per device**, so a storm becomes **many incidents**, each with its own switching order and reliability contribution. There's no special "storm mode" — you run the same loop N times; the reliability window later aggregates them. ⚠️ VoltEdge implements **no IEEE 1366 major-event-day exclusion** — storm days are *not* automatically carved out of SAIDI (see Reliability & Indices).
+- **A storm — many incidents at once.** Prediction clusters calls **per device**, so a storm becomes **many incidents**, each with its own switching order and reliability contribution. There's no special "storm mode" — you run the same loop N times; the reliability window later aggregates them. 💡 VoltEdge **does** compute the **IEEE 1366 2.5β major-event-day normalisation**: the reliability report returns **raw and normalised SAIDI/SAIFI side by side**, so a storm day *is* identified and carved out of the normalised figure — with the documented simplification that the threshold is computed over the **report window** rather than a strict five-year reference (see **Reliability & Indices** §8).
 - **A fault found by inspection (reverse flow).** Femi's inspection checklist fails an item → WAM **auto-raises a defect** (WAM §5) → work order → repair. Here the loop starts in **WAM** and may never touch OMS or Faults at all — a defect doesn't need an outage to exist.
 
 ---
@@ -167,7 +169,7 @@ Being clear about this prevents both over-trust and needless clicking:
 1. Switching steps **flip live `device_state`** (OMS §6).
 2. None of OMS / Faults / WAM is **territory-scoped**.
 3. "Affected" (frozen) ≠ "de-energised" (live) — different engines (OMS §4–5).
-4. No **IEEE 1366** major-event exclusion in the reliability indices.
+4. **IEEE 1366** major-event-day normalisation **is** implemented (raw + normalised SAIDI/SAIFI side by side), with the report-window threshold simplification (Reliability & Indices §8).
 5. Prediction blames the **nearest protective device** only — a single-fault hypothesis a human may need to correct.
 
 ### The guides this one ties together

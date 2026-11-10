@@ -654,9 +654,18 @@ naming, rotate, remove).
 
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
-| Substation composite-assembly fan-out duplication | Open | M | Four packages -- `api/internal/panel` (Phase 42), `api/internal/rmu` (Phase 43), `api/internal/coupler` (bus coupler), `api/internal/duct` (Phase 44) -- each hand-roll the *same* composite `RunInTx` fan-out spine ("validate → create container feature → create children from a template → wire containment/connectivity → return") plus identical support boilerplate, instead of sharing one orchestrator. The leaf writes *are* already shared (`crud.CreateFeature`, `relationship.EstablishRelationship`, `connectivity.EstablishConnection`); what's copy-pasted is the chassis around them. See the extraction plan below. NOTE: this is plumbing duplication only -- the classes themselves are legitimately distinct, and the three *non*-fan-out substation features (MV metering cubicle / Phase 45 `SUBSTATION_PANEL` / `POWER_XFMR`) correctly reuse the generic CRUD + `METER_CHAMBER` diagram-container machinery and are **not** part of this debt. | See extraction plan below |
+| Substation composite-assembly fan-out duplication | Partly resolved (2026-11) | M | Four packages -- `api/internal/panel` (Phase 42), `api/internal/rmu` (Phase 43), `api/internal/coupler` (bus coupler), `api/internal/duct` (Phase 44) -- each hand-roll the *same* composite `RunInTx` fan-out spine ("validate → create container feature → create children from a template → wire containment/connectivity → return") plus identical support boilerplate, instead of sharing one orchestrator. The leaf writes *are* already shared (`crud.CreateFeature`, `relationship.EstablishRelationship`, `connectivity.EstablishConnection`); what's copy-pasted is the chassis around them. See the extraction plan below. NOTE: this is plumbing duplication only -- the classes themselves are legitimately distinct, and the three *non*-fan-out substation features (MV metering cubicle / Phase 45 `SUBSTATION_PANEL` / `POWER_XFMR`) correctly reuse the generic CRUD + `METER_CHAMBER` diagram-container machinery and are **not** part of this debt. | See extraction plan below |
 
 ### Substation composite-assembly fan-out duplication — the surface + extraction plan
+
+> **Partly resolved (2026-11).** The **RMU** and **packaged-substation** engines were
+> folded into the one generic `api/internal/assembly` engine: their recipes are now
+> ordinary `metadata.assembly_templates` rows, their `/rmus` and `/packaged-substations`
+> routes + options endpoints + draft-store/menu branches were removed, and their template
+> tables were dropped (`rmu_templates`, `packaged_substation_templates`). `assembly_items`
+> expresses star (RMU), chain (packaged sub) and branch topologies via
+> `(support_parent_position, wire_to_position)`. **Still open:** `panel`, `coupler` and
+> `duct` keep their own fan-out spines — the same extraction applies to them next.
 
 Audited 2026-09-10. This is **plumbing duplication, not class/feature
 duplication** -- each assembly phase copied the fan-out chassis rather than

@@ -41,6 +41,8 @@ export function AdminMapSettingsPage() {
   const [bMinLat, setBMinLat] = useState("")
   const [bMaxLng, setBMaxLng] = useState("")
   const [bMaxLat, setBMaxLat] = useState("")
+  // Whether the map draws the "loaded pole" count-badge overlay (default on).
+  const [poleBadges, setPoleBadges] = useState(true)
 
   useEffect(() => {
     if (!data) return
@@ -53,6 +55,7 @@ export function AdminMapSettingsPage() {
     setBMinLat(data.bounds_min_lat === null ? "" : String(data.bounds_min_lat))
     setBMaxLng(data.bounds_max_lng === null ? "" : String(data.bounds_max_lng))
     setBMaxLat(data.bounds_max_lat === null ? "" : String(data.bounds_max_lat))
+    setPoleBadges(data.pole_attachment_badges)
   }, [data])
 
   const lngNum = Number(lng)
@@ -106,6 +109,7 @@ export function AdminMapSettingsPage() {
         bounds_min_lat: boundsComplete ? bMinLatN : null,
         bounds_max_lng: boundsComplete ? bMaxLngN : null,
         bounds_max_lat: boundsComplete ? bMaxLatN : null,
+        pole_attachment_badges: poleBadges,
       })
       useToastStore.getState().pushSuccess("Map settings saved.")
     } catch {
@@ -287,6 +291,24 @@ export function AdminMapSettingsPage() {
                   Enter all four corners (or none), each within range, with min below max.
                 </span>
               )}
+            </div>
+
+            <div className="border-t pt-4">
+              <h2 className="text-sm font-medium">Map overlays</h2>
+              <label className="mt-3 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={poleBadges}
+                  onChange={(e) => setPoleBadges(e.target.checked)}
+                  className="size-4"
+                />
+                Show the &ldquo;loaded pole&rdquo; count badge
+              </label>
+              <p className="text-muted-foreground mt-1 text-xs">
+                A small amber count on each pole that carries point-mounted equipment (a transformer, recloser,
+                lamp&hellip;), so loaded poles stand out at a glance. Turn off to hide it on the map for everyone. (The
+                &ldquo;On this pole&rdquo; panel and the fan-out are unaffected.)
+              </p>
             </div>
 
             <div className="flex justify-end">

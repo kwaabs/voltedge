@@ -113,7 +113,7 @@ func runVoltageProfile(ctx context.Context, db bun.IDB, req voltageProfileReques
 		return nil, invalid("min_voltage_pu must not exceed max_voltage_pu")
 	}
 
-	swept, err := runSweep(ctx, db, req.Start, req.NominalVoltageV, nil, nil)
+	swept, err := runSweep(ctx, db, req.Start, req.NominalVoltageV, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}

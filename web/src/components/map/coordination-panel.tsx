@@ -3,6 +3,7 @@ import { Crosshair, X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { NOMINAL_VOLTAGE_HINT, resolveNominalVoltage, useDeriveVoltageDefault } from "@/components/map/analysis-voltage"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -409,16 +410,20 @@ function FuseSavingView({
           {result.pairs.map((p, i) => (
             <li
               key={i}
-              onClick={() => useSelectionStore.getState().select(p.fuse.feature_class, p.fuse.feature_id, { focus: true })}
-              className="hover:bg-accent cursor-pointer px-3 py-2"
+              onClick={() => useSelectionStore.getState().locate(p.fuse.feature_class, p.fuse.feature_id, { focus: true })}
+              onDoubleClick={() => useSelectionStore.getState().select(p.fuse.feature_class, p.fuse.feature_id, { focus: true })}
+              className="hover:bg-accent select-none cursor-pointer px-3 py-2"
               title="Show the fuse on the map"
             >
               <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="truncate">
-                  {classNameFor(p.recloser.feature_class)} {shortId(p.recloser.feature_id)}
-                  <span className="text-muted-foreground"> → </span>
-                  {classNameFor(p.fuse.feature_class)} {shortId(p.fuse.feature_id)}
-                </span>
+                <div className="flex min-w-0 items-start gap-1">
+                  <FeatureInfoButton featureClass={p.fuse.feature_class} featureId={p.fuse.feature_id} className="-mt-0.5" />
+                  <span className="truncate">
+                    {classNameFor(p.recloser.feature_class)} {shortId(p.recloser.feature_id)}
+                    <span className="text-muted-foreground"> → </span>
+                    {classNameFor(p.fuse.feature_class)} {shortId(p.fuse.feature_id)}
+                  </span>
+                </div>
                 {p.fault_current_amps !== undefined && (
                   <span className="text-muted-foreground shrink-0 text-xs whitespace-nowrap">
                     fault {formatCurrent(p.fault_current_amps)}
@@ -509,10 +514,9 @@ function CoordinationSweepView({
             {result.pairs.map((p, i) => (
               <li
                 key={i}
-                onClick={() =>
-                  useSelectionStore.getState().select(p.downstream.feature_class, p.downstream.feature_id, { focus: true })
-                }
-                className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded px-1 py-0.5"
+                onClick={() => useSelectionStore.getState().locate(p.downstream.feature_class, p.downstream.feature_id, { focus: true })}
+                onDoubleClick={() => useSelectionStore.getState().select(p.downstream.feature_class, p.downstream.feature_id, { focus: true })}
+                className="hover:bg-accent select-none flex cursor-pointer items-center gap-2 rounded px-1 py-0.5"
                 title="Show the downstream device on the map"
               >
                 <span
@@ -521,6 +525,7 @@ function CoordinationSweepView({
                     p.coordinated === undefined ? "bg-muted-foreground" : p.coordinated ? "bg-green-600" : "bg-destructive",
                   )}
                 />
+                <FeatureInfoButton featureClass={p.downstream.feature_class} featureId={p.downstream.feature_id} />
                 <span className="truncate">
                   {classNameFor(p.downstream.feature_class)} {shortId(p.downstream.feature_id)}
                   <span className="text-muted-foreground"> → </span>
@@ -827,16 +832,22 @@ export function CoordinationPanel() {
                 {result.devices.map((d, i) => (
                   <tr
                     key={`${d.feature_class}:${d.feature_id}`}
-                    onClick={() => useSelectionStore.getState().select(d.feature_class, d.feature_id, { focus: true })}
-                    className="hover:bg-accent cursor-pointer"
+                    onClick={() => useSelectionStore.getState().locate(d.feature_class, d.feature_id, { focus: true })}
+                    onDoubleClick={() => useSelectionStore.getState().select(d.feature_class, d.feature_id, { focus: true })}
+                    className="hover:bg-accent select-none cursor-pointer"
                   >
                     <td className="py-1 pr-2 align-top">
                       <span className="inline-block size-3 rounded-sm" style={{ backgroundColor: deviceColor(i) }} />
                     </td>
                     <td className="py-1 pr-2 align-top">
-                      <div>{deviceLabel(d)}</div>
-                      {d.role && <div className="text-muted-foreground text-xs capitalize">{d.role}</div>}
-                      {deviceMeta(d) && <div className="text-muted-foreground text-xs">{deviceMeta(d)}</div>}
+                      <div className="flex items-start gap-1">
+                        <FeatureInfoButton featureClass={d.feature_class} featureId={d.feature_id} className="-mt-0.5" />
+                        <div className="min-w-0">
+                          <div>{deviceLabel(d)}</div>
+                          {d.role && <div className="text-muted-foreground text-xs capitalize">{d.role}</div>}
+                          {deviceMeta(d) && <div className="text-muted-foreground text-xs">{deviceMeta(d)}</div>}
+                        </div>
+                      </div>
                     </td>
                     <td className="text-muted-foreground py-1 pr-2 align-top text-xs whitespace-nowrap">
                       {d.curve ?? "—"}

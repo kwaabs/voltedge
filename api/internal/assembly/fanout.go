@@ -175,7 +175,7 @@ func fanOut(ctx context.Context, tx bun.Tx, in CreateAssemblyInput, anchorLoaded
 		Name:        in.Name,
 		Geometry:    in.Geometry,
 		TerritoryID: in.TerritoryID,
-		Attributes:  in.Attributes,
+		Attributes:  mergedAnchorAttrs(tmpl.AnchorAttributes, in.Attributes),
 	})
 	if err != nil {
 		return err
@@ -185,6 +185,18 @@ func fanOut(ctx context.Context, tx bun.Tx, in CreateAssemblyInput, anchorLoaded
 		return err
 	}
 	result.Anchor = anchorEnv
+
+	// Stamp the anchor with the assembly marker (mig 0192): assembly_ref = this
+	// recipe's code. A `map`-context symbology rule keyed on it gives the placed
+	// assembly its own map glyph without making the assembly a feature class -- the
+	// anchor keeps its real class/subtype; only its map styling branches. assembly_ref
+	// is a system column (not an attribute), so it's set with a direct UPDATE in the
+	// same transaction, right after the anchor's create.
+	if pt := anchorLoaded.FeatureClass.PhysicalTable; pt != nil {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET assembly_ref = ? WHERE id = ?", *pt), in.Config, anchorID); err != nil {
+			return fmt.Errorf("stamping assembly_ref: %w", err)
+		}
+	}
 
 	// byPosition[0] is the anchor; each item records itself so a later item can
 	// name it as a structural parent or wiring target. The template guarantees
@@ -256,6 +268,24 @@ func fanOut(ctx context.Context, tx bun.Tx, in CreateAssemblyInput, anchorLoaded
 		result.Components = append(result.Components, created)
 	}
 	return nil
+}
+
+// mergedAnchorAttrs overlays the placing caller's attributes on the template's anchor
+// defaults (migration 0194) -- the caller always wins, so a template default is used
+// only where the caller didn't supply that key. Returns caller unchanged when the
+// template has no defaults (the common case for an ordinary kit).
+func mergedAnchorAttrs(defaults, caller map[string]any) map[string]any {
+	if len(defaults) == 0 {
+		return caller
+	}
+	out := make(map[string]any, len(defaults)+len(caller))
+	for k, v := range defaults {
+		out[k] = v
+	}
+	for k, v := range caller {
+		out[k] = v
+	}
+	return out
 }
 
 // relationshipInput builds an EstablishRelationshipInput for a parent-to-child link

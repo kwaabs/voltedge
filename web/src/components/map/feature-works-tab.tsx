@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, ClipboardCheck, Loader2, Plus, TriangleAlert, Wrench } from "lucide-react"
 
+import { RecordInspectionDialog } from "@/components/wam/record-inspection-dialog"
 import { Button } from "@/components/ui/button"
 import { usePermission } from "@/hooks/use-auth"
 import {
@@ -221,9 +222,18 @@ function NewWorkOrderForm({
 
 function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWrite: boolean; assignees: AssignableUser[] }) {
   const update = useUpdateWorkOrder()
+  // For an order raised from a defect, completing it offers to resolve that defect
+  // too (default on). Cancelling reopens it server-side (no opt-out needed).
+  const [resolveDefect, setResolveDefect] = useState(true)
 
   const setStatus = (status: WorkStatus) =>
     update.mutate({ id: order.id, body: { status } }, { onError: (err) => toastError(err, "Could not update this work order.") })
+
+  const complete = () =>
+    update.mutate(
+      { id: order.id, body: { status: "completed", ...(order.defect_id ? { resolve_defect: resolveDefect } : {}) } },
+      { onError: (err) => toastError(err, "Could not update this work order.") },
+    )
 
   const assign = (userId: string) =>
     update.mutate(
@@ -271,26 +281,34 @@ function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWri
         <p className="text-muted-foreground mt-1 text-xs">Assignee: {assigneeLabel(order, assignees)}</p>
       )}
       {canWrite && !isClosed && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {canStart && (
-            <Button variant="outline" size="sm" className="h-6 px-2 text-xs" disabled={update.isPending} onClick={() => setStatus("in_progress")}>
-              Start
-            </Button>
+        <div className="mt-2 flex flex-col gap-1.5">
+          {order.status === "in_progress" && order.defect_id && (
+            <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <input type="checkbox" checked={resolveDefect} onChange={(e) => setResolveDefect(e.target.checked)} />
+              Resolve the originating defect on completion
+            </label>
           )}
-          {order.status === "in_progress" && (
-            <Button variant="outline" size="sm" className="h-6 px-2 text-xs" disabled={update.isPending} onClick={() => setStatus("completed")}>
-              Complete
+          <div className="flex flex-wrap gap-1">
+            {canStart && (
+              <Button variant="outline" size="sm" className="h-6 px-2 text-xs" disabled={update.isPending} onClick={() => setStatus("in_progress")}>
+                Start
+              </Button>
+            )}
+            {order.status === "in_progress" && (
+              <Button variant="outline" size="sm" className="h-6 px-2 text-xs" disabled={update.isPending} onClick={complete}>
+                Complete
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-destructive h-6 px-2 text-xs"
+              disabled={update.isPending}
+              onClick={() => setStatus("cancelled")}
+            >
+              Cancel
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-destructive h-6 px-2 text-xs"
-            disabled={update.isPending}
-            onClick={() => setStatus("cancelled")}
-          >
-            Cancel
-          </Button>
+          </div>
         </div>
       )}
     </div>
@@ -498,6 +516,7 @@ export function WorksTab() {
   const canWrite = usePermission()("wam:write")
   const [addingOrder, setAddingOrder] = useState(false)
   const [addingDefect, setAddingDefect] = useState(false)
+  const [recordingInspection, setRecordingInspection] = useState(false)
 
   const assetClass = selected?.featureClassCode
   const assetId = selected?.featureId
@@ -580,9 +599,21 @@ export function WorksTab() {
         )}
       </div>
 
-      {/* Inspections (read-only history) */}
+      {/* Inspections */}
       <div className="flex flex-col gap-2">
-        <SectionHeader icon={ClipboardCheck} title="Inspections" count={inspectionRows.length} />
+        <SectionHeader
+          icon={ClipboardCheck}
+          title="Inspections"
+          count={inspectionRows.length}
+          action={
+            canWrite ? (
+              <Button variant="outline" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={() => setRecordingInspection(true)}>
+                <ClipboardCheck className="size-3" />
+                Record
+              </Button>
+            ) : undefined
+          }
+        />
         {inspections.isPending ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">
             <Loader2 className="size-4 animate-spin" />
@@ -590,12 +621,20 @@ export function WorksTab() {
           </div>
         ) : inspectionRows.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No inspections on this asset. Record one from the Works page against an inspection work order.
+            No inspections on this asset.{canWrite && " Use Record to inspect it against a checklist."}
           </p>
         ) : (
           inspectionRows.map((inspection) => <InspectionRow key={inspection.id} inspection={inspection} />)
         )}
       </div>
+
+      {recordingInspection && (
+        <RecordInspectionDialog
+          workOrders={orderRows}
+          initialAsset={{ assetClass, assetId }}
+          onClose={() => setRecordingInspection(false)}
+        />
+      )}
     </div>
   )
 }

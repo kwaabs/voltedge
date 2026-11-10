@@ -65,6 +65,11 @@ type featureRef struct {
 type loadFlowRequest struct {
 	Start           featureRef `json:"start"`
 	NominalVoltageV float64    `json:"nominal_voltage_v"`
+	// Allocation, when set, runs the sweep against a MEASURED feeder-head load spread
+	// over the downstream leaves (load allocation, allocation.go) instead of the model's
+	// as-designed demand_kw -- so the power flow matches what the feeder is actually
+	// carrying. The applied allocation is echoed in the response.
+	Allocation *allocationInput `json:"allocation,omitempty"`
 }
 
 // unbalancedRequest is POST /analysis/unbalanced-load-flow's body. Start and
@@ -147,6 +152,10 @@ type loadFlowResponse struct {
 	Nodes           []nodeResult `json:"nodes"`
 	Barriers        []featureRef `json:"barriers"`
 	Overloaded      []featureRef `json:"overloaded"`
+	// Allocation is set only when the request carried an `allocation`: what measured
+	// load was spread, by which basis, the model-vs-measured scale factor, and how many
+	// leaves matched a swept node (coverage).
+	Allocation *allocationSummary `json:"allocation,omitempty"`
 }
 
 // faultCurrentRequest is POST /analysis/fault-current's body -- the same

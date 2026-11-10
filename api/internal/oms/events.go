@@ -25,6 +25,7 @@ const (
 	EventCallReceived   = "call.received"
 	EventCallLocated    = "call.located"
 	EventCallAttributed = "call.attributed"
+	EventCallClosed     = "call.closed"
 
 	EventIncidentPredicted  = "incident.predicted"
 	EventIncidentPlanned    = "incident.planned"
@@ -36,6 +37,7 @@ const (
 	EventIncidentCause      = "incident.cause"      // cause / detection-source re-attributed
 	EventIncidentFromSpot   = "incident.from_spot"  // raised from a geographic trouble spot
 	EventIncidentAttributed = "incident.attributed" // a device was attributed/changed on the incident
+	EventIncidentETR        = "incident.etr"        // estimated restoration time set, revised, or cleared
 )
 
 // Event mirrors oms.events. ActorName is scan-only, filled by a LEFT JOIN on the

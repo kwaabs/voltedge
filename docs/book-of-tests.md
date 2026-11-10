@@ -1176,6 +1176,90 @@ Band defaults **0.95 / 1.05** (Range A). Pointers, so unset ≠ 0.
 - `losses_complete=false` means unresolved conductor material → `total_loss_kw`
   is a lower bound, not a failure.
 
+## Test 4.8 — Load allocation (calibrate the model to a measured feeder head)
+
+**Purpose:** Distribute a **measured** feeder-head load over the downstream
+consumer leaves so the model (and any flow fed from it) matches reality instead
+of the as-designed `demand_kw` sum. Two surfaces: a **standalone** allocation
+study (the calibration table), and an allocation **feed** into the load-flow so
+the sweep runs against the allocated loads. `runLoadAllocation` /
+`buildAllocationOverrides` / `api/internal/powerflow/allocation.go`.
+**Endpoints:** `POST /analysis/load-allocation` (standalone) and `POST
+/analysis/load-flow` with an `allocation` block (feed). **MCP:** `allocate_load`
+(standalone study only); the load-flow feed is HTTP-only.
+
+```
+  as-designed:  Σ demand_kw  (planner's estimate, rarely sums to reality)
+  measured:     one kW at the feeder head (SCADA / operator reading)
+  allocate -> each leaf gets measured_kw × (weight / Σ weight)
+              scale_factor = measured_kw / Σ as_designed_kw   (the calibration)
+  feed -> sweep solves against the allocated loads, not the nameplate sum
+```
+
+**Preconditions**
+- A real **feeder head** in Oakwood — a feeder source / MV busbar **upstream of
+  the DIST_XFMRs** (same `start` family the other Chapter 4 tests use, e.g. the
+  11 kV bus or the Feeder-A MV conductor above T1). It must have downstream
+  consumer leaves (service points / distribution transformers with `demand_kw`,
+  `demand_kva`, or customer counts).
+- Pick a `measured_kw` that differs from the as-designed sum (so `scale_factor ≠
+  1` is visible).
+
+### A — Standalone study
+
+**Run (inputs):** `{ "start": {feature_class, feature_id}, "measured_kw": <kW>,
+"basis": "kva" }`. Basis is also `"customers"` | `"as_designed"`; add
+`"power_factor"` or `"measured_kvar"` to drive reactive allocation.
+
+**Expected / pass criteria**
+- `200` with `allocations[]` (each `feature_class`, `feature_id`, `customers`,
+  `weight`, `as_designed_kw`, `allocated_kw`, `allocated_kvar`), plus
+  `as_designed_kw`, `scale_factor`, `leaf_count`, `customers_total`, `basis`,
+  `basis_fallback`.
+- **P1 — Σ `allocated_kw` over `allocations` ≈ `measured_kw`** (the measured load
+  is conserved across the leaves).
+- **P2 — `scale_factor` == `measured_kw` / Σ `as_designed_kw`** (the
+  diversity/calibration factor; the model runs at 1/`scale_factor` of measured).
+- **P3 — basis `kva` weights each leaf by its `demand_kva`**, and **falls back to
+  customers** when the feeder carries no kVA data at all (Σ kva = 0) →
+  `basis_fallback="customers"` while `basis` still echoes `"kva"`.
+
+**Failure modes to check**
+- A feeder head with **no downstream consumer leaves** → a clean `400 "no
+  consumer load points are downstream of ... -- nothing to allocate to"` (not a
+  panic or an empty-but-200 table).
+- `measured_kw < 0` → `400 "measured_kw must not be negative ..."`; a
+  `power_factor` outside `(0,1]` → `400 "power_factor must be in (0, 1] ..."`.
+- Every leaf zero-weight for the basis (no kVA/customers/demand) → `400 "cannot
+  allocate: every downstream leaf has zero weight ..."`.
+- No as-designed `demand_kw` on any leaf → `scale_factor` undefined (0) with a
+  `note`, but the measured load is still allocated by the effective basis.
+
+### B — Load-flow feed
+
+**Run (inputs):** `{ start, nominal_voltage_v, "allocation": { "measured_kw":
+<kW>, "basis": "kva" } }`. The sweep (Test 4.2 rules — start upstream of the
+transformer, match `nominal_voltage_v` to the start base) then solves against the
+allocated leaf loads, and the response carries an `allocation` summary `{
+measured_kw, basis, scale_factor, leaf_count, applied_nodes, unmatched_leaves }`.
+
+**Expected / pass criteria**
+- **P1 — the cumulative load at the start node (`cumulative_kw`) ≈
+  `measured_kw`** — the flow now matches the measured feeder MW, not the nameplate
+  sum.
+- **P2 — `applied_nodes` counts the allocated leaves that matched a swept node;
+  `unmatched_leaves` = `leaf_count − applied_nodes`.** Leaves behind an open
+  device (a barrier) are enumerated by the allocation walk but never reached by
+  the sweep, so they land in `unmatched_leaves` — an honest coverage figure.
+- **P3 — regression: with no `allocation` block the flow is unchanged**
+  (as-designed `demand_kw`), identical to the Test 4.2 result for the same start.
+
+**Failure modes to check**
+- The allocation sub-request inherits the standalone validation (A's `400`s); a
+  bad `allocation` block fails the whole load-flow, it is not silently ignored.
+- A `start` with no downstream leaves → the same clean `400` as A, surfaced
+  through the load-flow route.
+
 ---
 
 # Chapter 5 — Traces & OMS
@@ -2040,6 +2124,75 @@ normal state — "what's off normal". Permission: `operations:read` /
 **Failure modes**
 - A device in its normal position appearing in the list, or a class without a `normal_state` being judged, = a bug.
 
+## Test 9.7 — Switching-order governance (draft → approved → issued → execution)
+
+**Purpose:** Prove the ADMS governance lifecycle that sits over the standalone
+builder of Test 9.5: a switching order moves **draft → approved → issued →
+in_progress → completed**, a dry-run study validates the sequence before
+approval, and per-step execution interlocks stop a step going out of order, out
+of pre-state, or past a safety tag. `ValidateSwitchingOrder` / `ApproveSwitching
+Order` / `IssueSwitchingOrder` / `SetStepExecuted` (`api/internal/oms`, migration
+0199). Permission: `oms:read` to view, `oms:write` to govern. HTTP-driven — OMS
+is not in MCP. (Paths below are under `/oms`, as in Test 9.5.)
+
+```
+  draft --validate(ready)--> approve --> issue --> execute steps in order
+    ^                                                 |  (interlocks: sequence,
+    |  edit a step of an approved order reverts here  |   pre-state, safety tag)
+    +-------------------------------------------------+  in_progress -> completed
+```
+
+**Steps**
+1. **Build:** `POST /oms/planned-switching` for a standalone order (Test 9.5),
+   then `POST /oms/switching-orders/{id}/steps` to add a few open/verify/close
+   steps against real Oakwood switching devices (the Feeder-A/B switches, the
+   tie, a sectionaliser).
+2. **Validate:** `GET /oms/switching-orders/{id}/validate` → `{ order_id, ready,
+   findings:[{step_no, severity, code, message}] }`. The study simulates the
+   sequence over device state.
+3. **Approve:** `POST /oms/switching-orders/{id}/approve` (draft → approved).
+4. **Issue:** `POST /oms/switching-orders/{id}/issue` (approved → issued).
+5. **Execute with interlocks:** `POST /oms/switching-steps/{id}/execute`
+   (optional body `{ "executed": true, "force": true }`).
+6. **Edit-after-approval:** `PATCH /oms/switching-steps/{id}` on an approved
+   order, then on an issued/in-progress one.
+
+**Expected / pass criteria**
+- **Validate:** a step that opens an already-open device → a `redundant`
+  **warning**; a step whose device isn't in the expected pre-state (an `open`
+  expects CLOSED, a `close` expects OPEN) → a `state_mismatch` **error**; a
+  device under a safety tag → a `safety_tag` **error**. `ready=false` whenever any
+  **error** finding stands (warnings alone keep it `true`).
+- **Approve:** refused with a clear error while validation has blocking errors;
+  once Ready, succeeds → status `approved`, `approved_at` / `approved_by` stamped.
+- **Issue:** refused unless the order is `approved`; from `approved` → `issued`.
+- **Execution interlocks** (all on `.../execute`):
+  1. executing a step while the order is draft/approved (not issued) → refused;
+  2. executing step 2 before step 1 → refused (sequence);
+  3. executing an `open` on a device already OPEN → refused (expected pre-state);
+  4. a refused step re-run with `{ "executed": true, "force": true }` →
+     **succeeds** and records `forced past interlock: …` on the device-operation
+     log;
+  5. `force` **never** bypasses a safety-tag block — that stays a hard refusal;
+  6. executing the steps **in order** with devices in the right state completes
+     the order: status → `in_progress` (first executed step) → `completed` (last
+     outstanding step); each open/close flips the device's live `device_state`
+     and logs a `switching_order`-sourced operation (Test 9.3).
+- **Edit-after-approval:** editing a step of an **approved** order reverts it to
+  `draft` (it must be re-approved before it can be issued again); an
+  **issued/in-progress** order **refuses** step edits (cancel the order to
+  change it).
+
+**Failure modes**
+- A step that executes while the order is draft/approved, or out of sequence, or
+  against the wrong pre-state, = an interlock in `SetStepExecuted` regressed.
+- `force` operating a safety-tagged device = the safety gate
+  (`safety.OperationBlocked`, Test 9.1) was bypassed — a blocker-class bug; force
+  must only override the sequence + pre-state interlocks.
+- Editing an approved order that does **not** revert it to `draft`, or an
+  issued/in-progress order that **accepts** a step edit, = the
+  `revertApprovalOnEdit` / edit-guard logic regressed.
+
 # Chapter 10 — Asset management & data quality
 
 The record-keeping layer: where each asset is in its life, what it's worth, how a
@@ -2298,6 +2451,7 @@ mount (HMAC) / `metadata:read` (admin).
 | 4.5 | Auto load flow | `/analysis/load-flow-auto` | — |
 | 4.6 | Unbalanced load flow | `/analysis/unbalanced-load-flow` | — |
 | 4.7 | Voltage profile | `/analysis/voltage-profile` | — |
+| 4.8 | Load allocation (standalone + load-flow feed) | `/analysis/load-allocation` · `/analysis/load-flow` (`allocation`) | `allocate_load` (study) |
 | 5.1 | Standard trace | `/trace` | `run_trace` |
 | 5.2 | Feeder trace | `/trace/feeder` | `run_feeder_trace` |
 | 5.3 | Section trace | `/trace/section` | `run_section_trace` |
@@ -2324,7 +2478,8 @@ mount (HMAC) / `metadata:read` (admin).
 **MCP parity gaps (candidates for follow-up tools):** every load-flow-family
 analysis (4.1–4.7), the supply-path trace (5.5), and every fault/protection and
 DER/optimization analysis (6.1–7.6) are HTTP-only. Only the six traces + OMS
-energization have agent tools.
+energization — plus load allocation's standalone study (4.8, `allocate_load`) —
+have agent tools; the load-flow allocation *feed* (4.8 part B) stays HTTP-only.
 
 ## Chapter 8 — production-readiness
 
@@ -2352,6 +2507,7 @@ energization have agent tools.
 | 9.4 | Land & spatial (vegetation, easements) | Spatial | `/spatial/*`, `raise_vegetation_trim_order` |
 | 9.5 | Standalone planned switching builder | Operational | `/oms/planned-switching` · `/oms/switching-orders/{id}` · `oms:write` |
 | 9.6 | Abnormal-configuration report | Operational | Operations → Abnormal · `operations:read` |
+| 9.7 | Switching-order governance (draft→approved→issued→exec interlocks) | Operational | `/oms/switching-orders/{id}/validate`·`/approve`·`/issue` · `/oms/switching-steps/{id}/execute` · `oms:write` |
 | 10.1 | Asset lifecycle & aging + network gate | Asset mgmt | `PATCH .../lifecycle` · `/asset-life/*` · `set_feature_lifecycle` / `asset_life_report` |
 | 10.2 | Asset register & BoQ | Asset mgmt | `POST /boq/asset-register.xlsx` · `run_asset_register` |
 | 10.3 | Fault-mode catalog (FMEA picker) | Data quality | `/faults/modes`, `metadata:write` |

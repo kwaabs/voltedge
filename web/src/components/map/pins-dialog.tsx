@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react"
-import { Navigation, Trash2 } from "lucide-react"
+import { MapPin, Navigation, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useMapGotoStore } from "@/stores/map-goto-store"
+import { useMapPinPlacementStore } from "@/stores/map-pin-placement-store"
 import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapViewStore } from "@/stores/map-view-store"
 import { inputClass } from "./field-utils"
@@ -51,13 +52,21 @@ export function PinsDialog({
   const [lat, setLat] = useState("")
   const [lng, setLng] = useState("")
 
-  // Each time the dialog opens, seed the coordinate fields with the current map
-  // centre so the default is "bookmark what I'm looking at". Cleared name so a
-  // stale one from last time doesn't linger.
+  // Each time the dialog opens, seed the coordinate fields. If the user just
+  // dropped a pin on the map (reopening the dialog), use that exact point;
+  // otherwise default to the current map centre ("bookmark what I'm looking at").
+  // Name is cleared either way so a stale one doesn't linger.
   useEffect(() => {
     if (!open) return
-    const center = viewCenter()
     setName("")
+    const picked = useMapPinPlacementStore.getState().picked
+    if (picked) {
+      setLat(picked.lat.toFixed(5))
+      setLng(picked.lng.toFixed(5))
+      useMapPinPlacementStore.getState().consume()
+      return
+    }
+    const center = viewCenter()
     setLat(center ? center.lat.toFixed(5) : "")
     setLng(center ? center.lng.toFixed(5) : "")
   }, [open])
@@ -94,7 +103,7 @@ export function PinsDialog({
           <DialogTitle>Pins</DialogTitle>
           <DialogDescription>
             Saved locations, kept in this browser. Add the spot you're looking
-            at, then jump back to it any time.
+            at or drop a pin on the map, then jump back to it any time.
           </DialogDescription>
         </DialogHeader>
 
@@ -124,9 +133,25 @@ export function PinsDialog({
               className={cn(inputClass, "tabular-nums")}
             />
           </div>
-          <Button type="submit" size="sm" disabled={!canAdd} className="self-end">
-            Add pin
-          </Button>
+          <div className="flex items-center justify-between gap-2">
+            {/* Drop on map: arm the placement picker and close the dialog; the next
+                map click captures the point and reopens this pre-filled. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                useMapPinPlacementStore.getState().arm()
+                onOpenChange(false)
+              }}
+            >
+              <MapPin className="size-4" />
+              Drop on map
+            </Button>
+            <Button type="submit" size="sm" disabled={!canAdd}>
+              Add pin
+            </Button>
+          </div>
         </form>
 
         <div className="border-t pt-3">

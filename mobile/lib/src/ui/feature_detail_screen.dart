@@ -99,7 +99,9 @@ class FeatureDetailView extends StatelessWidget {
           for (final n in connections) _neighborRow(context, n),
         ],
         if (relationships.isNotEmpty) ...[
-          _section(context, 'Relationships (${relationships.length})'),
+          // A support structure (pole/tower) "carries" its spatial_support
+          // neighbours — a clearer frame for a field crew than "Relationships".
+          _section(context, '${_relationshipsLabel(feature.featureClass)} (${relationships.length})'),
           for (final n in relationships) _neighborRow(context, n),
         ],
         const SizedBox(height: 24),
@@ -151,6 +153,11 @@ class FeatureDetailView extends StatelessWidget {
       ),
     );
   }
+
+  /// A support structure's spatial_support neighbours are the circuits and gear it
+  /// "Carries" — clearer for a crew than the generic "Relationships".
+  static String _relationshipsLabel(String featureClass) =>
+      (featureClass == 'POLE' || featureClass == 'TOWER') ? 'Carries' : 'Relationships';
 
   Widget _neighborRow(BuildContext context, NeighborLink n) {
     final title = n.name?.isNotEmpty == true ? n.name! : shortId(n.featureId);

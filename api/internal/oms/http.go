@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/deviceops"
+	"github.com/kwaabs/voltedge/api/internal/events"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
@@ -20,6 +21,7 @@ import (
 //	GET  /trouble-calls              the call queue (optional ?status=)
 //	POST /trouble-calls              log a call
 //	POST /trouble-calls/{id}/associate  resolve the call's SP (manual or snap)
+//	POST /trouble-calls/{id}/close      close an open call (cleared / cancelled)
 //	GET  /incidents                  the incident board (?status=, ?open=true)
 //	GET  /incidents/map              incidents projected onto their device (map overlay)
 //	GET  /incidents/{id}             one incident
@@ -54,6 +56,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/trouble-calls", listTroubleCallsHandler(db))
 	r.Post("/trouble-calls", createTroubleCallHandler(db))
 	r.Post("/trouble-calls/{id}/associate", associateTroubleCallHandler(db))
+	r.Post("/trouble-calls/{id}/close", closeTroubleCallHandler(db))
 	r.Get("/trouble-calls/{id}/timeline", callTimelineHandler(db))
 
 	// The geographic lens: cluster open calls into trouble spots, and dispatch a
@@ -76,6 +79,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/incidents/{id}/subcontractor", taskSubcontractorHandler(db))
 	r.Patch("/crew-assignments/{id}", advanceAssignmentHandler(db))
 	r.Patch("/incidents/{id}/etr", setIncidentETRHandler(db))
+	r.Get("/incidents/{id}/etr/suggest", suggestIncidentETRHandler(db))
 
 	// Customer callback queue (blocker #5, CIS/IVR): the external CIS pulls the
 	// pending list and marks each notified; one callback per affected supply is
@@ -123,6 +127,9 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/switching-orders/{id}/clearance", issueClearanceHandler(db))
 	r.Get("/switching-orders/{id}", getSwitchingOrderHandler(db))
 	r.Post("/switching-orders/{id}/cancel", cancelSwitchingOrderHandler(db))
+	r.Get("/switching-orders/{id}/validate", validateSwitchingOrderHandler(db))
+	r.Post("/switching-orders/{id}/approve", approveSwitchingOrderHandler(db))
+	r.Post("/switching-orders/{id}/issue", issueSwitchingOrderHandler(db))
 	r.Post("/switching-steps/{id}/execute", executeStepHandler(db))
 
 	// Operate a single device directly (open/close) outside a switching order --
@@ -223,6 +230,11 @@ func operateDeviceHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Post-commit: a device changed state, so nudge the operations schematic +
+		// any live view to refresh energisation / off-normal / affected cones. Drop the
+		// cached network coloring first so the next read recolors with the new state.
+		_ = trace.InvalidateEnergization(r.Context(), db)
+		events.Broadcast("operations", nil)
 		writeJSON(w, http.StatusOK, map[string]any{"device_class": class, "device_id": id, "device_state": state})
 	}
 }
@@ -324,6 +336,29 @@ func associateTroubleCallHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		call, err := AssociateTroubleCall(r.Context(), db, id, req.ServicePointID, req.Snap)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, call)
+	}
+}
+
+// closeTroubleCallRequest ends an open call without an incident: status is
+// 'cleared' (false alarm / customer back) or 'cancelled' (test / duplicate).
+type closeTroubleCallRequest struct {
+	Status string `json:"status"`
+}
+
+func closeTroubleCallHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var req closeTroubleCallRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		call, err := CloseTroubleCall(r.Context(), db, id, req.Status)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -662,6 +697,21 @@ func setIncidentETRHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, inc)
+	}
+}
+
+// suggestIncidentETRHandler returns a data-driven ETR suggestion (etr.go) for an
+// incident -- the median restoration time of similar past outages, cause-specific
+// where there is enough history. A read: it computes a figure to offer, it does
+// not set anything.
+func suggestIncidentETRHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s, err := SuggestETR(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, s)
 	}
 }
 
@@ -1016,10 +1066,51 @@ func cancelSwitchingOrderHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// validateSwitchingOrderHandler is GET /switching-orders/{id}/validate: the dry-run
+// study (read-only) over the order's steps -- sequence, device pre-state, safety.
+func validateSwitchingOrderHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		v, err := ValidateSwitchingOrder(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+	}
+}
+
+// approveSwitchingOrderHandler is POST /switching-orders/{id}/approve: the ADMS
+// authorisation gate (draft -> approved; validated + stamped).
+func approveSwitchingOrderHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		order, err := ApproveSwitchingOrder(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, order)
+	}
+}
+
+// issueSwitchingOrderHandler is POST /switching-orders/{id}/issue: release an approved
+// order for execution (approved -> issued).
+func issueSwitchingOrderHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		order, err := IssueSwitchingOrder(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, order)
+	}
+}
+
 // executeStepRequest toggles a step's executed state. Absent body defaults to
-// executed=true (the common "tick it off" case).
+// executed=true (the common "tick it off" case). Force bypasses the SEQUENCE and
+// EXPECTED-PRE-STATE interlocks (never the safety-tag gate), recording the override.
 type executeStepRequest struct {
 	Executed *bool `json:"executed"`
+	Force    bool  `json:"force"`
 }
 
 func executeStepHandler(db *bun.DB) http.HandlerFunc {
@@ -1031,11 +1122,17 @@ func executeStepHandler(db *bun.DB) http.HandlerFunc {
 		if req.Executed != nil {
 			executed = *req.Executed
 		}
-		order, err := SetStepExecuted(r.Context(), db, chi.URLParam(r, "id"), executed)
+		order, err := SetStepExecuted(r.Context(), db, chi.URLParam(r, "id"), executed, req.Force)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
+		// Executing a switching step flips a device: nudge the operations schematic
+		// to refresh energisation / affected cones live as a restoration proceeds.
+		// Post-commit (SetStepExecuted has returned), so a refetch reads the new state.
+		// Drop the cached coloring so energisation recolors as the restoration proceeds.
+		_ = trace.InvalidateEnergization(r.Context(), db)
+		events.Broadcast("operations", nil)
 		writeJSON(w, http.StatusOK, order)
 	}
 }
@@ -1211,11 +1308,16 @@ func reorderSwitchingStepsHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
-// reliabilityIndicesHandler computes SAIDI/SAIFI/CAIDI/ENS over the confirmed
-// interruption history. Optional query params: from / to (RFC3339, default the
-// trailing 12 months) narrow the analysis window; avg_load_kw overrides the
-// per-customer demand assumption behind the (estimated) ENS; circuit_id scopes
-// the whole report to the service points in one circuit (per-feeder indices).
+// reliabilityIndicesHandler computes SAIDI/SAIFI/CAIDI/ENS (sustained) and MAIFI
+// (momentary) over the interruption and device-operation history. Optional query
+// params: from / to (RFC3339, default the trailing 12 months) narrow the analysis
+// window; avg_load_kw overrides the per-customer demand assumption behind the
+// (estimated) ENS; circuit_id scopes the whole report to the service points in one
+// circuit (per-feeder indices; MAIFI is whole-system only); sustained_threshold_min
+// sets the momentary/sustained cutoff for MAIFI (default 5); momentary_mode =
+// protective (default) | pure_duration selects the momentary definition. It also
+// returns the worst-served indices CEMI/CELID: cemi_threshold (default 4) is the CEMI
+// count threshold n and celid_hours (default 24) the CELID total-duration threshold.
 func reliabilityIndicesHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -1247,6 +1349,43 @@ func reliabilityIndicesHandler(db *bun.DB) http.HandlerFunc {
 		}
 		if s := q.Get("circuit_id"); s != "" {
 			p.CircuitID = &s
+		}
+		if s := q.Get("sustained_threshold_min"); s != "" {
+			v, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				writeError(w, invalidf("invalid sustained_threshold_min: want a number of minutes, got %q", s))
+				return
+			}
+			p.SustainedThresholdMin = &v
+		}
+		if s := q.Get("momentary_mode"); s != "" {
+			switch s {
+			case "protective":
+				b := false
+				p.MomentaryPureDuration = &b
+			case "pure_duration":
+				b := true
+				p.MomentaryPureDuration = &b
+			default:
+				writeError(w, invalidf("invalid momentary_mode %q: want 'protective' or 'pure_duration'", s))
+				return
+			}
+		}
+		if s := q.Get("cemi_threshold"); s != "" {
+			v, err := strconv.Atoi(s)
+			if err != nil {
+				writeError(w, invalidf("invalid cemi_threshold: want a whole number, got %q", s))
+				return
+			}
+			p.CEMIThreshold = &v
+		}
+		if s := q.Get("celid_hours"); s != "" {
+			v, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				writeError(w, invalidf("invalid celid_hours: want a number of hours, got %q", s))
+				return
+			}
+			p.CELIDHours = &v
 		}
 
 		report, err := ReliabilityIndicesReport(r.Context(), db, p)

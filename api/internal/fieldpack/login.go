@@ -10,7 +10,6 @@ package fieldpack
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -42,26 +41,13 @@ func fieldLoginHandler(db *bun.DB) http.HandlerFunc {
 			name = "field-app · " + d
 		}
 
-		// ttl 0 = non-expiring: a field device must keep working offline for weeks,
-		// governed by revocation, not a clock.
+		// ttl is ignored now (the field session model fixes the access-token TTL and
+		// pairs it with a refresh token); passed as 0 for signature compatibility.
 		res, err := auth.FieldLogin(r.Context(), db, r, req.Email, req.Password, name, 0)
 		if err != nil {
-			var le *auth.FieldLoginError
-			if errors.As(err, &le) {
-				writeErr(w, le.Status, le.Message)
-			} else {
-				writeErr(w, http.StatusInternalServerError, "login error")
-			}
+			writeFieldAuthErr(w, err)
 			return
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"token":        res.Token,
-			"email":        res.Email,
-			"display_name": res.DisplayName,
-			// The user's effective permissions, so the device can show/hide modules.
-			"permissions": res.Permissions,
-		})
+		writeFieldSession(w, r, db, res)
 	}
 }

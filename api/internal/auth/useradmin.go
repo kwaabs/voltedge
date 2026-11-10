@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,12 +46,21 @@ func (s *service) adminRoutes() chi.Router {
 
 	r.Get("/users", s.adminListUsersHandler)
 	r.Get("/roles", s.adminListRolesHandler)
+	r.Get("/permissions", s.adminListPermissionsHandler)
 	// Read-only security audit log (iam.auth_events): sign-ins, failures, SSO
 	// links, logouts, role changes -- who/when/IP/browser. See authevents.go.
 	r.Get("/events", s.adminAuthEventsHandler)
 
 	r.Group(func(r chi.Router) {
 		r.Use(RequireCSRF)
+		// Role management (roleadmin.go) -- create/edit/clone/delete roles and set
+		// their permissions. is_system roles are read-only (clone to customise).
+		r.Post("/roles", s.adminCreateRoleHandler)
+		r.Post("/roles/{id}/clone", s.adminCloneRoleHandler)
+		r.Patch("/roles/{id}", s.adminUpdateRoleHandler)
+		r.Put("/roles/{id}/permissions", s.adminSetRolePermissionsHandler)
+		r.Delete("/roles/{id}", s.adminDeleteRoleHandler)
+
 		r.Post("/users", s.adminCreateUserHandler)
 		r.Patch("/users/{id}", s.adminUpdateUserHandler)
 		r.Post("/users/{id}/roles", s.adminAssignRoleHandler)
@@ -220,16 +230,37 @@ func (s *service) adminListUsersHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 // adminListRolesHandler is GET /auth/admin/roles -- the role catalog the
-// create/assign controls pick from.
+// create/assign controls pick from, AND the role editor (web /admin/roles): each
+// role carries its id, is_system flag and the permission keys it grants, so the
+// editor renders without a second round trip. Extra fields are additive; the
+// user-admin page that only reads key/name is unaffected.
 func (s *service) adminListRolesHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	var roles []Role
-	if err := s.db.NewSelect().Model(&roles).Order("key").Scan(r.Context()); err != nil {
+	if err := s.db.NewSelect().Model(&roles).Order("is_system DESC").Order("key").Scan(ctx); err != nil {
 		writeError(w, err)
 		return
 	}
-	out := make([]map[string]string, len(roles))
+	var grants []RolePermission
+	if err := s.db.NewSelect().Model(&grants).Scan(ctx); err != nil {
+		writeError(w, err)
+		return
+	}
+	byRole := make(map[string][]string, len(roles))
+	for _, g := range grants {
+		byRole[g.RoleID] = append(byRole[g.RoleID], g.PermissionKey)
+	}
+	out := make([]map[string]any, len(roles))
 	for i, role := range roles {
-		out[i] = map[string]string{"key": role.Key, "name": role.Name, "description": role.Description}
+		perms := byRole[role.ID]
+		if perms == nil {
+			perms = []string{}
+		}
+		sort.Strings(perms)
+		out[i] = map[string]any{
+			"id": role.ID, "key": role.Key, "name": role.Name,
+			"description": role.Description, "is_system": role.IsSystem, "permissions": perms,
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"roles": out})
 }

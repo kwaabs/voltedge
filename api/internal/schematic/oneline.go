@@ -42,6 +42,16 @@ type OneLineNode struct {
 	CircuitRef   *string  `json:"circuit_ref,omitempty"`
 	RatedKVA     *float64 `json:"rated_kva,omitempty"`
 	DemandKW     *float64 `json:"demand_kw,omitempty"`
+	// GroupID is the container/assembly this node belongs to (an OneLineGroup id), or
+	// nil if ungrouped. The client fences each group's members. Attached only on the
+	// whole-network operations path (BuildNetworkOneLine), not the ephemeral one-line.
+	GroupID *string `json:"group_id,omitempty"`
+	// Attributes carries the symbology domain-field values this feature's symbology
+	// rules key off (voltage, material, ...), so the client resolves the SAME rule the
+	// map does -- the one-line otherwise projects only subtype/circuit_ref, which can't
+	// match an attribute-driven rule. Attached only on the operations path, and only the
+	// columns symbology actually references (not the whole row).
+	Attributes map[string]any `json:"attributes,omitempty"`
 }
 
 // OneLineConnector is a wire on the one-line: a conductor (carries its class/id
@@ -58,14 +68,21 @@ type OneLineConnector struct {
 	// dragged in the editable one-line.
 	Endpoints []string    `json:"endpoints,omitempty"`
 	Path      [][]float64 `json:"path"`
+	// Attributes: the conductor's symbology domain-field values (see OneLineNode.Attributes).
+	// Lets the client colour a wire by its real symbology rule (e.g. by voltage), not just
+	// its circuit ref. Operations path only.
+	Attributes map[string]any `json:"attributes,omitempty"`
 }
 
 // OneLine is the whole ephemeral one-line payload.
 type OneLine struct {
 	Nodes      []OneLineNode      `json:"nodes"`
 	Connectors []OneLineConnector `json:"connectors"`
-	Truncated  bool               `json:"truncated"`
-	NodeCount  int                `json:"node_count"`
+	// Groups is the container/assembly groupings the client fences; populated only on
+	// the whole-network operations path (BuildNetworkOneLine), nil/empty otherwise.
+	Groups    []OneLineGroup `json:"groups,omitempty"`
+	Truncated bool           `json:"truncated"`
+	NodeCount int            `json:"node_count"`
 }
 
 // isConductorNode reports whether a node is a conductor -- a wire drawn BETWEEN
@@ -78,7 +95,9 @@ func isConductorNode(n *Node) bool { return n.NetworkRole == "edge" }
 // the graph for a bbox (BuildView) or a selection (BuildViewForRefs).
 func BuildOneLine(view *View) *OneLine {
 	if view.Truncated {
-		return &OneLine{Truncated: true, NodeCount: view.NodeCount}
+		// Non-nil slices so the JSON is [] not null (a nil slice marshals to null,
+		// which would crash a client that maps/forEaches over them).
+		return &OneLine{Truncated: true, NodeCount: view.NodeCount, Nodes: []OneLineNode{}, Connectors: []OneLineConnector{}}
 	}
 
 	// Drop non-electrical features (poles, furniture: network_role 'none'). They
@@ -101,7 +120,7 @@ func BuildOneLine(view *View) *OneLine {
 
 	positions, conductors, directEdges := layoutNetwork(view)
 
-	out := &OneLine{NodeCount: len(view.Nodes)}
+	out := &OneLine{NodeCount: len(view.Nodes), Nodes: []OneLineNode{}, Connectors: []OneLineConnector{}}
 
 	// Point features -> nodes (conductors are drawn as wires, not symbols).
 	for i := range view.Nodes {
@@ -290,6 +309,96 @@ func BuildViewForRefs(ctx context.Context, db bun.IDB, refs []FeatureRef, maxNod
 	}
 
 	return &View{Nodes: nodes, Edges: kept, Positions: positions, NodeCount: len(nodes)}, nil
+}
+
+// NetworkRefs returns every electrically-connected feature in the network as a
+// FeatureRef: both endpoints of every runtime.feature_connectivity row, de-duped,
+// with each endpoint's class id resolved to its code. This is the seed set for a
+// WHOLE-NETWORK one-line -- feeding it to BuildViewForRefs lays out the entire
+// connected network, one component per galvanically-separate feeder, packed side
+// by side. Isolated features with no connectivity are intentionally excluded: a
+// one-line is a connectivity view, and a floating dot carries no information. The
+// read is unscoped here; BuildViewForRefs re-reads each class under the caller's
+// territory + draft scope, so an out-of-scope endpoint simply drops out there.
+func NetworkRefs(ctx context.Context, db bun.IDB) ([]FeatureRef, error) {
+	classes, err := allClasses(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	codeByID := make(map[string]string, len(classes))
+	for i := range classes {
+		codeByID[classes[i].id] = classes[i].code
+	}
+
+	var rows []connEdge
+	if err := db.NewSelect().Model(&rows).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("schematic: network refs: %w", err)
+	}
+
+	seen := make(map[string]struct{}, len(rows)*2)
+	refs := make([]FeatureRef, 0, len(rows))
+	add := func(classID, featureID string) {
+		if featureID == "" {
+			return
+		}
+		code, ok := codeByID[classID]
+		if !ok {
+			return // geometry-less/unknown class with no schematic node
+		}
+		key := code + "|" + featureID
+		if _, dup := seen[key]; dup {
+			return
+		}
+		seen[key] = struct{}{}
+		refs = append(refs, FeatureRef{FeatureClass: code, FeatureID: featureID})
+	}
+	for _, r := range rows {
+		add(r.FromFeatureClassID, r.FromFeatureID)
+		add(r.ToFeatureClassID, r.ToFeatureID)
+	}
+	return refs, nil
+}
+
+// BuildNetworkOneLine lays the ENTIRE connected network out as one abstract
+// one-line. Unlike the ephemeral per-selection one-line (served by
+// POST /schematic/one-line and never stored), this is the seed for a PERSISTED
+// operations diagram: a caller takes the returned layout and writes it to a
+// diagram instance. maxNodes <= 0 falls back to DefaultMaxNodes; past the cap it
+// returns a Truncated OneLine (no nodes) rather than a misleading partial network.
+func BuildNetworkOneLine(ctx context.Context, db bun.IDB, maxNodes int) (*OneLine, error) {
+	refs, err := NetworkRefs(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	view, err := BuildViewForRefs(ctx, db, refs, maxNodes)
+	if err != nil {
+		return nil, err
+	}
+	one := BuildOneLine(view)
+	if one.Truncated {
+		return one, nil
+	}
+	// Attach container/assembly groupings so the client can fence members (operations
+	// path only). Best-effort: a grouping read error must not fail the whole one-line.
+	nodeIDs := make([]string, len(one.Nodes))
+	nodeClass := make(map[string]string, len(one.Nodes))
+	for i := range one.Nodes {
+		nodeIDs[i] = one.Nodes[i].FeatureID
+		nodeClass[one.Nodes[i].FeatureID] = one.Nodes[i].FeatureClass
+	}
+	if groupOf, groups, gerr := resolveGroups(ctx, db, nodeIDs, nodeClass); gerr == nil {
+		for i := range one.Nodes {
+			if g, ok := groupOf[one.Nodes[i].FeatureID]; ok {
+				gid := g
+				one.Nodes[i].GroupID = &gid
+			}
+		}
+		one.Groups = groups
+	}
+	// Carry the symbology domain-field attributes so the client colours each feature by
+	// the SAME rule the map resolves (operations path only; best-effort).
+	_ = enrichSymbologyAttrs(ctx, db, one)
+	return one, nil
 }
 
 // pullNeighbours reads the feature_connectivity neighbours of seedIDs (electrical

@@ -124,7 +124,7 @@ func runContingency(ctx context.Context, db bun.IDB, req contingencyRequest) (*c
 
 	// Base case: the donor feeder as it stands (every tie live/open). Its barrier
 	// hits are exactly the open boundary switches that a transfer could close.
-	base, err := runSweep(ctx, db, req.Source, req.NominalVoltageV, nil, nil)
+	base, err := runSweep(ctx, db, req.Source, req.NominalVoltageV, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func runContingency(ctx context.Context, db bun.IDB, req contingencyRequest) (*c
 			continue
 		}
 
-		swept, err := runSweep(ctx, db, req.Source, req.NominalVoltageV, map[node]bool{c: true}, nil)
+		swept, err := runSweep(ctx, db, req.Source, req.NominalVoltageV, map[node]bool{c: true}, nil, nil)
 		if err != nil {
 			// Closing the tie may join the feeder to itself through a second path
 			// -- a loop/mesh buildTree rejects. That is a real (and useful) result:

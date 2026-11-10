@@ -59,6 +59,19 @@ func main() {
 		log.Fatalf("export worker: %v", err)
 	}
 
+	// CIM incremental (difference-model) export keeps per-target BASELINES in a
+	// separate bucket so the exports retention sweep never deletes them. Injecting
+	// the store (like the asset-register builder below) is how the worker's CIM-sync
+	// path fetches/advances baselines.
+	baselineStore, err := export.NewObjectStoreForBucket(export.CIMBaselineBucket)
+	if err != nil {
+		log.Fatalf("export worker: CIM baseline store: %v", err)
+	}
+	if err := baselineStore.EnsureBucket(context.Background()); err != nil {
+		log.Fatalf("export worker: ensure CIM baseline bucket: %v", err)
+	}
+	export.SetBaselineStore(baselineStore)
+
 	// Teach the worker how to build asset-register jobs (kind="asset_register"
 	// on the shared ops.export_jobs queue). The build lives in boq; injecting it
 	// keeps the export->boq dependency one-way (export never imports boq).

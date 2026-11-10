@@ -50,6 +50,9 @@ type WorkerConfig struct {
 	// runs.
 	Retention     time.Duration
 	SweepInterval time.Duration
+	// SyncScheduleInterval is how often the worker checks for due CIM sync targets
+	// (migration 0197) and enqueues their incremental runs; 0 disables scheduling.
+	SyncScheduleInterval time.Duration
 }
 
 // WorkerConfigFromEnv reads EXPORT_WORKER_CONCURRENCY and EXPORT_JOB_LEASE,
@@ -57,11 +60,12 @@ type WorkerConfig struct {
 // (host + pid) so two workers on one host don't collide.
 func WorkerConfigFromEnv() WorkerConfig {
 	cfg := WorkerConfig{
-		Concurrency:   defaultConcurrency,
-		Lease:         defaultLease,
-		Poll:          defaultPoll,
-		Retention:     defaultRetention,
-		SweepInterval: defaultSweepInterval,
+		Concurrency:          defaultConcurrency,
+		Lease:                defaultLease,
+		Poll:                 defaultPoll,
+		Retention:            defaultRetention,
+		SweepInterval:        defaultSweepInterval,
+		SyncScheduleInterval: defaultSyncScheduleInterval,
 	}
 	if v := os.Getenv("EXPORT_WORKER_CONCURRENCY"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -94,6 +98,14 @@ func WorkerConfigFromEnv() WorkerConfig {
 			slog.Warn("ignoring invalid env var", "worker", "export", "var", "EXPORT_SWEEP_INTERVAL", "value", v)
 		}
 	}
+	// EXPORT_SYNC_SCHEDULE_INTERVAL accepts 0 to disable sync scheduling, so >= 0.
+	if v := os.Getenv("EXPORT_SYNC_SCHEDULE_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			cfg.SyncScheduleInterval = d
+		} else {
+			slog.Warn("ignoring invalid env var", "worker", "export", "var", "EXPORT_SYNC_SCHEDULE_INTERVAL", "value", v)
+		}
+	}
 
 	host, err := os.Hostname()
 	if err != nil || host == "" {
@@ -118,6 +130,13 @@ func RunWorker(ctx context.Context, db *bun.DB, store *ObjectStore, cfg WorkerCo
 	if cfg.Retention > 0 {
 		lg.Info("retention sweep enabled", "interval", cfg.SweepInterval.String(), "retention", cfg.Retention.String())
 		go runRetentionSweep(ctx, db, store, cfg.Retention, cfg.SweepInterval)
+	}
+
+	// CIM sync-target auto-run scheduler (migration 0197): enqueues due incremental
+	// exports on its own timer, sharing ctx so it stops on the same shutdown signal.
+	if cfg.SyncScheduleInterval > 0 {
+		lg.Info("CIM sync scheduler enabled", "interval", cfg.SyncScheduleInterval.String())
+		go runSyncScheduler(ctx, db, cfg.SyncScheduleInterval)
 	}
 
 	// Always-on stuck-job reaper (independent of retention, which may be disabled):

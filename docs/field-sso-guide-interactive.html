@@ -1,0 +1,452 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Field App — Authentication &amp; SSO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4,h5{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:74ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,64px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:64ch}
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:80ch;background:var(--surface);border:1px solid var(--line)}
+.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:80ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:62ch}
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:9px 12px;font:600 12.5px var(--f-mono);line-height:1.5}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green);background:var(--green-tint)}
+.fbox.warn{border-color:var(--amber);color:var(--amber);background:var(--amber-tint)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0}
+.node{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--line);border-radius:6px;padding:6px 10px;font:600 12px var(--f-mono);background:var(--surface);color:var(--muted)}
+.node.on{border-color:var(--acc);background:var(--tint);color:var(--acc-deep)}
+.node.dim{opacity:.4}
+.arr{color:var(--muted);font:600 13px var(--f-mono)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:80ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:12px 0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .c{color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px} .card p{font-size:14px;margin:6px 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;margin:4px 0}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.04em;border:1px solid var(--line)}
+.pill.ms{background:var(--blue-tint);color:var(--blue);border-color:var(--blue)}
+.pill.ve{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)}
+.tl{position:relative;height:60px;border:1px solid var(--line);border-radius:6px;background:var(--surface);overflow:hidden;margin:10px 0}
+.tl .seg-a{position:absolute;top:8px;height:16px;border-radius:3px}
+.tl .mk{position:absolute;top:0;bottom:0;width:2px;background:var(--ink)}
+.tl .mk b{position:absolute;top:28px;left:3px;font:600 9.5px var(--f-mono);white-space:nowrap;color:var(--muted)}
+.tl .cur{position:absolute;top:0;bottom:0;width:2px;background:var(--red)}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+@media (max-width:760px){code{white-space:normal;overflow-wrap:anywhere}.ch-num{font-size:40px}.cards{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+[hidden]{display:none!important}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Field Auth &amp; SSO</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Why it differs</a><a href="#c2">2 · The flow</a><a href="#c3">3 · Enrolment</a><a href="#c4">4 · Tokens</a><a href="#c5">5 · Setup</a><a href="#c6">6 · Local dev</a><a href="#c7">7 · Troubleshooting</a><a href="#c8">8 · Security</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Field App — Authentication &amp; SSO</div>
+  <h1>One identity.<br><span>Two surfaces.</span></h1>
+  <p class="lede">A field tablet can't hold a browser cookie, yet it signs in with the same Microsoft account the web app uses. This guide is the whole story: why the flow is server-mediated, how a tap becomes a token, how to enrol a crew, how to configure Azure without breaking web — and every error we hit getting here, with the fix.</p>
+  <p class="muted" style="font-size:14px;margin-top:16px">Every widget runs entirely in your browser — nothing here talks to a server. The flow, gates, token lifetimes and config rules mirror the auth source (<code>api/internal/auth</code>, <code>api/internal/fieldpack</code>, migration 0191).</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p><b>Administrators</b> enrolling crews and <b>operators</b> deploying the field SSO config — plus anyone debugging a sign-in that won't complete. It assumes you already have <b>web</b> SSO working (Azure AD configured on the API). If you don't, set that up first (the Access Control Guide, chapter 8); field SSO rides on top of it.</p></div>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>Why field auth is different</h2><p>Same accounts, same Azure — but a browser keeps a cookie and a tablet keeps a token.</p></div>
+  <p>Web and field SSO share everything that matters for <em>identity</em>: the same Azure provider, the same user accounts, the same match-or-reject logic. What differs is the <b>credential the surface can hold</b>, and that one difference shapes the whole flow.</p>
+  <div class="tbl"><table>
+    <tr><th></th><th>Web</th><th>Field app</th></tr>
+    <tr><td><b>Credential</b></td><td>Cookie session (browser auto-sends it)</td><td>Bearer <b>token</b> in the device keystore</td></tr>
+    <tr><td><b>SSO ends by</b></td><td>setting the session cookie, redirect to <code>/</code></td><td>handing the device a one-time <b>code</b> via <code>voltedge://</code>, which it swaps for tokens</td></tr>
+    <tr><td><b>Runs on</b></td><td><code>cmd/server</code></td><td>OIDC on <code>cmd/server</code>; redemption + sync on <code>cmd/fieldsync</code></td></tr>
+    <tr><td><b>Token life</b></td><td>idle + absolute session windows</td><td>short access token + long refresh token (ch 4)</td></tr>
+  </table></div>
+  <p>Two server processes matter, and they <b>share one database</b> — which is what makes the hand-off possible. <code>cmd/server</code> hosts the OIDC endpoints (<code>/auth/oidc/…</code>, <code>/auth/providers</code>) and holds the <b>Azure-registered redirect</b>. <code>cmd/fieldsync</code> is the field engine the device talks to for packs, sync, and redeeming the SSO code. SSO runs on the first, drops a one-time code in the shared Postgres, and the device redeems it on the second.</p>
+
+  <div class="widget" id="w-topo">
+    <div class="w-head"><span class="eyebrow">Interactive · topology</span><h4>Which services does each login touch?</h4><span style="flex:1"></span><div class="seg" id="topo-seg"></div></div>
+    <div class="w-body">
+      <div class="chainrow" id="topo-chain"></div>
+      <div class="fbox" id="topo-note" style="margin-top:10px"></div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var seg=document.getElementById('topo-seg'), chain=document.getElementById('topo-chain'), note=document.getElementById('topo-note');
+    if(!seg) return;
+    var N={browser:'Browser',sysbr:'System browser',app:'Field app',server:'cmd/server (OIDC)',fs:'cmd/fieldsync',az:'Azure AD',db:'Postgres (shared)'};
+    var MODES={
+      web:{label:'Web login',path:['browser','server','az','server','db'],note:'Browser → cmd/server runs the OIDC exchange with Azure → a <b>session cookie</b> is set, session row written to Postgres. cmd/fieldsync is not involved.'},
+      field:{label:'Field login',path:['app','sysbr','server','az','server','db','fs'],note:'App opens the <b>system browser</b> at cmd/server’s OIDC start → Azure → cmd/server mints a one-time <b>code</b> into shared Postgres → the app redeems it on <b>cmd/fieldsync</b> for its tokens. Two services, one database.'}
+    };
+    var mode='field';
+    function drawSeg(){ seg.innerHTML=''; Object.keys(MODES).forEach(function(k){ var b=document.createElement('button'); b.type='button'; b.textContent=MODES[k].label; b.setAttribute('aria-pressed',mode===k?'true':'false'); b.onclick=function(){mode=k;render();}; seg.appendChild(b); }); }
+    function render(){
+      drawSeg();
+      var m=MODES[mode], on={}; m.path.forEach(function(k){on[k]=1;});
+      chain.innerHTML='';
+      Object.keys(N).forEach(function(k,i){
+        var d=document.createElement('span'); d.className='node'+(on[k]?' on':' dim'); d.textContent=N[k]; chain.appendChild(d);
+      });
+      note.className='fbox'; note.innerHTML=m.note;
+    }
+    render();
+  })();
+  </script>
+  <p class="callout">Everything a crew does flows through <code>cmd/fieldsync</code>; the SSO <em>handshake</em> is the one thing that must touch <code>cmd/server</code>, because that's where Azure sends the code back.</p>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>The full sign-in flow, hop by hop</h2><p>A tap on “Sign in with Microsoft” becomes a token in eight steps.</p></div>
+  <p>The field app can't hand a bearer straight to itself — Azure only redirects to a pre-registered URL, and that URL lives on the server. So the flow is <b>server-mediated</b>: the app runs the real OIDC flow in the system browser, and the server bridges the end of it back to the app with a single-use code. Step through it:</p>
+
+  <div class="widget" id="w-flow">
+    <div class="w-head"><span class="eyebrow">Interactive · flow</span><h4>Follow one SSO sign-in, hop by hop</h4><span style="flex:1"></span><button class="btn" id="flow-prev">‹ Back</button><button class="btn pri" id="flow-next">Next ›</button></div>
+    <div class="w-body">
+      <div class="chainrow" id="flow-dots" style="gap:4px"></div>
+      <div style="margin-top:12px"><div class="lab" id="flow-actor"></div><h4 id="flow-title" style="margin:4px 0 6px;font-size:16px"></h4><div id="flow-body" style="font-size:14px"></div><div class="pre" id="flow-url" style="margin-top:10px"></div></div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var STEPS=[
+      {a:'Field app',t:'Tap “Sign in with Microsoft”',b:'The app resolves where to start (<code>GET /auth/sso-config</code> → <code>login_base</code>), then opens the <b>system browser</b> (not an in-app webview — Azure blocks embedded browsers) at the OIDC start URL with <code>?field=1</code>.',u:'open ${login_base}/auth/oidc/azuread/login?field=1&device_name=Tablet-07'},
+      {a:'cmd/server',t:'Start the OIDC flow',b:'The server mints <code>state</code>, <code>nonce</code> and a PKCE verifier, stores them in the short-lived <code>ve_oidc_flow</code> cookie, tags the flow <b>field</b>, overrides <code>redirect_uri</code> to the origin the device reached it on, and redirects the browser to Azure.',u:'302 → https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?...'},
+      {a:'Azure AD',t:'The user signs in',b:'Microsoft authenticates the person — <b>password and MFA happen here, never in VoltEdge</b>. On success Azure redirects the browser back to the registered redirect URI.',u:'302 → ${api-origin}/auth/oidc/azuread/callback?code=...&state=...'},
+      {a:'cmd/server',t:'The callback verifies everything',b:'Reads the flow cookie, checks <code>state</code>, exchanges the code (with the same overridden <code>redirect_uri</code> + PKCE verifier), verifies the id_token signature/issuer/audience and <code>nonce</code>.',u:'POST token endpoint → id_token verified'},
+      {a:'cmd/server',t:'Match or reject the account',b:'<code>authenticateOIDC</code>: known identity → in; else match a <b>pre-provisioned</b> account by email and link it. No account → redirect <code>voltedge://field-sso?error=no_account</code>.',u:'authenticateOIDC(email) → user'},
+      {a:'cmd/server',t:'Gate field:login, mint a code',b:'The field branch checks <code>field:login</code>. Pass → insert a <b>single-use code</b> (<code>iam.field_sso_handoff</code>, 2-min TTL) into the shared DB and redirect to the app’s scheme. Fail → <code>?error=no_field_access</code>.',u:'302 → voltedge://field-sso?code=ve_fho_…'},
+      {a:'Field app',t:'The browser hands back the code',b:'The system browser returns to the app via the <code>voltedge://</code> scheme (registered in the app manifest — <b>not</b> with Azure). The app reads the one-time <code>code</code>.',u:'app receives voltedge://field-sso?code=ve_fho_…'},
+      {a:'cmd/fieldsync',t:'Redeem the code for tokens',b:'The app posts the code to the field service. It consumes the code (atomically, single-use), re-checks the account + <code>field:login</code>, and returns an <b>access token</b> + <b>refresh token</b>. Signed in.',u:'POST ${api-origin}/auth/field-sso/exchange {code} → {token, refresh_token, …}'}
+    ];
+    var i=0, dots=document.getElementById('flow-dots'), actor=document.getElementById('flow-actor'), title=document.getElementById('flow-title'), body=document.getElementById('flow-body'), url=document.getElementById('flow-url');
+    var prev=document.getElementById('flow-prev'), next=document.getElementById('flow-next');
+    function render(){
+      dots.innerHTML='';
+      STEPS.forEach(function(s,k){ var d=document.createElement('span'); d.className='node'+(k===i?' on':(k<i?'':' dim')); d.style.padding='4px 8px'; d.textContent=(k+1); d.onclick=function(){i=k;render();}; dots.appendChild(d); if(k<STEPS.length-1){var a=document.createElement('span');a.className='arr';a.textContent='›';dots.appendChild(a);} });
+      var s=STEPS[i]; actor.textContent=s.a; title.textContent=(i+1)+'. '+s.t; body.innerHTML=s.b; url.innerHTML='<span class="c"># '+s.a+'</span>\n'+s.u.replace(/\$\{([^}]+)\}/g,'<span class="s">${$1}</span>');
+      prev.disabled=(i===0); next.disabled=(i===STEPS.length-1);
+    }
+    prev.onclick=function(){if(i>0)i--;render();}; next.onclick=function(){if(i<STEPS.length-1)i++;render();};
+    render();
+  })();
+  </script>
+  <div class="tip"><b>Key idea</b> The <code>voltedge://</code> scheme is the app's own, registered in the <b>app manifest</b>. Azure never sees it — Azure only ever redirects to the server callback. That's why no mobile platform entry is needed in the Azure app registration.</div>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Enrolment &amp; the two gates</h2><p>Microsoft authenticates; VoltEdge authorises. Both must pass.</p></div>
+  <p>SSO <b>never auto-creates accounts</b>. A Microsoft sign-in only gets a crew member into the field app if an administrator has already provisioned them. Two steps:</p>
+  <ol class="steps">
+    <li><b>Create the user</b> (Admin → Users) with <b>email = their Microsoft account email</b>. The emails must match — that's how VoltEdge links the Microsoft identity to the account on first login. No VoltEdge password is needed.</li>
+    <li><b>Grant a role with</b> <span class="perm">field:login</span> (any field role, or admin). Without it, Microsoft accepts them but the field app refuses.</li>
+  </ol>
+  <p>So a field SSO login passes <b>two gates, in order</b> — <span class="pill ms">Microsoft</span> <em>authenticates</em>, then <span class="pill ve">VoltEdge</span> <em>authorises</em>. The password only ever reaches Microsoft, so a “password incorrect” message is a Microsoft/account matter, never a VoltEdge one.</p>
+
+  <div class="widget" id="w2s">
+    <div class="w-head"><span class="eyebrow">Interactive · gates</span><h4>Does this Microsoft sign-in get into the field app?</h4><span style="flex:1"></span><button class="btn" id="w2s-reset">Reset</button></div>
+    <div class="w-bar"><span class="lab">Microsoft says</span><div class="seg" id="w2s-ms"></div></div>
+    <div class="w-bar"><label class="tog"><input type="checkbox" id="w2s-acct" checked> VoltEdge account exists (matching email)</label><label class="tog"><input type="checkbox" id="w2s-perm" checked> has <code>field:login</code></label><label class="tog"><input type="checkbox" id="w2s-active" checked> account active</label></div>
+    <div class="w-body"><div id="w2s-out"></div></div>
+  </div>
+  <script>
+  (function(){
+    var out=document.getElementById('w2s-out'); if(!out) return;
+    var seg=document.getElementById('w2s-ms'), acct=document.getElementById('w2s-acct'), perm=document.getElementById('w2s-perm'), active=document.getElementById('w2s-active');
+    var MS=[['ok','password + MFA OK'],['pw','password wrong'],['mfa','MFA not completed']];
+    var ms='ok';
+    function drawSeg(){ seg.innerHTML=''; MS.forEach(function(s){ var b=document.createElement('button'); b.type='button'; b.textContent=s[1]; b.setAttribute('aria-pressed',ms===s[0]?'true':'false'); b.onclick=function(){ms=s[0];render();}; seg.appendChild(b); }); }
+    function render(){
+      drawSeg();
+      var cls='bad', msg;
+      if(ms!=='ok'){ msg='<b>Microsoft rejected the sign-in</b> ('+(ms==='pw'?'password incorrect':'MFA not completed')+'). VoltEdge is never reached — the password never touches VoltEdge, so fix the account on the Microsoft side.'; }
+      else if(!acct.checked){ msg='Microsoft accepted, but <b>no VoltEdge account</b> exists for this email. <span class="no">“no VoltEdge account exists for this identity; ask an administrator to provision one.” → create the user with the matching email.</span>'; }
+      else if(!active.checked){ msg='The matching account is <b>disabled</b>. <span class="no">“this account is disabled.” → re-enable it, or it stays locked out of both web and field.</span>'; }
+      else if(!perm.checked){ msg='Account found, but it lacks <code>field:login</code>. <span class="no">“this account does not have field-app access.” → grant a field role.</span>'; }
+      else { cls='good'; msg='<b>Signed in.</b> First login links the Microsoft identity to the account; the device receives an access + refresh token.'; }
+      out.innerHTML='<div class="fbox '+cls+'">'+(cls==='good'?'✓ ':'✗ ')+msg+'</div>';
+    }
+    acct.onchange=render; perm.onchange=render; active.onchange=render;
+    document.getElementById('w2s-reset').onclick=function(){ms='ok';acct.checked=true;perm.checked=true;active.checked=true;render();};
+    render();
+  })();
+  </script>
+  <div class="tbl"><table>
+    <tr><th>Gate</th><th>Checks</th><th>Failure you’ll see</th></tr>
+    <tr><td><span class="pill ms">Microsoft</span></td><td>password / MFA (Microsoft’s own)</td><td>“password incorrect” on the Microsoft page</td></tr>
+    <tr><td><span class="pill ve">VoltEdge</span></td><td>active user with that email <b>and</b> <code>field:login</code></td><td><code>voltedge://…?error=no_account</code> or <code>…?error=no_field_access</code></td></tr>
+  </table></div>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>The token model</h2><p>A short access token the device uses, a long refresh token it swaps — so crews don't re-authenticate daily.</p></div>
+  <p>A password <em>or</em> SSO login (migration 0191) mints a pair:</p>
+  <div class="cards">
+    <div class="card"><h4>Access token <span class="pill ve">~24h</span></h4><p>An <code>iam.api_tokens</code> row — the bearer presented on <b>every</b> call. Short-lived so a leaked token self-heals quickly.</p></div>
+    <div class="card"><h4>Refresh token <span class="pill ve">21d default</span></h4><p>An <code>iam.field_refresh_tokens</code> row in the device keystore. The device swaps it for a fresh access token without re-authenticating. TTL = <code>FIELD_REFRESH_TTL_DAYS</code> (default 21).</p></div>
+  </div>
+  <p>Scrub the timeline to see the lifecycle — how the device rides over access-token expiry, and why a long <b>offline</b> stretch is fine:</p>
+
+  <div class="widget" id="w-tok">
+    <div class="w-head"><span class="eyebrow">Interactive · tokens</span><h4>The access + refresh lifecycle over time</h4><span style="flex:1"></span><label class="tog"><input type="checkbox" id="tok-off"> go offline days 2–9</label></div>
+    <div class="w-body">
+      <div class="w-bar" style="padding:0 0 8px;border:0"><span class="lab">Day</span><input type="range" id="tok-day" min="0" max="28" value="0" step="1" style="flex:1"><b id="tok-dayv" class="mono"></b></div>
+      <div class="tl" id="tok-tl"></div>
+      <div class="fbox" id="tok-out" style="margin-top:10px"></div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var tl=document.getElementById('w-tok'); if(!tl) return;
+    var day=document.getElementById('tok-day'), dayv=document.getElementById('tok-dayv'), off=document.getElementById('tok-off'), out=document.getElementById('tok-out'), bar=document.getElementById('tok-tl');
+    var MAX=28, RT=21; // RT = refresh-token TTL (FIELD_REFRESH_TTL_DAYS default)
+    function pct(d){ return (d/MAX*100); }
+    function render(){
+      var d=+day.value; dayv.textContent='day '+d;
+      var offline=off.checked;
+      // access token refreshes ~daily when online; refresh token valid 0..60
+      bar.innerHTML='';
+      // refresh token span 0..60
+      var rt=document.createElement('div'); rt.className='seg-a'; rt.style.left='0%'; rt.style.width=pct(RT)+'%'; rt.style.top='30px'; rt.style.background='var(--acc)'; bar.appendChild(rt);
+      var rl=document.createElement('div'); rl.className='mk'; rl.style.left=pct(RT)+'%'; rl.innerHTML='<b>refresh exp · day '+RT+'</b>'; bar.appendChild(rl);
+      // access token spans: refreshes each day online; during offline it just lapses (no calls go out)
+      for(var s=0;s<MAX;s++){ var online=!(offline && s>=2 && s<9); if(!online) continue; var a=document.createElement('div'); a.className='seg-a'; a.style.left=pct(s)+'%'; a.style.width=pct(1)+'%'; a.style.top='8px'; a.style.background='var(--blue)'; bar.appendChild(a); }
+      if(offline){ var og=document.createElement('div'); og.className='seg-a'; og.style.left=pct(2)+'%'; og.style.width=pct(7)+'%'; og.style.top='8px'; og.style.background='var(--line2)'; bar.appendChild(og); }
+      var cur=document.createElement('div'); cur.className='cur'; cur.style.left=pct(d)+'%'; bar.appendChild(cur);
+      // narrate
+      var cls='good', msg;
+      if(d>RT){ cls='bad'; msg='<b>Refresh token expired (day '+RT+').</b> The device must re-authenticate — Sign in with Microsoft (or password) again, which re-delegates to Azure’s current policy (set <code>FIELD_REFRESH_TTL_DAYS</code> ≤ your password-rotation period). A device offline longer than '+RT+' days hits this.'; }
+      else if(offline && d>=2 && d<9){ cls='warn'; msg='<b>Offline (days 2–9).</b> No calls go out, so the lapsed access token doesn’t matter. The refresh token is still valid, waiting.'; }
+      else if(offline && d>=9 && d<10){ cls='good'; msg='<b>Back online.</b> The access token had lapsed while offline → the device silently swaps the refresh token for a fresh access token (<code>POST /auth/field-refresh</code>) and carries on. No re-login.'; }
+      else { cls='good'; msg='<b>Online, day '+d+'.</b> The access token is refreshed around expiry from the refresh token — the crew never re-authenticates. <span class="no">Blue = a fresh access-token window; green = the refresh token’s life.</span>'; }
+      out.className='fbox '+cls; out.innerHTML=msg;
+    }
+    day.oninput=render; off.onchange=render; render();
+  })();
+  </script>
+  <div class="tbl"><table>
+    <tr><th>Endpoint</th><th>Does</th></tr>
+    <tr><td><code>POST /auth/field-login</code> · <code>/auth/field-sso/exchange</code></td><td>Mint the pair (password / SSO)</td></tr>
+    <tr><td><code>POST /auth/field-refresh</code></td><td>Swap the refresh token for a fresh access token (refresh token unchanged — <b>non-rotating</b>)</td></tr>
+    <tr><td><code>POST /auth/field-logout</code></td><td>Revoke the refresh token (device sign-out)</td></tr>
+  </table></div>
+  <div class="caution"><b>Align with SSO password rotation</b> The refresh token is <b>independent of Azure</b> — <code>field-refresh</code> re-checks the VoltEdge account (active + <code>field:login</code>), not Microsoft. So disabling the VoltEdge user cuts access within ~24h (next access refresh), but an <b>Azure-side</b> change (password rotated, account disabled in Entra) isn’t reflected until the refresh token expires. If your org rotates passwords every N days, set <code>FIELD_REFRESH_TTL_DAYS</code> ≤ N so a device must re-SSO within one cycle — re-SSO re-delegates to Azure’s current policy. A shorter TTL caps staleness; it is not instant revocation.</div>
+  <div class="pre"><span class="c"># .env — applies to all field logins (password and SSO)</span>
+FIELD_REFRESH_TTL_DAYS=<span class="s">21</span>        <span class="c"># default; set ≤ your IdP rotation period</span></div>
+  <div class="en-b"><b>Why non-rotating?</b> Rotating the refresh token on every use is more secure in theory, but a field device's connectivity is flaky — a dropped rotation reply would strand it and force a needless re-login. v1 keeps the refresh token stable until expiry or revocation. Admin revocation of the user or their tokens still cuts off <b>both</b> web and field immediately.</div>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Server &amp; Azure setup</h2><p>One extra redirect URI, one env var, one migration. Web SSO is untouched.</p></div>
+  <p>Field SSO reuses your existing Azure app and web OIDC config. Three one-time changes:</p>
+  <ol class="steps">
+    <li><b>Azure:</b> add a redirect URI for the <b>API origin the device reaches</b>, i.e. <code>&lt;api-origin&gt;/auth/oidc/azuread/callback</code>, <b>alongside</b> your web redirect (keep both). The field flow derives this from the request — it just needs to be registered.</li>
+    <li><b>Env:</b> set <code>FIELD_SSO_WEB_ORIGIN</code> (on the API + fieldsync services) to that API origin, so <code>GET /auth/sso-config</code> tells the device where to start.</li>
+    <li><b>Migrate:</b> apply migration <b>0191</b> (the hand-off + refresh-token tables).</li>
+  </ol>
+  <p>The one value people get wrong is <b>which origin</b>. It depends on how your services are fronted. Pick your topology:</p>
+
+  <div class="widget" id="w-cfg">
+    <div class="w-head"><span class="eyebrow">Interactive · config</span><h4>What should <code>FIELD_SSO_WEB_ORIGIN</code> and the Azure redirect be?</h4><span style="flex:1"></span><div class="seg" id="cfg-seg"></div></div>
+    <div class="w-body"><div id="cfg-out"></div></div>
+  </div>
+  <script>
+  (function(){
+    var seg=document.getElementById('cfg-seg'), out=document.getElementById('cfg-out'); if(!seg) return;
+    var T={
+      gw:{label:'Single gateway (prod)',origin:'https://app.example.com',note:'One public origin fronts both services (a reverse proxy routes <code>/auth/*</code> to cmd/server and <code>/sync</code> etc. to cmd/fieldsync). The device uses that one origin; <code>sso-config</code> can even default to the request origin.'},
+      split:{label:'Split origins (two hosts)',origin:'https://api.example.com',note:'cmd/server and cmd/fieldsync are on different hosts. Point <code>FIELD_SSO_WEB_ORIGIN</code> at the <b>API</b> (cmd/server) origin — that’s where OIDC + <code>/auth/providers</code> live.'},
+      adb:{label:'Local dev (docker + adb reverse)',origin:'http://localhost:3704',note:'Containers on the host; the tablet reaches them over <code>adb reverse</code>. Use the API container’s host port (<code>API_PORT</code>, default <b>3704</b>). The device talks to the API <b>directly</b> — don’t route field SSO through the web dev server (Vite). Keep it <code>localhost</code>, not <code>127.0.0.1</code> (Azure’s Web platform only accepts <code>http://localhost</code>).'}
+    };
+    var mode='gw';
+    function drawSeg(){ seg.innerHTML=''; Object.keys(T).forEach(function(k){ var b=document.createElement('button'); b.type='button'; b.textContent=T[k].label; b.setAttribute('aria-pressed',mode===k?'true':'false'); b.onclick=function(){mode=k;render();}; seg.appendChild(b); }); }
+    function render(){
+      drawSeg();
+      var t=T[mode];
+      out.innerHTML='<div style="font-size:14px;margin-bottom:10px">'+t.note+'</div>'+
+        '<div class="pre"><span class="c"># .env (API + fieldsync)</span>\nFIELD_SSO_WEB_ORIGIN=<span class="s">'+t.origin+'</span>\n\n<span class="c"># Azure app registration → add this redirect URI (keep your web one)</span>\n<span class="s">'+t.origin+'</span>/auth/oidc/azuread/callback\n\n<span class="c"># verify from the device’s network</span>\ncurl <span class="s">'+t.origin.replace(':3704',':3706')+'</span>/auth/sso-config   <span class="c"># → {"login_base":"'+t.origin+'"}</span></div>';
+    }
+    render();
+  })();
+  </script>
+  <div class="caution"><b>Azure platform</b> Add the redirect under the <b>Web</b> platform (same as your web redirect). Azure's Web platform accepts <code>https://…</code> and <code>http://localhost</code> — but <b>not</b> <code>http://127.0.0.1</code>. So for local dev keep the host as <code>localhost</code> everywhere the <em>browser</em> and Azure see it.</div>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Local dev &amp; device testing</h2><p>The hard-won part: ports, tunnels, and two traps that look like app bugs.</p></div>
+  <p>In production there's one origin and none of this applies. But testing on a physical tablet against Docker containers has sharp edges — here they are so nobody re-walks them.</p>
+  <h3>6.1 The port map (docker-compose defaults)</h3>
+  <div class="tbl"><table>
+    <tr><th>Service</th><th>Host port</th><th>Serves</th></tr>
+    <tr><td><code>cmd/server</code> (api)</td><td><b>3704</b> (<code>API_PORT</code>; internal 8080)</td><td>OIDC, <code>/auth/providers</code>, the field callback</td></tr>
+    <tr><td><code>cmd/fieldsync</code></td><td><b>3706</b> (<code>FIELDSYNC_PORT</code>)</td><td>packs, sync, <code>/auth/sso-config</code>, <code>/auth/field-sso/exchange</code></td></tr>
+    <tr><td>web (Vite dev)</td><td><b>5173</b></td><td>the web app; proxies <code>/api</code> → <code>:3704</code></td></tr>
+  </table></div>
+  <h3>6.2 Reaching the host from the tablet</h3>
+  <p>Use <code>adb reverse</code> so the tablet's <code>localhost</code> maps to your host — then the same <code>localhost</code> URLs work on the device and in Azure:</p>
+  <div class="pre"><span class="c"># one task does all ports</span>
+task adb-reverse        <span class="c"># reverses 3702/3704/3706/5173, then --list</span>
+adb reverse --list      <span class="c"># confirm after every replug / adb restart</span></div>
+  <div class="caution"><b>adb reverse drops silently</b> A container recreate, a device replug, or an <code>adb</code>/<code>flutter run</code> restart clears the reverses. The symptom is <code>Connection refused … localhost:3706</code> in the app while your PC <code>curl</code> to the same port works. Re-run <code>task adb-reverse</code>. This bit us repeatedly — check it first.</div>
+  <h3>6.3 Trap 1 — don't route field SSO through Vite</h3>
+  <p>The web dev server (<code>:5173</code>) proxies <code>/api</code> to the API. It's tempting to point <code>FIELD_SSO_WEB_ORIGIN</code> at <code>localhost:5173/api</code> so you reuse the web redirect — <b>don't</b>. The Dart HTTP client gets <code>Connection reset by peer</code> from Vite's proxy (a Dart-vs-Node-proxy quirk), even though the device's Chrome reaches the same URL fine. Point the field app straight at the API container (<code>:3704</code>) — a Go server, which the Dart client reaches cleanly (just like <code>:3706</code>). This is also the production shape: no Vite in prod.</p>
+  <h3>6.4 Trap 2 — <code>localhost</code> vs <code>127.0.0.1</code></h3>
+  <p>If the app's own HTTP calls intermittently <code>Connection refused</code> while the browser works, suspect IPv6: Android can resolve <code>localhost</code> to <code>::1</code>, but <code>adb reverse</code> only listens on IPv4 <code>127.0.0.1</code>. In our setup both resolved fine — but if you hit it, the fix is <b>not</b> to change Azure (its Web platform rejects <code>127.0.0.1</code>). Keep the browser/Azure on <code>localhost</code>; only the device's own socket needs IPv4.</p>
+  <div class="tip"><b>Ordering</b> Just to make the button <em>appear</em>, <code>cmd/fieldsync</code> needs to be rebuilt (it serves <code>sso-config</code>). To <em>complete</em> a sign-in you also need <code>cmd/server</code> rebuilt (the field callback) and migration 0191 applied.</div>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Troubleshooting</h2><p>Pick the symptom; get the cause and the fix.</p></div>
+  <p>The login screen's SSO diagnostic shows the raw error — match it here. The diagnoser walks you from what you see to the one thing to change.</p>
+
+  <div class="widget" id="w-diag">
+    <div class="w-head"><span class="eyebrow">Interactive · diagnoser</span><h4>What are you seeing?</h4><span style="flex:1"></span><button class="btn" id="diag-reset">Start over</button></div>
+    <div class="w-bar" id="diag-opts"></div>
+    <div class="w-body"><div id="diag-out" class="fbox">Pick a symptom above.</div></div>
+  </div>
+  <script>
+  (function(){
+    var opts=document.getElementById('diag-opts'), out=document.getElementById('diag-out'); if(!opts) return;
+    var D=[
+      {s:'No “Sign in with Microsoft” button',cls:'warn',c:'The app discovers providers at runtime; none were found.',f:'Check the diagnostic text. <code>Connection refused :3706</code> → adb reverse / fieldsync down. <code>sso-config</code> returns the wrong <code>login_base</code> → set <code>FIELD_SSO_WEB_ORIGIN</code> + restart fieldsync. <code>/auth/providers</code> empty → the API has no OIDC env (<code>OIDC_AZURE_*</code>).'},
+      {s:'Connection refused · localhost:3706',cls:'bad',c:'The device can’t reach cmd/fieldsync — the tunnel or container is down.',f:'Run <code>task adb-reverse</code> and <code>adb reverse --list</code>. Confirm the container: <code>curl localhost:3706/healthz</code> from the PC. If the PC works but the device doesn’t, it’s purely adb reverse.'},
+      {s:'Connection reset by peer · :5173',cls:'bad',c:'You routed field SSO through the Vite dev proxy; the Dart client gets reset there.',f:'Point <code>FIELD_SSO_WEB_ORIGIN</code> at the API directly (<code>http://localhost:3704</code>), not <code>:5173/api</code>. Rebuild + restart fieldsync. (Chapter 6.3.)'},
+      {s:'Microsoft: “password incorrect”',cls:'warn',c:'Microsoft rejected the credential. VoltEdge never saw it.',f:'Verify the password independently at <code>myaccount.microsoft.com</code>. Ensure the account is in the tenant your <code>OIDC_AZURE_TENANT_ID</code> points to. Don’t confuse an MFA prompt with a password error.'},
+      {s:'“no VoltEdge account exists…”',cls:'bad',c:'Microsoft accepted, but no VoltEdge user matches the email.',f:'Create the user with the <b>same email</b> Microsoft asserts (Admin → Users). SSO never auto-creates accounts. (Chapter 3.)'},
+      {s:'“no field-app access”',cls:'bad',c:'The account exists but lacks <code>field:login</code>.',f:'Grant a role that includes <span class="perm">field:login</span> (any field role, or admin).'},
+      {s:'Browser never returns to the app',cls:'warn',c:'The <code>voltedge://</code> hand-off didn’t reach the app.',f:'Confirm the <code>voltedge</code> scheme is in the Android manifest (<code>CallbackActivity</code> intent-filter) and the app was rebuilt. Check the last browser URL: if it stuck before <code>/callback</code>, the redirect URI isn’t registered / reachable; after it, the scheme hand-off is the issue.'},
+      {s:'Redirect URI mismatch (AADSTS50011)',cls:'bad',c:'Azure doesn’t have the API-origin callback registered.',f:'Add <code>&lt;api-origin&gt;/auth/oidc/azuread/callback</code> to the Azure app’s redirect URIs (Web platform), matching exactly what the device reaches. (Chapter 5.)'}
+    ];
+    function render(){
+      opts.innerHTML='';
+      D.forEach(function(d,k){ var b=document.createElement('button'); b.className='btn'; b.textContent=d.s; b.onclick=function(){ out.className='fbox '+d.cls; out.innerHTML='<div style="margin-bottom:6px"><b>Cause.</b> '+d.c+'</div><div><b>Fix.</b> '+d.f+'</div>'; [].forEach.call(opts.children,function(c){c.setAttribute('aria-pressed','false');}); b.setAttribute('aria-pressed','true'); }; b.style.textAlign='left'; opts.appendChild(b); });
+    }
+    document.getElementById('diag-reset').onclick=function(){ out.className='fbox'; out.textContent='Pick a symptom above.'; [].forEach.call(opts.children,function(c){c.setAttribute('aria-pressed','false');}); };
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Security model</h2><p>What VoltEdge sees, what it never sees, and how access is cut.</p></div>
+  <ul>
+    <li><b>VoltEdge never sees the password.</b> It goes to Microsoft; VoltEdge only receives a verified id_token. A “password incorrect” is always Microsoft-side.</li>
+    <li><b>The hand-off code is single-use and short-lived.</b> <code>iam.field_sso_handoff</code> rows are consumed atomically (only the first redeem of an unused code wins) and expire in 2 minutes. They store a <em>user reference</em>, never a token.</li>
+    <li><b>Request-origin redirect is safe against Host spoofing.</b> The field flow derives <code>redirect_uri</code> from the request, but Azure only ever redirects to a <b>pre-registered</b> URI — an unregistered (spoofed) origin is rejected by Azure regardless.</li>
+    <li><b>PKCE + state + nonce</b> protect the auth-code flow exactly as the web flow does; the field variant reuses the same verification.</li>
+    <li><b>Linking by email on first login is a trust decision.</b> Whoever controls a Microsoft account asserting a verified email can claim the pre-provisioned VoltEdge account with that email. Bound by your Azure tenant restriction.</li>
+    <li><b>Revocation cuts both surfaces.</b> Disabling the user, or revoking their tokens, stops web and field. Device sign-out revokes the refresh token; the short access token lapses on its own.</li>
+    <li><b>Trade-off noted:</b> the refresh token is non-rotating in v1 (chapter 4) — a deliberate choice for field connectivity, revisitable with rotation + a grace window if policy requires.</li>
+  </ul>
+  <div class="en-b"><b>See also.</b> Enrolment walk-through and the admin UI: <b>Field Tool Admin Guide</b> §2.1a. The web SSO + provisioning internals: <b>Access Control Guide</b> chapters 8–9. The code: <code>api/internal/auth</code> (oidc, fieldsession), <code>api/internal/fieldpack</code> (fieldauth, routes), migration <code>0191</code>.</div>
+</section>
+
+<footer><p class="muted" style="max-width:none">VoltEdge · Field App Authentication &amp; SSO — interactive edition. Every widget runs entirely in your browser; nothing here talks to a server. The flow, gates, token lifetimes and config rules mirror the auth source. · <b>Last updated 2026-11-03</b></p></footer>
+</div>
+
+<script>
+/* chapter scrollspy — mirrors the house guides */
+(function(){ var links=[].slice.call(document.querySelectorAll('#chaps a')); var map={}; links.forEach(function(a){map[a.getAttribute('href').slice(1)]=a;}); var io=new IntersectionObserver(function(es){es.forEach(function(e){ if(e.isIntersecting){links.forEach(function(l){l.classList.remove('on');}); var a=map[e.target.id]; if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'});}}});},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(function(s){io.observe(s);}); })();
+</script>
+</body></html>

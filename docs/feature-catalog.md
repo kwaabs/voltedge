@@ -1376,8 +1376,8 @@ bay — same idea, different housing.
 
 ### `RMU` — Ring Main Unit
 
-> Seed: [`seed/rmu_example.sql`](../seed/rmu_example.sql) · templates
-> [`seed/rmu_templates.sql`](../seed/rmu_templates.sql)
+> Seed: [`seed/rmu_example.sql`](../seed/rmu_example.sql) · kit templates
+> [`seed/consolidated_assembly_templates.sql`](../seed/consolidated_assembly_templates.sql)
 
 **What it is.** An outdoor, pad-mounted switching **assembly** — several independently
 switched *ways* sharing one internal bus, the workhorse of the MV distribution ring. This
@@ -1409,9 +1409,10 @@ dedicated way or bus classes** — those were collapsed away:
 
 **How it's specified.** One `standard` subtype. Field: `rmu_config` (`RMU_CONFIG` domain:
 `2W_1T` = 2 ring + 1 transformer, `2W_2T` = 2 ring + 2 transformer; required). The coded
-value selects the **fan-out template** (`metadata.rmu_templates`) — the one action that
-creates each way as an `MV_SWITCH`, stamps its `is_fused`, and wires it to the internal
-bus. Built by fan-out, not by hand.
+value selects the **fan-out kit** (a `metadata.assembly_templates` row, placed via the
+generic assembly engine — the former dedicated RMU engine was consolidated into it) — the
+one action that creates each way as an `MV_SWITCH`, stamps its `is_fused`, and wires it to
+the internal bus. Built by fan-out, not by hand.
 
 **Network role.** `container`. Geometry `point` (`is_diagram_container = true`,
 `is_diagram_placeable = false` — it has its own footprint, so it need not sit on a parent
@@ -1434,7 +1435,7 @@ halts it at exactly one way.
 ### `PACKAGED_SUBSTATION` — Packaged Substation
 
 > Seed: [`seed/packaged_substation_example.sql`](../seed/packaged_substation_example.sql)
-> · templates [`seed/packaged_substation_templates.sql`](../seed/packaged_substation_templates.sql)
+> · kit templates [`seed/consolidated_assembly_templates.sql`](../seed/consolidated_assembly_templates.sql)
 
 **What it is.** A factory-built, movable secondary substation — an enclosure that bundles,
 pre-wired, an MV switch + a distribution transformer + an LV board, placed and moved as

@@ -359,6 +359,9 @@ export interface UpdateWorkOrderBody {
   scheduled_for?: string
   due_by?: string
   completion_notes?: string
+  /** On a status→completed patch for an order raised from a defect: also resolve
+   * that defect (when no other active order references it). Ignored otherwise. */
+  resolve_defect?: boolean
 }
 
 export function useUpdateWorkOrder() {
@@ -444,7 +447,7 @@ export function useInspectionTemplates(opts: { activeOnly?: boolean } = {}) {
   const query = opts.activeOnly ? "?active=true" : ""
   return useQuery({
     queryKey: [...WAM_KEY, "templates", opts.activeOnly ?? false],
-    queryFn: () => apiFetch<TemplatesResponse>(`/wam/inspection-templates${query}`),
+    queryFn: () => apiFetch<TemplatesResponse>(`/inspection-templates${query}`),
     staleTime: 30_000,
   })
 }
@@ -453,7 +456,7 @@ export function useInspectionTemplates(opts: { activeOnly?: boolean } = {}) {
 export function useInspectionTemplate(id: string | null) {
   return useQuery({
     queryKey: [...WAM_KEY, "template", id],
-    queryFn: () => apiFetch<InspectionTemplate>(`/wam/inspection-templates/${id}`),
+    queryFn: () => apiFetch<InspectionTemplate>(`/inspection-templates/${id}`),
     enabled: !!id,
     staleTime: 30_000,
   })
@@ -503,13 +506,13 @@ export interface CreateTemplateBody {
 
 export function useCreateInspectionTemplate() {
   return useWamMutation<CreateTemplateBody>((body) =>
-    apiFetch("/wam/inspection-templates", { method: "POST", body: JSON.stringify(body) }),
+    apiFetch("/inspection-templates", { method: "POST", body: JSON.stringify(body) }),
   )
 }
 
 export function useSetTemplateActive() {
   return useWamMutation<{ id: string; active: boolean }>(({ id, active }) =>
-    apiFetch(`/wam/inspection-templates/${id}/active`, { method: "POST", body: JSON.stringify({ active }) }),
+    apiFetch(`/inspection-templates/${id}/active`, { method: "POST", body: JSON.stringify({ active }) }),
   )
 }
 

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -261,17 +262,21 @@ function VvoRow({
 }) {
   return (
     <tr
-      onClick={() =>
-        useSelectionStore.getState().select(action.node.feature_class, action.node.feature_id, { focus: true })
-      }
+      onClick={() => useSelectionStore.getState().locate(action.node.feature_class, action.node.feature_id, { focus: true })}
+      onDoubleClick={() => useSelectionStore.getState().select(action.node.feature_class, action.node.feature_id, { focus: true })}
       className={cn(
-        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+        "hover:bg-accent cursor-pointer border-b align-top last:border-b-0 select-none",
         action.changed && "bg-emerald-500/10 hover:bg-emerald-500/15",
       )}
     >
       <td className="px-3 py-1.5">
-        <div>{classNameFor(action.node.feature_class)}</div>
-        <div className="text-muted-foreground font-mono text-xs">{shortId(action.node.feature_id)}</div>
+        <div className="flex items-start gap-1">
+          <FeatureInfoButton featureClass={action.node.feature_class} featureId={action.node.feature_id} className="-mt-0.5" />
+          <div className="min-w-0">
+            <div>{classNameFor(action.node.feature_class)}</div>
+            <div className="text-muted-foreground font-mono text-xs">{shortId(action.node.feature_id)}</div>
+          </div>
+        </div>
       </td>
       <td className="px-3 py-1.5 text-xs">{kindLabel(action.kind)}</td>
       <td className="px-3 py-1.5 text-xs whitespace-nowrap">

@@ -127,6 +127,18 @@ services:
       RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
       RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+      # SSO (OIDC). The auth-code flow runs HERE for both the web app and the field
+      # app's system browser (/auth/oidc/... + /auth/providers). Passed through from
+      # .env; when unset, no provider is registered and SSO simply doesn't appear.
+      # The Azure provider key is "azuread" (button: "Microsoft").
+      OIDC_AZURE_TENANT_ID: ${OIDC_AZURE_TENANT_ID:-}
+      OIDC_AZURE_CLIENT_ID: ${OIDC_AZURE_CLIENT_ID:-}
+      OIDC_AZURE_CLIENT_SECRET: ${OIDC_AZURE_CLIENT_SECRET:-}
+      OIDC_AZURE_REDIRECT_URL: ${OIDC_AZURE_REDIRECT_URL:-}
+      OIDC_GOOGLE_CLIENT_ID: ${OIDC_GOOGLE_CLIENT_ID:-}
+      OIDC_GOOGLE_CLIENT_SECRET: ${OIDC_GOOGLE_CLIENT_SECRET:-}
+      OIDC_GOOGLE_REDIRECT_URL: ${OIDC_GOOGLE_REDIRECT_URL:-}
+      OIDC_GOOGLE_ALLOWED_DOMAIN: ${OIDC_GOOGLE_ALLOWED_DOMAIN:-}
     ports:
       - "${API_PORT:-3704}:8080"
 
@@ -208,6 +220,17 @@ services:
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
       FIELDSYNC_WORKER_CONCURRENCY: ${FIELDSYNC_WORKER_CONCURRENCY:-2}
       FIELDSYNC_JOB_LEASE: ${FIELDSYNC_JOB_LEASE:-60s}
+      # Field SSO (migration 0191): the device runs the OIDC flow on cmd/server (the
+      # `api` service: /auth/oidc/... + /auth/providers), then redeems a one-time code
+      # here. GET /auth/sso-config tells the device which origin to start on. That
+      # origin must be reachable BY THE DEVICE'S BROWSER -- not this container, not
+      # "localhost" on an emulator. Set FIELD_SSO_WEB_ORIGIN in .env to the api's
+      # device-reachable origin (emulator: http://10.0.2.2:${API_PORT:-3704};
+      # real device: http://<LAN-ip>:${API_PORT:-3704}). If unset, sso-config derives
+      # it from OIDC_AZURE_REDIRECT_URL (passed through below), else the request origin.
+      FIELD_SSO_WEB_ORIGIN: ${FIELD_SSO_WEB_ORIGIN:-}
+      OIDC_AZURE_REDIRECT_URL: ${OIDC_AZURE_REDIRECT_URL:-}
+      OIDC_GOOGLE_REDIRECT_URL: ${OIDC_GOOGLE_REDIRECT_URL:-}
       # The sync-apply worker (Phase 23) runs as a second goroutine in this same
       # process, draining ops.sync_inbox to production. Its own concurrency/lease
       # knobs, sibling to the pack-build worker's above.

@@ -300,22 +300,22 @@ Thirty-seven permission keys exist. Each is a stable `resource:action` string th
 | `attachments:read` | Attachments | 0041 | View and download files attached to features. | V, A, E, S, Ad, BG, FS, FE, FT | `/attachments` (R) |
 | `attachments:write` | Attachments | 0041 | Upload, replace, and delete files attached to features. | E, S, Ad, BG, FS, FE, FT | `/attachments` (W) |
 | `circuits:write` | Circuits | 0063 | Create, rename, and delete circuits, and edit their voltage and source feature. | Ad, BG | `/circuits` (W); UI: `/admin/circuits` |
-| `connectivity:commit` | Connectivity | 0025 | Establish or revoke electrical connectivity. | E, S, Ad, BG | `/connectivity` (W); `POST /couplers` (+); `POST /rmus` (+) |
+| `connectivity:commit` | Connectivity | 0025 | Establish or revoke electrical connectivity. | E, S, Ad, BG | `/connectivity` (W); `POST /couplers` (+); `POST /assemblies` (+) |
 | `connectivity:read` | Connectivity | 0025 | View committed electrical connectivity. | V, A, E, S, Ad, BG, FS, FE, FT | `/connectivity` (R) |
 | `diagrams:delete` | Diagrams | 0078 | Delete an entire schematic diagram, including all of its placements. | S, Ad, BG | `DELETE /diagrams/{id}` (+) |
 | `diagrams:read` | Diagrams | 0025 | View schematic diagrams and their placements. | V, A, E, S, Ad, BG | `/diagrams` (R) |
 | `diagrams:write` | Diagrams | 0025 | Create and rename diagrams and place or remove features on them. | E, S, Ad, BG | `/diagrams` (W) |
 | `faults:read` | Faults | 0107 | View the fault board: electrical fault events and their outage/defect links. | V, A, E, Ad, BG, FT | `/faults` (R); UI: `/faults` |
 | `faults:write` | Faults | 0107 | Log fault events, link them to outages, and raise defects from them. | E, Ad, BG, FT | `/faults` (W) |
-| `features:read` | Features | 0025 | View feature data: map layers, attributes, and feature-class schema. | V, A, E, S, Ad, BG, FS, FE, FT | `/feature-classes` (all); `/features` (R); `/imports` (R); `/export` (all); `/tiles` (all); `/territories` (R); `/circuits` (R); `/feature-registry` (all); `/panels` (R); `/rmus` (R); `/packaged-substations` (R); `/assemblies` (R); `/ducts` (R); `/couplers` (R); `/ties` (R); `/feature-links` (R); `/boq` (all); `/map-settings` (R); `/private-drafts` (R); `/basemaps` (R); `/service-layers` (R) |
+| `features:read` | Features | 0025 | View feature data: map layers, attributes, and feature-class schema. | V, A, E, S, Ad, BG, FS, FE, FT | `/feature-classes` (all); `/features` (R); `/imports` (R); `/export` (all); `/tiles` (all); `/territories` (R); `/circuits` (R); `/feature-registry` (all); `/panels` (R); `/assemblies` (R); `/ducts` (R); `/couplers` (R); `/ties` (R); `/feature-links` (R); `/boq` (all); `/map-settings` (R); `/private-drafts` (R); `/basemaps` (R); `/service-layers` (R) |
 | `features:wipe` | Features | 0116 | Bulk soft-delete and permanently purge every feature in a class (admin). | Ad, BG | `POST /features/{code}/wipe`, `.../counts`, `.../purge-deleted` (+) |
-| `features:write` | Features | 0025 | Create, edit, publish, unpublish, delete, and restore features. | E, S, Ad, BG, FE, FT | `/features` (W); `/imports` (W); `/ownership` (all); `/panels` (W); `/rmus` (W); `/packaged-substations` (W); `/assemblies` (W); `/ducts` (W); `/couplers` (W); `/ties` (W); `/feature-links` (W); `POST /circuits/{id}/assign` (+); UI: `/imports` |
+| `features:write` | Features | 0025 | Create, edit, publish, unpublish, delete, and restore features. | E, S, Ad, BG, FE, FT | `/features` (W); `/imports` (W); `/ownership` (all); `/panels` (W); `/assemblies` (W); `/ducts` (W); `/couplers` (W); `/ties` (W); `/feature-links` (W); `POST /circuits/{id}/assign` (+); UI: `/imports` |
 | `field:login` | Field tool | 0164 | Sign in to the offline field app (obtain a field-app bearer token). Without it, a valid credential is refused 403 at field login -- so field-app access is an explicit grant, not implied by having an account. | Ad, BG, FS, FE, FT | `POST /auth/field-login` (+, on the field-sync service) |
 | `metadata:read` | Metadata catalog | 0025 | View the metadata catalog: classes, domains, field groups, symbology, materials. | V, A, E, S, Ad, BG | (no API mount; two manuals; three webhook assistant tools) |
 | `metadata:write` | Metadata catalog | 0025 | Edit and compile the metadata catalog and symbology. | Ad, BG | `/admin` (all); `/map-settings` (W); `/private-drafts` (W); `/basemaps` (W); `/service-layers` (W); `/external-systems` (all); `/webhook-endpoints` (all); `POST /diagrams/{id}/elements/{eid}/promote` (+); UI: `/admin/feature-classes`, `/admin/domains`, `/admin/field-groups`, `/admin/materials`, `/admin/cost-catalog`, `/admin/cim-mappings`, `/admin/imports`, `/admin/diagrams`, `/admin/stencils`, `/admin/symbology-icons`, `/admin/external-systems`, `/admin/webhooks`, `/admin/map-settings` |
 | `oms:read` | Outages (OMS) | 0088 | View the outage board: trouble calls, predicted and active incidents. | V, A, E, Ad, BG | `/oms` (R); UI: `/outages` |
 | `oms:write` | Outages (OMS) | 0088 | Log trouble calls, run prediction, and confirm/restore/cancel incidents. | E, Ad, BG | `/oms` (W) |
-| `relationships:commit` | Relationships | 0025 | Establish or revoke structural/spatial relationships. | E, S, Ad, BG | `/relationships` (W); `POST /panels` (+); `POST /rmus` (+) |
+| `relationships:commit` | Relationships | 0025 | Establish or revoke structural/spatial relationships. | E, S, Ad, BG | `/relationships` (W); `POST /panels` (+); `POST /assemblies` (+) |
 | `relationships:read` | Relationships | 0025 | View committed structural/spatial relationships. | V, A, E, S, Ad, BG | `/relationships` (R) |
 | `sync:post` | Field sync | 0044 | Post (apply) or reject a reviewed field-sync op, and set the per-class apply policy. | Ad, BG | `/sync-review` (W) |
 | `sync:review` | Field sync | 0044 | View the field-sync review queue -- device ops held pending a supervisor's post (QA mode). | Ad, BG | `/sync-review` (R); UI: `/admin/sync-review` |
@@ -388,9 +388,7 @@ Every mount in `api/cmd/server/main.go` is wrapped in one of four gates. This ch
 | `/connectivity` | method-aware | `connectivity:read` | `connectivity:commit` |  |
 | `/relationships` | method-aware | `relationships:read` | `relationships:commit` |  |
 | `/panels` | method-aware | `features:read` | `features:write` | inner relationships:commit |
-| `/rmus` | method-aware | `features:read` | `features:write` | inner relationships:commit + connectivity:commit |
-| `/packaged-substations` | method-aware | `features:read` | `features:write` | inner relationships:commit + connectivity:commit |
-| `/assemblies` | method-aware | `features:read` | `features:write` | inner relationships:commit + connectivity:commit |
+| `/assemblies` | method-aware | `features:read` | `features:write` | inner relationships:commit + connectivity:commit (RMUs and packaged substations are kits here — the former `/rmus` and `/packaged-substations` engines were consolidated in) |
 | `/ducts` | method-aware | `features:read` | `features:write` | inner relationships:commit |
 | `/couplers` | method-aware | `features:read` | `features:write` | inner connectivity:commit |
 | `/ties` | method-aware | `features:read` | `features:write` | inner connectivity:commit |
@@ -435,7 +433,7 @@ These routes pass the mount gate and then demand more. The second check is eithe
 | `POST /diagrams/{id}/placements/{pid}/replace-from-map` | `diagrams:write` | `metadata:write` | `diagram/handler.go` |
 | `POST /diagrams/{id}/placements/{pid}/sectionalize` | `diagrams:write` | `features:write`, and `connectivity:commit` when wiring a sectionalizer | `diagram/sectionalize.go` |
 | `POST /panels` | `features:write` | `relationships:commit` | `panel/http.go` |
-| `POST /rmus`, `/packaged-substations`, `/assemblies` | `features:write` | `relationships:commit` **and** `connectivity:commit` | `rmu/`, `packagedsub/`, `assembly/` |
+| `POST /assemblies` | `features:write` | `relationships:commit` **and** `connectivity:commit` | `assembly/` (RMUs + packaged substations are kits here) |
 | `POST /ducts` | `features:write` | `relationships:commit` | `duct/http.go` |
 | `POST /couplers`, `POST /ties` | `features:write` | `connectivity:commit` | `coupler/`, `tie/` |
 | `GET/POST /features/{code}/counts|wipe|purge-deleted` | `features:read` / `features:write` | `features:wipe` (in-handler) | `crud/handler.go` |
@@ -483,7 +481,7 @@ The table below is the data behind the "request tester" widget of the interactiv
 | DELETE | `/connectivity/{id}` | `connectivity:commit` |  |  |  |
 | GET | `/relationships` | `relationships:read` |  |  |  |
 | POST | `/relationships` | `relationships:commit` |  |  |  |
-| POST | `/rmus` | `features:write` + `relationships:commit` + `connectivity:commit` |  |  | place one RMU + wiring (3 capabilities) |
+| POST | `/assemblies` | `features:write` + `relationships:commit` + `connectivity:commit` |  |  | place one assembly kit — anchor + fanned-out components + wiring (RMUs and packaged substations included) |
 | POST | `/panels` | `features:write` + `relationships:commit` |  |  | place a switchgear panel |
 | POST | `/couplers` | `features:write` + `connectivity:commit` |  |  | bus coupler |
 | GET | `/diagrams` | `diagrams:read` |  |  |  |
@@ -744,6 +742,16 @@ SSO **authenticates** the person. It does **not** decide their permissions: ther
 - **A user can hold both a password and an SSO identity** (one of each provider, at most one `local`). That is how a break-glass account stays SSO-normally and local-in-an-emergency.
 - **SSO sign-in is not subject to the local-auth switch**, the lockout, or the login rate limiter.
 - **Required environment** (from `.env.example` and `oidc.go`): `OIDC_AZURE_TENANT_ID`, `OIDC_AZURE_CLIENT_ID`, `OIDC_AZURE_CLIENT_SECRET`, `OIDC_AZURE_REDIRECT_URL`; `OIDC_GOOGLE_CLIENT_ID`, `OIDC_GOOGLE_CLIENT_SECRET`, `OIDC_GOOGLE_REDIRECT_URL`, optional `OIDC_GOOGLE_ALLOWED_DOMAIN`. A provider needs a client secret and a redirect URL or it is skipped.
+
+### 8.5 SSO on the field app (mobile)
+
+The **field app** can use the same SSO (migration 0191). Authentication and provisioning are **identical** to the web — same providers, same `authenticateOIDC` match-or-reject, same "email must match a pre-provisioned account", plus the field tool's own `field:login` gate (chapter 9). Only the *mechanics* of handing the device a credential differ, because the app needs a bearer, not a cookie:
+
+- The app opens the normal `GET /auth/oidc/{provider}/login` **with `?field=1`**, in the system browser. The callback, instead of setting a web session, mints a **single-use hand-off code** (`iam.field_sso_handoff`, 2-minute TTL) and redirects to the app's `voltedge://` scheme; the device redeems the code at `POST /auth/field-sso/exchange` for its tokens. A field user without `field:login` is refused at the callback with `?error=no_field_access`.
+- A field flow **overrides `redirect_uri`** with the origin the device reached the API on (the app talks to the API directly, not the web origin), so that origin's `/auth/oidc/{provider}/callback` must also be a **registered redirect URI** (alongside the web one). `FIELD_SSO_WEB_ORIGIN` tells the device where to start.
+- Field logins — password **or** SSO — now issue a **short-lived access token** (`iam.api_tokens`, ~24h) plus a **refresh token** (`iam.field_refresh_tokens`, non-rotating). The device refreshes the access token from the refresh token (`POST /auth/field-refresh`) without re-authenticating; sign-out revokes the refresh token (`POST /auth/field-logout`). Admin revocation of the user or their tokens still cuts off both surfaces. The refresh TTL is `FIELD_REFRESH_TTL_DAYS` (**default 21**). `field-refresh` re-checks the VoltEdge account but **not** the IdP, so set this **≤ your SSO password-rotation period** to force a re-SSO (which re-delegates to Azure's current policy) within one cycle; a shorter TTL caps staleness, not instant revocation.
+
+Setup and enrolment walk-through: see the **Field Tool Admin Guide**, §2.1a.
 
 ---
 

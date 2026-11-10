@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Branded adaptive launcher icon (Android 8.0 / API 26+): brand-green background +
+     the white VoltEdge bolt foreground. The <monochrome> layer lets Android 13+
+     themed icons tint the bolt to match the user's wallpaper. On API < 26 the
+     launcher falls back to the mipmap-*/ic_launcher.png rasters. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

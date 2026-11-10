@@ -54,6 +54,11 @@ const (
 	keyBoundsMinLat = "map_bounds_min_lat"
 	keyBoundsMaxLng = "map_bounds_max_lng"
 	keyBoundsMaxLat = "map_bounds_max_lat"
+	// Whether the map draws the "loaded pole" count-badge overlay (how many point
+	// features a pole carries). A plain on/off; default ON, so an unconfigured
+	// deployment shows them as before. No migration seeds it; the PUT upsert
+	// creates it on first save and readView degrades a missing row to the default.
+	keyPoleBadges = "map_pole_attachment_badges"
 
 	defaultCenterLng = -0.127
 	defaultCenterLat = 51.507
@@ -79,6 +84,8 @@ type mapView struct {
 	BoundsMinLat *float64 `json:"bounds_min_lat"`
 	BoundsMaxLng *float64 `json:"bounds_max_lng"`
 	BoundsMaxLat *float64 `json:"bounds_max_lat"`
+	// Whether the map draws the "loaded pole" count-badge overlay (default true).
+	PoleAttachmentBadges bool `json:"pole_attachment_badges"`
 }
 
 // Routes returns the /map-settings router.
@@ -189,10 +196,11 @@ func readView(ctx context.Context, db *bun.DB) (mapView, error) {
 		Zoom:              floatOr(settings[keyZoom], defaultZoom),
 		AnnotationMinZoom: floatPtrOrNil(settings[keyAnnMinZoom]),
 		AnnotationMaxZoom: floatPtrOrNil(settings[keyAnnMaxZoom]),
-		BoundsMinLng:      floatPtrOrNil(settings[keyBoundsMinLng]),
-		BoundsMinLat:      floatPtrOrNil(settings[keyBoundsMinLat]),
-		BoundsMaxLng:      floatPtrOrNil(settings[keyBoundsMaxLng]),
-		BoundsMaxLat:      floatPtrOrNil(settings[keyBoundsMaxLat]),
+		BoundsMinLng:         floatPtrOrNil(settings[keyBoundsMinLng]),
+		BoundsMinLat:         floatPtrOrNil(settings[keyBoundsMinLat]),
+		BoundsMaxLng:         floatPtrOrNil(settings[keyBoundsMaxLng]),
+		BoundsMaxLat:         floatPtrOrNil(settings[keyBoundsMaxLat]),
+		PoleAttachmentBadges: boolOr(settings[keyPoleBadges], true),
 	}, nil
 }
 
@@ -201,7 +209,7 @@ func loadSettings(ctx context.Context, db *bun.DB) (map[string]string, error) {
 	err := db.NewSelect().Model(&rows).
 		Where("key IN (?)", bun.In([]string{
 			keyCenterLng, keyCenterLat, keyZoom, keyAnnMinZoom, keyAnnMaxZoom,
-			keyBoundsMinLng, keyBoundsMinLat, keyBoundsMaxLng, keyBoundsMaxLat,
+			keyBoundsMinLng, keyBoundsMinLat, keyBoundsMaxLng, keyBoundsMaxLat, keyPoleBadges,
 		})).
 		Scan(ctx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -235,6 +243,7 @@ func writeView(ctx context.Context, db *bun.DB, v mapView, byUserID string) erro
 		{Key: keyBoundsMinLat, Value: floatPtrToStr(v.BoundsMinLat), UpdatedAt: now, UpdatedBy: actor},
 		{Key: keyBoundsMaxLng, Value: floatPtrToStr(v.BoundsMaxLng), UpdatedAt: now, UpdatedBy: actor},
 		{Key: keyBoundsMaxLat, Value: floatPtrToStr(v.BoundsMaxLat), UpdatedAt: now, UpdatedBy: actor},
+		{Key: keyPoleBadges, Value: strconv.FormatBool(v.PoleAttachmentBadges), UpdatedAt: now, UpdatedBy: actor},
 	}
 	_, err := db.NewInsert().Model(&rows).
 		On("CONFLICT (key) DO UPDATE").
@@ -250,6 +259,19 @@ func floatOr(raw string, fallback float64) float64 {
 		return fallback
 	}
 	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+// boolOr parses a stored on/off, degrading a blank or corrupt row to the default
+// (so an unconfigured deployment keeps the intended behaviour).
+func boolOr(raw string, fallback bool) bool {
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseBool(raw)
 	if err != nil {
 		return fallback
 	}

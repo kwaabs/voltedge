@@ -170,6 +170,9 @@ func UpdatePlannedSwitching(ctx context.Context, db *bun.DB, orderID string, in 
 		if err := assertEditable(order); err != nil {
 			return err
 		}
+		if err := revertApprovalOnEdit(ctx, tx, order.ID); err != nil {
+			return err
+		}
 
 		upd := tx.NewUpdate().Model((*SwitchingOrder)(nil)).Where("id = ?", orderID).Set("updated_at = now()")
 		if in.Reference != nil {
@@ -192,10 +195,11 @@ func UpdatePlannedSwitching(ctx context.Context, db *bun.DB, orderID string, in 
 			upd = upd.Set("planned_end = ?", in.PlannedEnd)
 		}
 		if in.Status != nil {
-			if *in.Status != SwitchingStatusIssued || order.Status != SwitchingStatusDraft {
-				return invalidf("status can only move from draft to issued here (use execute/cancel otherwise)")
-			}
-			upd = upd.Set("status = ?", SwitchingStatusIssued)
+			// Status now moves through the governed actions, not a free-text set:
+			// /approve (draft->approved), /issue (approved->issued), execute (steps),
+			// /cancel. This keeps the ADMS gate (an order is validated + authorised
+			// before it can be issued and executed) from being bypassed.
+			return invalidf("use the approve / issue / cancel actions to change a switching order's status")
 		}
 		if _, err := upd.Exec(ctx); err != nil {
 			return fmt.Errorf("oms: updating planned switching order %s: %w", orderID, err)
@@ -222,6 +226,9 @@ func AddSwitchingStep(ctx context.Context, db *bun.DB, orderID string, in StepIn
 			return err
 		}
 		if err := assertEditable(order); err != nil {
+			return err
+		}
+		if err := revertApprovalOnEdit(ctx, tx, order.ID); err != nil {
 			return err
 		}
 
@@ -268,6 +275,9 @@ func UpdateSwitchingStep(ctx context.Context, db *bun.DB, stepID string, in Step
 		if err := assertEditable(order); err != nil {
 			return err
 		}
+		if err := revertApprovalOnEdit(ctx, tx, order.ID); err != nil {
+			return err
+		}
 		if step.ExecutedAt != nil {
 			return invalidf("step %d has already been executed; revert it before editing", step.StepNo)
 		}
@@ -299,6 +309,9 @@ func DeleteSwitchingStep(ctx context.Context, db *bun.DB, stepID string) (*Switc
 			return err
 		}
 		if err := assertEditable(order); err != nil {
+			return err
+		}
+		if err := revertApprovalOnEdit(ctx, tx, order.ID); err != nil {
 			return err
 		}
 		if step.ExecutedAt != nil {
@@ -334,6 +347,9 @@ func ReorderSwitchingSteps(ctx context.Context, db *bun.DB, orderID string, orde
 			return err
 		}
 		if err := assertEditable(order); err != nil {
+			return err
+		}
+		if err := revertApprovalOnEdit(ctx, tx, order.ID); err != nil {
 			return err
 		}
 		if len(orderedStepIDs) != len(order.Steps) {
@@ -407,14 +423,19 @@ func loadStandaloneStep(ctx context.Context, db bun.IDB, stepID string) (*Switch
 	return order, step, nil
 }
 
-// assertEditable refuses structural edits to a completed or cancelled order (its
-// program is history at that point).
+// assertEditable refuses structural edits to an order that is no longer being
+// authored: a completed/cancelled order is history, and an ISSUED or IN-PROGRESS order
+// is released for (or mid-) execution -- cancel it to change the plan. A DRAFT or
+// APPROVED order is editable; editing an approved one reverts it to draft (the caller
+// runs revertApprovalOnEdit) so an executed plan is always the one that was approved.
 func assertEditable(order *SwitchingOrder) error {
 	switch order.Status {
 	case SwitchingStatusCompleted:
 		return invalidf("switching order %q is completed; its steps are a record and cannot be changed", order.ID)
 	case SwitchingStatusCancelled:
 		return invalidf("switching order %q is cancelled", order.ID)
+	case SwitchingStatusIssued, SwitchingStatusInProgress:
+		return invalidf("switching order %q is %s (released for execution); cancel it before changing its steps", order.ID, order.Status)
 	}
 	return nil
 }

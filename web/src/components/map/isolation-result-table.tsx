@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { AlertTriangle, ShieldAlert, X, Zap } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { FeatureInfoButton } from "@/components/map/feature-info-button"
 import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useFloatingPanel } from "@/hooks/use-floating-panel"
@@ -155,9 +156,10 @@ export function IsolationResultTable() {
               {rows.map((row) => (
                 <tr
                   key={`${row.kind}:${row.feature_class}:${row.feature_id}`}
-                  onClick={() => useSelectionStore.getState().select(row.feature_class, row.feature_id, { focus: true })}
+                  onClick={() => useSelectionStore.getState().locate(row.feature_class, row.feature_id, { focus: true })}
+                  onDoubleClick={() => useSelectionStore.getState().select(row.feature_class, row.feature_id, { focus: true })}
                   className={cn(
-                    "hover:bg-accent cursor-pointer border-b last:border-b-0",
+                    "hover:bg-accent cursor-pointer border-b last:border-b-0 select-none",
                     row.kind === "boundary" && "bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 dark:text-violet-400",
                     row.kind === "backfeed" && "bg-destructive/10 text-destructive hover:bg-destructive/15",
                   )}
@@ -171,7 +173,12 @@ export function IsolationResultTable() {
                           : "Would de-energize"
                   }
                 >
-                  <td className="px-3 py-1.5">{classNameFor(row.feature_class)}</td>
+                  <td className="px-3 py-1.5">
+                    <div className="flex items-center gap-1">
+                      <FeatureInfoButton featureClass={row.feature_class} featureId={row.feature_id} />
+                      <span>{classNameFor(row.feature_class)}</span>
+                    </div>
+                  </td>
                   <td className="px-3 py-1.5 font-mono">{shortId(row.feature_id)}</td>
                   <td className="text-muted-foreground px-3 py-1.5">
                     <span className="inline-flex items-center gap-1">

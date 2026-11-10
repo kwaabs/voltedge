@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react"
+import { type FormEvent, useEffect, useState } from "react"
 import { ChevronsUpDown, Crosshair, Magnet, Map as MapIcon, MapPin, MousePointerClick, Ruler, Scan, ScanSearch, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,8 @@ import { useMeasureStore } from "@/stores/measure-store"
 import { useSnapStore } from "@/stores/snap-store"
 import { useUnitsStore } from "@/stores/units-store"
 import { useMapGotoStore } from "@/stores/map-goto-store"
+import { useEditing } from "@/hooks/use-editing"
+import { useMapPinPlacementStore } from "@/stores/map-pin-placement-store"
 import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapSelectStore } from "@/stores/map-select-store"
@@ -120,7 +122,8 @@ function SelectButton() {
         )}
       >
         <MousePointerClick className="size-3.5" />
-        Select{active && count > 0 ? ` (${count})` : ""}
+        {active && count > 0 ? <span className="tabular-nums">{count}</span> : null}
+        <span className="sr-only">Select</span>
       </Button>
       {/* Empties the highlight set but stays in select mode (clear vs. the
           toggle's disarm). Shown only when there's something to clear. */}
@@ -377,6 +380,28 @@ function GoToSearch() {
 function PinsButton() {
   const [open, setOpen] = useState(false)
   const count = useMapPinsStore((s) => s.pins.length)
+  const pinPicked = useMapPinPlacementStore((s) => s.picked)
+  const pinPlacing = useMapPinPlacementStore((s) => s.active)
+
+  // A drop completed on the map → reopen the dialog (it reads & consumes the
+  // picked point to pre-fill the new pin).
+  useEffect(() => {
+    if (pinPicked) setOpen(true)
+  }, [pinPicked])
+
+  // While a drop is armed the dialog is closed; let Escape cancel it (and bring
+  // the dialog back) rather than leaving the map silently waiting for a click.
+  useEffect(() => {
+    if (!pinPlacing) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        useMapPinPlacementStore.getState().cancel()
+        setOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [pinPlacing])
 
   return (
     <>
@@ -424,7 +449,7 @@ function BasemapPicker() {
         <Button
           variant="ghost"
           size="sm"
-          className="text-slate-200 hover:text-white dark:text-muted-foreground dark:hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
         >
           <MapIcon className="size-3.5" />
           {activeLabel}
@@ -500,6 +525,26 @@ function BasemapAttribution() {
  * OpenLayers' default Attribution control, which is disabled in
  * voltedge-map.tsx so it isn't shown twice.
  */
+/**
+ * Ambient edit-mode cue, moved here from the map viewport's corner badge: a
+ * pulsing amber chip in the status bar, shown only while editing is on. The
+ * pulsing dot makes "the map is live / my clicks edit" unmistakable without a
+ * badge floating over the canvas. The viewport still carries its amber inset ring.
+ */
+function EditModeIndicator() {
+  const editing = useEditing()
+  if (!editing) return null
+  return (
+    <span className="flex items-center gap-1.5 text-slate-200 dark:text-muted-foreground">
+      <span className="relative flex size-2" aria-hidden>
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-500 opacity-75" />
+        <span className="relative inline-flex size-2 rounded-full bg-amber-500" />
+      </span>
+      Edit
+    </span>
+  )
+}
+
 export function StatusBar() {
   // Same medium dark-blue surface as the header (app-header.tsx) in LIGHT MODE
   // ONLY, with light text so the readouts stay legible; dark mode is left
@@ -509,6 +554,7 @@ export function StatusBar() {
   return (
     <div className="bg-[oklch(0.45_0.10_252)] text-slate-100 dark:bg-background dark:text-foreground flex h-7 shrink-0 items-center gap-4 border-t border-white/10 dark:border-border px-3 text-xs shadow-[0_-1px_3px_rgb(0_0_0/0.15)]">
       <ApiStatusIndicator />
+      <EditModeIndicator />
       <div className="bg-border h-4 w-px" />
       <CoordinateReadout />
       <ZoomReadout />

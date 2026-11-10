@@ -17,7 +17,6 @@ import (
 	"context"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -40,10 +39,17 @@ func (e *FieldLoginError) Error() string { return e.Message }
 // (returned exactly once -- the device keystores it, it is never persisted in
 // the clear) plus the identity the app shows as "signed in as".
 type FieldLoginResult struct {
-	Token       string
-	UserID      string
-	Email       string
-	DisplayName string
+	// Token is the short-lived ACCESS bearer the device presents on every call
+	// (an iam.api_tokens row with fieldAccessTTL). AccessExpiresAt is when it
+	// lapses, so the device knows when to refresh.
+	Token           string
+	AccessExpiresAt time.Time
+	// RefreshToken is the long-lived credential the device keystores and swaps for a
+	// fresh access token (POST /auth/field-refresh) without re-authenticating.
+	RefreshToken string
+	UserID       string
+	Email        string
+	DisplayName  string
 	// Permissions is the user's effective permission set (sorted), so the field
 	// app can show/hide each module by capability -- the same list the browser
 	// login returns. The device gates its UI off this; the server still enforces
@@ -59,9 +65,10 @@ type FieldLoginResult struct {
 // `authadmin mint-token`, so everything behind it is the unchanged bearer model.
 //
 // tokenName is the human label the token is stored under (so an admin listing
-// tokens can tell field-app logins apart, ideally per device). ttl <= 0 mints a
-// non-expiring token (governed by revocation only), matching a field device that
-// must keep working offline for weeks; a positive ttl caps it.
+// tokens can tell field-app logins apart, ideally per device). ttl is retained for
+// signature compatibility but no longer used: the field session model fixes the
+// access-token TTL (fieldAccessTTL) and pairs it with a refresh token, replacing the
+// old single non-expiring bearer.
 func FieldLogin(ctx context.Context, db *bun.DB, r *http.Request, email, password, tokenName string, ttl time.Duration) (*FieldLoginResult, error) {
 	// The verify path lives on the same lightweight service the browser login
 	// uses; it needs only db + the password/lockout/switch logic (no cookies),
@@ -81,36 +88,10 @@ func FieldLogin(ctx context.Context, db *bun.DB, r *http.Request, email, passwor
 		}
 	}
 
-	// Field-app access is an EXPLICIT capability (migration 0164): the credential
-	// is valid, but only a user granted field:login (the field roles, admin,
-	// break-glass) may obtain a field-app token. Load the effective permission set
-	// once -- it both gates this and ships to the device so it can hide modules.
-	su, err := LoadSessionUser(ctx, db, user.ID)
-	if err != nil {
-		return nil, err
-	}
-	if !su.BreakGlass && !su.Has(PermFieldLogin) {
-		return nil, &FieldLoginError{
-			Status:  http.StatusForbidden,
-			Message: "this account does not have field-app access (field:login)",
-		}
-	}
-
-	name := strings.TrimSpace(tokenName)
-	if name == "" {
-		name = "field-app"
-	}
-	raw, _, err := MintAPIToken(ctx, db, user.Email, name, ttl, user.ID)
-	if err != nil {
-		return nil, err
-	}
-	return &FieldLoginResult{
-		Token:       raw,
-		UserID:      user.ID,
-		Email:       user.Email,
-		DisplayName: user.DisplayName,
-		Permissions: permissionList(su),
-	}, nil
+	// Credential verified; issue the field session (access + refresh token). The
+	// field:login capability gate lives in issueFieldSession, shared with the SSO
+	// path so both sign-in routes enforce it identically.
+	return issueFieldSession(ctx, db, user.ID, user.Email, user.DisplayName, tokenName)
 }
 
 // permissionList is the user's effective permission set as a sorted slice, for the

@@ -38,9 +38,13 @@ import { Circle as CircleStyle, Fill, Stroke, Style } from "ol/style"
 import TileState from "ol/TileState"
 import View from "ol/View"
 import { Loader2 } from "lucide-react"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 
 import { useAllDisplayZooms, useAllLabelDefs, useAllSymbology } from "@/hooks/use-all-symbology"
+import { usePoleAttachmentCounts } from "@/hooks/use-relationships"
+import { PoleSpiderFan } from "@/components/map/pole-spider-fan"
+import { usePoleSpiderStore } from "@/stores/pole-spider-store"
 import { usePermission } from "@/hooks/use-auth"
 import { useCatalog } from "@/hooks/use-catalog"
 import { useEditing } from "@/hooks/use-editing"
@@ -79,6 +83,7 @@ import {
   traceHighlightStyleForFeature,
   importedStyleForFeature,
   pinStyleForFeature,
+  poleBadgeStyleForFeature,
   territoryStyleForFeature,
   workOrderStyleForFeature,
 } from "@/lib/map-layers"
@@ -119,6 +124,7 @@ import { useOmsHighlightStore } from "@/stores/oms-highlight-store"
 import { useOmsOverlayStore } from "@/stores/oms-overlay-store"
 import { useOrthoStore } from "@/stores/ortho-store"
 import { useQueryStore } from "@/stores/query-store"
+import { useMapPinPlacementStore } from "@/stores/map-pin-placement-store"
 import { useRadiusQueryStore } from "@/stores/radius-query-store"
 import { type FeatureRef, useSelectionStore } from "@/stores/selection-store"
 import { useSnapStore } from "@/stores/snap-store"
@@ -606,6 +612,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   // -- see that effect for why it needs this instead of just depending
   // on focusToken alone.
   const fittedTokenRef = useRef(0)
+  // The last locatedFocusToken the "zoom to this row" effect handled -- same
+  // one-shot idiom as fittedTokenRef, for the located (highlighted-not-selected)
+  // feature a study/trace row's zoom control flies to.
+  const locatedFittedTokenRef = useRef(0)
   // The last OMS-highlight focusToken the affected-area effect already fit the
   // view to -- same one-shot idiom as fittedTokenRef, so a "Show on map" fits
   // once and a manual pan afterward isn't yanked back on a later re-render.
@@ -624,6 +634,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   // locations. No impact source (an order has no downstream section to draw).
   const workOrderMarkerSourceRef = useRef<VectorSource | null>(null)
   const workOrderMarkerLayerRef = useRef<VectorLayer | null>(null)
+  // The "loaded pole" count-badge overlay (pole-attachments). Its own layer above
+  // the highlight (zIndex 11) so a selected pole still shows its badge.
+  const poleBadgeSourceRef = useRef<VectorSource | null>(null)
+  const poleBadgeLayerRef = useRef<VectorLayer | null>(null)
   const faultImpactFittedTokenRef = useRef(0)
   // The last Territory Explorer focus token the map fitted, so selecting a
   // territory fits its boundary exactly once (not on every boundaries refetch).
@@ -654,6 +668,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   const labelDefsByClassCode = useAllLabelDefs()
   const displayZoomByClassCode = useAllDisplayZooms()
   const symbologyIcons = useSymbologyIcons()
+  // The loaded poles (position + count) for the "loaded pole" count-badge overlay
+  // (populated into its own layer below, above the highlight so a selected pole
+  // still shows its badge).
+  const { data: poleCountsData } = usePoleAttachmentCounts()
   const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
   const draft = useDrawStore((s) => s.draft)
@@ -721,6 +739,39 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   const selected = useSelectionStore((s) => s.selected)
   const located = useSelectionStore((s) => s.located)
   const focusToken = useSelectionStore((s) => s.focusToken)
+  const locatedFocusToken = useSelectionStore((s) => s.locatedFocusToken)
+  // Pole "spiderfy" fan (pole-attachments v2): the On-this-pole panel sets the
+  // active pole; an ol/Overlay anchored at its coordinate hosts the fan (rendered
+  // via a portal into spiderEl).
+  const spiderActive = usePoleSpiderStore((s) => s.active)
+  const [spiderEl, setSpiderEl] = useState<HTMLElement | null>(null)
+  // Create/retire the fan's ol/Overlay as the active pole changes. The overlay
+  // anchors a plain div at the pole's coordinate (tracking pan/zoom); the fan UI
+  // is portalled into that div from the render below. stopEvent so a chip click
+  // doesn't also hit the map underneath.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !spiderActive) {
+      setSpiderEl(null)
+      return
+    }
+    const el = document.createElement("div")
+    const overlay = new Overlay({ element: el, positioning: "center-center", stopEvent: true })
+    overlay.setPosition(fromLonLat([spiderActive.lon, spiderActive.lat]))
+    map.addOverlay(overlay)
+    setSpiderEl(el)
+    return () => {
+      map.removeOverlay(overlay)
+      setSpiderEl(null)
+    }
+  }, [spiderActive])
+  // Collapse the fan when its pole is no longer the selected feature (picking a
+  // chip, or selecting anything else, deselects the pole).
+  useEffect(() => {
+    if (spiderActive && (!selected || selected.featureId !== spiderActive.poleId)) {
+      usePoleSpiderStore.getState().close()
+    }
+  }, [spiderActive, selected])
   const measureMode = useMeasureStore((s) => s.mode)
   const boxZoomActive = useBoxZoomStore((s) => s.active)
   const boxZoomMode = useBoxZoomStore((s) => s.mode)
@@ -880,7 +931,8 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
         useConnectStore.getState().mode ||
         useDiagramPlaceStore.getState().phase === "picking" ||
         useTerritoryEditStore.getState().tool === "draw" ||
-        useRadiusQueryStore.getState().armed
+        useRadiusQueryStore.getState().armed ||
+        useMapPinPlacementStore.getState().active
       ) {
         target.style.cursor = "crosshair"
         return
@@ -1117,6 +1169,16 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     workOrderMarkerSourceRef.current = workOrderMarkerSource
     workOrderMarkerLayerRef.current = workOrderMarkerLayer
 
+    // The "loaded pole" count-badge overlay (pole-attachments). zIndex 11 keeps it
+    // above the selection highlight (5) and the other marker layers (9) so a
+    // pole's badge is never buried. Non-interactive (a canvas text pill); the
+    // population effect below fills it from the support-counts endpoint.
+    const poleBadgeSource = new VectorSource()
+    const poleBadgeLayer = new VectorLayer({ source: poleBadgeSource, style: poleBadgeStyleForFeature, zIndex: 11 })
+    map.addLayer(poleBadgeLayer)
+    poleBadgeSourceRef.current = poleBadgeSource
+    poleBadgeLayerRef.current = poleBadgeLayer
+
     // The outage (OMS incident) map overlay (oms-overlay-store.ts) -- the twin of
     // the fault overlay above. Three layers, mirroring the console mini-map's
     // amber/red split (outage-map.tsx): the frozen affected cone draws every
@@ -1276,6 +1338,8 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       faultImpactSourceRef.current = null
       workOrderMarkerSourceRef.current = null
       workOrderMarkerLayerRef.current = null
+      poleBadgeSourceRef.current = null
+      poleBadgeLayerRef.current = null
       incidentMarkerSourceRef.current = null
       incidentMarkerLayerRef.current = null
       incidentAffectedSourceRef.current = null
@@ -2316,6 +2380,26 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     }
   }, [workOrderOverlayVisible, workOrderMarkers.data])
 
+  // Populate the "loaded pole" count-badge overlay (pole-attachments): one badge
+  // per loaded pole, at its coordinate, carrying the count its style renders.
+  // Repopulates when the support-counts data changes (e.g. after an attach/detach
+  // invalidates the query). Always visible -- a passive at-a-glance cue.
+  useEffect(() => {
+    const source = poleBadgeSourceRef.current
+    if (!source) return
+    source.clear()
+    for (const c of poleCountsData?.counts ?? []) {
+      const feature = new Feature(new Point(fromLonLat([c.lon, c.lat])))
+      feature.set("count", c.count)
+      source.addFeature(feature)
+    }
+  }, [poleCountsData])
+
+  // Admin toggle: show/hide the pole-badge overlay per map settings (default on).
+  useEffect(() => {
+    poleBadgeLayerRef.current?.setVisible(mapSettings?.pole_attachment_badges ?? true)
+  }, [mapSettings])
+
   // Pulse the LIVE faults -- a "radar ping" that fades as it grows, to draw the
   // eye to faults that still need attention. Only detected/investigating pulse: a
   // cleared/closed fault isn't urgent, so a steady marker is correct. A point
@@ -2793,6 +2877,22 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
     fittedTokenRef.current = focusToken
   }, [focusToken, selectedFeature])
+
+  // "Zoom to this row" on a study/trace result row: fly to the LOCATED (highlighted,
+  // not selected) feature without opening its panel -- the same one-shot fit as the
+  // focusToken effect above, keyed on locatedFocusToken + locatedFeature (which may
+  // not be fetched yet on the render the token bumps, so it depends on both).
+  useEffect(() => {
+    if (locatedFocusToken === 0 || locatedFocusToken === locatedFittedTokenRef.current) return
+    const map = mapRef.current
+    const geometry = locatedFeature?.geometry && geoJSONToGeometry(locatedFeature.geometry)
+    const extent = geometry?.getExtent()
+    if (!map || !extent || isEmptyExtent(extent)) return
+    // A deliberate "zoom into this row" gesture goes closer (z20) than the gentler
+    // panel-driven selection focus above (z18).
+    map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 20, duration: 400 })
+    locatedFittedTokenRef.current = locatedFocusToken
+  }, [locatedFocusToken, locatedFeature])
 
   // Go-to-coordinates search (status-bar.tsx). Same one-shot token pattern as
   // the focus pan above: a bumped token animates the view to the target lon/lat.
@@ -3315,6 +3415,15 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       if (useRadiusQueryStore.getState().armed) {
         const [lon, lat] = toLonLat(evt.coordinate)
         useRadiusQueryStore.getState().setCenter([lon, lat])
+        return
+      }
+
+      // A click while the Pins "drop on map" picker is armed (map-pin-placement-store.ts,
+      // armed from the Pins dialog) captures the clicked lng/lat for a new pin rather
+      // than selecting; the dialog reopens pre-filled. One drop per arm (pick disarms).
+      if (useMapPinPlacementStore.getState().active) {
+        const [lon, lat] = toLonLat(evt.coordinate)
+        useMapPinPlacementStore.getState().pick(lon, lat)
         return
       }
 
@@ -4345,6 +4454,9 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
           if (m) m.getView().animate({ rotation: 0, duration: 250 })
         }}
       />
+      {/* The pole fan-out ("spiderfy"), portalled into the ol/Overlay element the
+          effect above anchors at the active pole's coordinate. */}
+      {spiderEl && spiderActive && createPortal(<PoleSpiderFan active={spiderActive} />, spiderEl)}
     </>
   )
 }
