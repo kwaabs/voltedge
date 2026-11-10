@@ -15,7 +15,7 @@
 #     docker compose exec -e RESETDATA_PASSWORD=... api resetdata --admin-email ... --yes
 # They add only a couple of MB of static binary and never run unless invoked.
 
-FROM golang:1.24-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
