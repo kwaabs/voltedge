@@ -146,8 +146,12 @@ services:
         condition: service_started
       rustfs:
         condition: service_started
-    deploy:
-      replicas: ${API_REPLICAS:-3}
+    # NOTE: deploy.replicas is DISABLED for Coolify. Coolify injects a container_name
+    # onto every service, which conflicts with replicas ("container name must be unique")
+    # and fails the whole compose project. Run single-instance here; scale the api tier
+    # with a real orchestrator (Swarm/k8s) or separate Coolify services.
+    # deploy:
+    #   replicas: ${API_REPLICAS:-3}
     environment:
       # -> PgBouncer (host `pgbouncer`), NOT postgres directly.
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
@@ -178,8 +182,9 @@ services:
     depends_on:
       pgbouncer:
         condition: service_started
-    deploy:
-      replicas: ${EXPORTWORKER_REPLICAS:-1}
+    # deploy.replicas disabled for Coolify (see the api service note).
+    # deploy:
+    #   replicas: ${EXPORTWORKER_REPLICAS:-1}
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
       RUSTFS_ENDPOINT: rustfs:9000
@@ -198,8 +203,9 @@ services:
     depends_on:
       pgbouncer:
         condition: service_started
-    deploy:
-      replicas: ${WEBHOOKWORKER_REPLICAS:-1}
+    # deploy.replicas disabled for Coolify (see the api service note).
+    # deploy:
+    #   replicas: ${WEBHOOKWORKER_REPLICAS:-1}
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
 
@@ -212,8 +218,9 @@ services:
     depends_on:
       pgbouncer:
         condition: service_started
-    deploy:
-      replicas: ${IMPORTWORKER_REPLICAS:-1}
+    # deploy.replicas disabled for Coolify (see the api service note).
+    # deploy:
+    #   replicas: ${IMPORTWORKER_REPLICAS:-1}
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
       RUSTFS_ENDPOINT: rustfs:9000
